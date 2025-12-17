@@ -1,0 +1,86 @@
+"use client";
+
+import { useSearchParams, useRouter } from "next/navigation";
+import { useState } from "react";
+
+export default function LoginForm() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/machines";
+
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, next }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        setErr(data.error || "Login failed");
+        return;
+      }
+
+      router.push(next);
+      router.refresh();
+    } catch (e: any) {
+      setErr(e?.message || "Network error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-black flex items-center justify-center p-6">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-white/10 bg-white/5 p-8">
+        <h1 className="text-2xl font-semibold text-white">Control Tower</h1>
+        <p className="mt-1 text-sm text-zinc-400">Sign in to your organization</p>
+
+        <div className="mt-6 space-y-4">
+          <div>
+            <label className="text-sm text-zinc-300">Email</label>
+            <input
+              className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm text-zinc-300">Password</label>
+            <input
+              type="password"
+              className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+          </div>
+
+          {err && <div className="text-sm text-red-400">{err}</div>}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="mt-2 w-full rounded-xl bg-emerald-400 py-3 font-semibold text-black disabled:opacity-70"
+          >
+            {loading ? "Signing in..." : "Login"}
+          </button>
+
+          <div className="text-xs text-zinc-500">(Dev mode) This will be replaced with JWT auth later.</div>
+        </div>
+      </form>
+    </div>
+  );
+}

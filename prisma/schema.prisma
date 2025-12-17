@@ -1,0 +1,163 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Org {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+
+  members      OrgUser[]
+  sessions     Session[]
+  machines     Machine[]
+  heartbeats   MachineHeartbeat[]
+  kpiSnapshots MachineKpiSnapshot[]
+  events       MachineEvent[]
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  orgs     OrgUser[]
+  sessions Session[]
+}
+
+model OrgUser {
+  id        String   @id @default(uuid())
+  orgId     String
+  userId    String
+  role      String   @default("MEMBER") // OWNER | ADMIN | MEMBER
+  createdAt DateTime @default(now())
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@index([orgId])
+}
+
+model Session {
+  id         String    @id @default(uuid()) // cookie value
+  orgId      String
+  userId     String
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  ip         String?
+  userAgent  String?
+
+  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([orgId])
+  @@index([expiresAt])
+}
+
+model Machine {
+  id        String   @id @default(uuid())
+  orgId     String
+  name      String
+  apiKey    String?  @unique
+  code      String?
+  location  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  org          Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  heartbeats   MachineHeartbeat[]
+  kpiSnapshots MachineKpiSnapshot[]
+  events       MachineEvent[]
+
+  @@unique([orgId, name])
+  @@index([orgId])
+}
+
+model MachineHeartbeat {
+  id        String   @id @default(uuid())
+  orgId     String
+  machineId String
+  ts        DateTime @default(now())
+
+  status    String
+  message   String?
+  ip        String?
+  fwVersion String?
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, machineId, ts])
+}
+
+model MachineKpiSnapshot {
+  id        String   @id @default(uuid())
+  orgId     String
+  machineId String
+  ts        DateTime @default(now())
+
+  workOrderId String?
+  sku         String?
+
+  target      Int?
+  good        Int?
+  scrap       Int?
+  cycleCount  Int?
+  goodParts   Int?
+  scrapParts  Int?
+  cavities    Int?
+  cycleTime   Float? // theoretical/target
+  actualCycle Float? // if you want (optional)
+
+  availability Float?
+  performance  Float?
+  quality      Float?
+  oee          Float?
+
+  trackingEnabled   Boolean?
+  productionStarted Boolean?
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, machineId, ts])
+}
+
+model MachineEvent {
+  id        String   @id @default(uuid())
+  orgId     String
+  machineId String
+  ts        DateTime @default(now())
+
+  topic       String // "anomaly-detected"
+  eventType   String // "slow-cycle"
+  severity    String // "critical"
+  requiresAck Boolean @default(false)
+  title       String
+  description String?
+
+  // store the raw data blob so we don't lose fields
+  data Json?
+
+  workOrderId String?
+  sku         String?
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, machineId, ts])
+  @@index([orgId, machineId, eventType, ts])
+}
