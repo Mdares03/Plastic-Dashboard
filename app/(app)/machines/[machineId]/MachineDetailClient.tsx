@@ -3,6 +3,24 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { ComposedChart } from "recharts";
+import { Cell } from "recharts";
+
+
+import {
+  ResponsiveContainer,
+  ScatterChart,
+  Scatter,
+  LineChart,
+  Line,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+  BarChart,
+  Bar,
+} from "recharts";
 
 
 type Heartbeat = {
@@ -38,6 +56,21 @@ type EventRow = {
   requiresAck: boolean;
 };
 
+type CycleRow = {
+  ts: string;     // ISO
+  t: number;      // epoch ms
+  cycleCount: number | null;
+  actual: number; // seconds
+  ideal: number | null;
+  workOrderId: string | null;
+  sku: string | null;
+};
+
+type CycleDerivedRow = CycleRow & {
+  extra: number | null;
+  bucket: "normal" | "slow" | "microstop" | "macrostop" | "unknown";
+};
+
 type MachineDetail = {
   id: string;
   name: string;
@@ -55,6 +88,20 @@ export default function MachineDetailClient() {
   const [machine, setMachine] = useState<MachineDetail | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [cycles, setCycles] = useState<CycleRow[]>([]);
+  const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
+  
+
+  const BUCKET = {
+  normal:   { label: "Ciclo Normal",  dot: "#12D18E", glow: "rgba(18,209,142,.35)", chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20" },
+  slow:     { label: "Ciclo Lento",   dot: "#F7B500", glow: "rgba(247,181,0,.35)", chip: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20" },
+  microstop:{ label: "Microparo",     dot: "#FF7A00", glow: "rgba(255,122,0,.35)", chip: "bg-orange-500/15 text-orange-300 border-orange-500/20" },
+  macrostop:{ label: "Macroparo",     dot: "#FF3B5C", glow: "rgba(255,59,92,.35)", chip: "bg-rose-500/15 text-rose-300 border-rose-500/20" },
+  unknown:  { label: "Desconocido",   dot: "#A1A1AA", glow: "rgba(161,161,170,.25)", chip: "bg-white/10 text-zinc-200 border-white/10" },
+  } as const;
+
+
+
 
   useEffect(() => {
     if (!machineId) return; // <-- IMPORTANT guard
@@ -68,6 +115,9 @@ export default function MachineDetailClient() {
           credentials: "include",
         });
         const json = await res.json();
+        
+
+
 
         if (!alive) return;
 
@@ -79,6 +129,7 @@ export default function MachineDetailClient() {
 
         setMachine(json.machine ?? null);
         setEvents(json.events ?? []);
+        setCycles(json.cycles ?? []);
         setError(null);
         setLoading(false);
       } catch {
@@ -86,6 +137,7 @@ export default function MachineDetailClient() {
         setError("Network error");
         setLoading(false);
       }
+      
     }
 
     load();
@@ -95,6 +147,8 @@ export default function MachineDetailClient() {
       clearInterval(t);
     };
   }, [machineId]);
+
+  
 
   function fmtPct(v?: number | null) {
     if (v === null || v === undefined || Number.isNaN(v)) return "—";
@@ -139,6 +193,222 @@ export default function MachineDetailClient() {
   const kpi = machine?.latestKpi ?? null;
   const offline = useMemo(() => isOffline(hb?.ts), [hb?.ts]);
   const statusLabel = offline ? "OFFLINE" : (hb?.status ?? "UNKNOWN");
+  const cycleTarget = (machine as any)?.effectiveCycleTime ?? kpi?.cycleTime ?? null;
+
+  const ActiveRing = (props: any) => {
+    const { cx, cy, fill } = props;
+    if (cx == null || cy == null) return null;
+    return (
+      <g>
+        <circle cx={cx} cy={cy} r={7} fill="transparent" stroke="white" strokeWidth={2} />
+        <circle cx={cx} cy={cy} r={4} fill={fill} />
+      </g>
+    );
+  };
+
+  function MiniCard({
+  title,
+  subtitle,
+  value,
+  onClick,
+  }: {
+    title: string;
+    subtitle: string;
+    value: string;
+    onClick?: () => void;
+  }) {
+    const clickable = typeof onClick === "function";
+
+    if (clickable) {
+      return (
+        <button
+          type="button"
+          onClick={onClick}
+          className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left hover:bg-white/10 transition cursor-pointer"
+        >
+          <div className="text-sm font-semibold text-white">{title}</div>
+          <div className="mt-1 text-xs text-zinc-400">{subtitle}</div>
+          <div className="mt-4 text-3xl font-semibold text-white">{value}</div>
+        </button>
+      );
+    }
+
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
+        <div className="text-sm font-semibold text-white">{title}</div>
+        <div className="mt-1 text-xs text-zinc-400">{subtitle}</div>
+        <div className="mt-4 text-3xl font-semibold text-white">{value}</div>
+      </div>
+    );
+  }
+
+  function Modal({
+  open,
+  onClose,
+  title,
+  children,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    title: string;
+    children: React.ReactNode;
+  }) {
+    if (!open) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        {/* overlay */}
+        <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+
+        {/* panel */}
+        <div className="relative w-full max-w-5xl overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/80 p-6 shadow-2xl backdrop-blur-xl">
+          {/* gradient wash (Step 2) */}
+          <div
+            className="pointer-events-none absolute inset-0 opacity-60"
+            style={{
+              background:
+                "radial-gradient(900px 400px at 20% 10%, rgba(16,185,129,.18), transparent 60%)," +
+                "radial-gradient(900px 400px at 85% 30%, rgba(59,130,246,.14), transparent 60%)," +
+                "radial-gradient(900px 500px at 50% 100%, rgba(244,63,94,.10), transparent 60%)",
+            }}
+          />
+
+          {/* content */}
+          <div className="relative">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-lg font-semibold text-white">{title}</div>
+              <button
+                onClick={onClose}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-sm text-white hover:bg-white/10"
+              >
+                ✕
+              </button>
+            </div>
+
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+
+  function CycleTooltip({ active, payload, label }: any) {
+    if (!active || !payload?.length) return null;
+
+    const p = payload[0]?.payload;
+    if (!p) return null;
+
+    const ideal = p.ideal ?? null;
+    const actual = p.actual ?? null;
+    const deltaPct = p.deltaPct ?? null;
+
+    return (
+      <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
+        <div className="text-sm font-semibold text-white">Ciclo: {label}</div>
+        <div className="mt-2 space-y-1 text-xs text-zinc-300">
+          <div>Duración: <span className="text-white">{actual?.toFixed(2)}s</span></div>
+          <div>Ideal: <span className="text-white">{ideal != null ? `${ideal.toFixed(2)}s` : "—"}</span></div>
+          <div>Desviación: <span className="text-white">{deltaPct != null ? `${deltaPct.toFixed(1)}%` : "—"}</span></div>
+        </div>
+      </div>
+    );
+  }
+
+
+
+
+  const TOL = 0.10;
+  function hasIdealAndActual(r: CycleDerivedRow): r is CycleDerivedRow & { ideal: number; actual: number } {
+  return r.ideal != null && r.actual != null && r.ideal > 0;
+  }
+  const cycleDerived = useMemo(() => {
+    const rows = cycles ?? [];
+
+    const mapped: CycleDerivedRow[] = rows.map((c) => {
+    const ideal = c.ideal ?? null;
+    const actual = c.actual ?? null;
+    const extra = ideal != null && actual != null ? actual - ideal : null;
+
+    let bucket: CycleDerivedRow["bucket"] = "unknown";
+    if (ideal != null && actual != null) {
+      if (actual <= ideal * (1 + TOL)) bucket = "normal";
+      else if (extra != null && extra <= 1) bucket = "slow";
+      else if (extra != null && extra <= 10) bucket = "microstop";
+      else bucket = "macrostop";
+    }
+
+    return { ...c, ideal, actual, extra, bucket };
+  });
+
+    const counts = mapped.reduce(
+      (acc, r) => {
+        acc.total += 1;
+        acc[r.bucket] += 1;
+        if (r.extra != null && r.extra > 0) acc.extraTotal += r.extra;
+        return acc;
+      },
+      { total: 0, normal: 0, slow: 0, microstop: 0, macrostop: 0, unknown: 0, extraTotal: 0 }
+    );
+
+    const deltas = mapped
+    .filter(hasIdealAndActual)
+    .map((r) => ((r.actual - r.ideal) / r.ideal) * 100);
+
+    const avgDeltaPct = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
+
+    return { mapped, counts, avgDeltaPct };
+  }, [cycles]);
+  const deviationSeries = useMemo(() => {
+  // use last N cycles to keep chart readable
+    const last = cycleDerived.mapped.slice(-100);
+
+    return last
+      .map((r, idx) => {
+        const ideal = r.ideal;
+        const actual = r.actual;
+        if (ideal == null || actual == null || ideal <= 0) return null;
+
+        const deltaPct = ((actual - ideal) / ideal) * 100;
+
+        return {
+          i: idx + 1,           // x-axis index (cycle order)
+          actual,
+          ideal,
+          deltaPct,
+          bucket: r.bucket,
+        };
+      })
+      .filter(Boolean) as Array<{
+      i: number;
+      actual: number;
+      ideal: number;
+      deltaPct: number;
+      bucket: string;
+    }>;
+  }, [cycleDerived.mapped]);
+
+  const impactAgg = useMemo(() => {
+    // sum extra seconds by bucket
+    const buckets = { slow: 0, microstop: 0, macrostop: 0 } as Record<string, number>;
+
+    for (const r of cycleDerived.mapped) {
+      if (!r.extra || r.extra <= 0) continue;
+      if (r.bucket === "slow" || r.bucket === "microstop" || r.bucket === "macrostop") {
+        buckets[r.bucket] += r.extra;
+      }
+    }
+
+    const rows = [
+      { name: "Slow", seconds: Math.round(buckets.slow * 10) / 10 },
+      { name: "Microstop", seconds: Math.round(buckets.microstop * 10) / 10 },
+      { name: "Macrostop", seconds: Math.round(buckets.macrostop * 10) / 10 },
+    ];
+
+    const total = rows.reduce((a, b) => a + b.seconds, 0);
+    return { rows, total };
+  }, [cycleDerived.mapped]);
+
 
   return (
     <div className="p-6">
@@ -228,11 +498,11 @@ export default function MachineDetailClient() {
               </div>
 
               <div className="mt-4 text-xs text-zinc-400">
-                Cycle target: <span className="text-white">{kpi?.cycleTime ? `${kpi.cycleTime}s` : "—"}</span>
+                Cycle target: <span className="text-white">{cycleTarget ? `${cycleTarget}s` : "—"}</span>
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2 flex flex-col">
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold text-white">Recent Events</div>
                 <div className="text-xs text-zinc-400">{events.length} shown</div>
@@ -240,8 +510,8 @@ export default function MachineDetailClient() {
 
               {events.length === 0 ? (
                 <div className="text-sm text-zinc-400">No events yet.</div>
-              ) : (
-                <div className="space-y-3">
+                ) : (
+                <div className="h-[300px] overflow-y-auto no-scrollbar space-y-3">
                   {events.map((e) => (
                     <div key={e.id} className="rounded-xl border border-white/10 bg-black/20 p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -274,7 +544,250 @@ export default function MachineDetailClient() {
               )}
             </div>
           </div>
+          {/* Mini analysis cards */}
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <MiniCard
+              title="Eventos Detectados"
+              subtitle="Conteo por tipo (ciclos)"
+              value={`${cycleDerived.counts.slow + cycleDerived.counts.microstop + cycleDerived.counts.macrostop}`}
+              onClick={() => setOpen("events")}
+            />
+            <MiniCard
+              title="Ciclo Real vs Estándar"
+              subtitle="Desviación promedio"
+              value={cycleDerived.avgDeltaPct == null ? "—" : `${cycleDerived.avgDeltaPct.toFixed(1)}%`}
+              onClick={() => setOpen("deviation")}
+            />
+            <MiniCard
+              title="Impacto en Producción"
+              subtitle="Tiempo extra vs ideal"
+              value={`${Math.round(cycleDerived.counts.extraTotal)}s`}
+              onClick={() => setOpen("impact")}
+            />
+          </div>
+          <Modal
+            open={open === "events"}
+            onClose={() => setOpen(null)}
+            title="Eventos Detectados"
+            >
+            <div className="max-h-[60vh] overflow-y-auto space-y-2 no-scrollbar">
+              {cycleDerived.mapped
+                .filter((r) => r.bucket !== "normal" && r.bucket !== "unknown")
+                .slice()
+                .reverse()
+                .map((r, idx) => {
+                  const meta = BUCKET[r.bucket as keyof typeof BUCKET];
+
+                  return (
+                    <div
+                      key={r.t ?? r.ts ?? idx}
+                      className="rounded-xl border border-white/10 bg-white/5 p-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* left accent dot */}
+                        <span
+                          className="h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{ backgroundColor: meta.dot, boxShadow: `0 0 14px ${meta.glow}` }}
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            {/* colored chip */}
+                            <span className={`rounded-full border px-2 py-0.5 text-xs ${meta.chip}`}>
+                              {meta.label}
+                            </span>
+
+                            <span className="text-sm text-white truncate">
+                              {r.actual?.toFixed(2)}s
+                              {r.ideal != null ? ` (ideal ${r.ideal.toFixed(2)}s)` : ""}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-zinc-400 shrink-0">{timeAgo(r.ts)}</div>
+                    </div>
+                  );
+                })}
+            </div>
+          </Modal>
+          <Modal
+            open={open === "deviation"}
+            onClose={() => setOpen(null)}
+            title="Ciclo Real vs Estándar"
+          >
+            <div className="space-y-4">
+              {/* Summary cards */}
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Ciclo estándar (ideal)</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {cycleTarget ? `${Number(cycleTarget).toFixed(1)}s` : "—"}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Desviación promedio</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {cycleDerived.avgDeltaPct == null ? "—" : `${cycleDerived.avgDeltaPct.toFixed(1)}%`}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Muestra</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {deviationSeries.length} ciclos
+                  </div>
+                </div>
+              </div>
+
+              {/* Chart */}
+              <div className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 shadow-[0_0_30px_rgba(0,0,0,0.6)] backdrop-blur">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={deviationSeries}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+
+                    <XAxis
+                      dataKey="i"
+                      type="number"
+                      domain={[1, "dataMax"]}
+                      allowDecimals={false}
+                      tick={{ fill: "#a1a1aa" }}
+                    />
+
+                    <YAxis
+                      tick={{ fill: "#a1a1aa" }}
+                      domain={
+                        kpi?.cycleTime
+                          ? [
+                              Math.max(0, kpi.cycleTime * (1 - TOL) - 2),
+                              kpi.cycleTime * (1 + TOL) + 2,
+                            ]
+                          : ["auto", "auto"]
+                      }
+                    />
+
+                    <Tooltip content={<CycleTooltip />} cursor={{ stroke: "rgba(255,255,255,0.15)" }} />
+
+                    {/* Ideal center line */}
+                    {kpi?.cycleTime ? (
+                      <>
+                        <ReferenceLine y={kpi.cycleTime} stroke="rgba(18,209,142,0.6)" strokeWidth={2} />
+
+                        {/* ±10% tolerance band lines */}
+                        <ReferenceLine
+                          y={kpi.cycleTime * (1 - TOL)}
+                          stroke="rgba(247,181,0,0.7)"
+                          strokeDasharray="6 6"
+                        />
+                        <ReferenceLine
+                          y={kpi.cycleTime * (1 + TOL)}
+                          stroke="rgba(247,181,0,0.7)"
+                          strokeDasharray="6 6"
+                        />
+                      </>
+                    ) : null}
+
+                    {/* Optional: ideal line from series */}
+                    <Line
+                      dataKey="ideal"
+                      dot={false}
+                      activeDot={false}
+                      stroke="rgba(255,255,255,0.35)"
+                    />
+
+
+                    {/* ONE scatter so hover always matches */}
+                    <Scatter
+                      dataKey="actual"
+                      isAnimationActive={false}
+                      activeShape={<ActiveRing />}
+                      shape={(props: any) => {
+                        const { cx, cy, payload } = props;
+                        const meta = BUCKET[payload.bucket as keyof typeof BUCKET] ?? BUCKET.unknown;
+
+                        return (
+                          <circle
+                            cx={cx}
+                            cy={cy}
+                            r={5}
+                            fill={meta.dot}
+                            style={{ filter: `drop-shadow(0 0 8px ${meta.glow})` }}
+                          />
+                        );
+                      }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="text-xs text-zinc-400">
+                Tip: la línea tenue es el ideal. Cada punto es un ciclo real.
+              </div>
+            </div>
+          </Modal>
+          <Modal
+            open={open === "impact"}
+            onClose={() => setOpen(null)}
+            title="Impacto en Producción"
+          >
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Tiempo extra total</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {Math.round(impactAgg.total)}s
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Microstops</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {Math.round((impactAgg.rows.find(r => r.name === "Microstop")?.seconds ?? 0))}s
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                  <div className="text-xs text-zinc-400">Macroparos</div>
+                  <div className="mt-2 text-2xl font-semibold text-white">
+                    {Math.round((impactAgg.rows.find(r => r.name === "Macrostop")?.seconds ?? 0))}s
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 shadow-[0_0_30px_rgba(0,0,0,0.6)] backdrop-blur">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={impactAgg.rows}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fill: "#a1a1aa" }} />
+                    <YAxis tick={{ fill: "#a1a1aa" }} />
+                    <Tooltip
+                      shared={false}
+                      contentStyle={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.1)" }}
+                      labelStyle={{ color: "#fff" }}
+                      formatter={(val: any) => [`${Number(val).toFixed(1)}s`, "Tiempo extra"]}
+                    />
+                    <Bar dataKey="seconds" radius={[10, 10, 0, 0]} isAnimationActive={false}>
+                      {impactAgg.rows.map((row, idx) => {
+                        const key =
+                          row.name === "Slow" ? "slow" :
+                          row.name === "Microstop" ? "microstop" :
+                          "macrostop";
+
+                        return <Cell key={idx} fill={BUCKET[key].dot} />;
+                      })}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="text-xs text-zinc-400">
+                Esto es “tiempo perdido” vs ideal, distribuido por tipo de evento.
+              </div>
+            </div>
+          </Modal>
+
         </>
+        
       )}
     </div>
   );

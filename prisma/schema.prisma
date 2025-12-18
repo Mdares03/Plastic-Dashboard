@@ -81,6 +81,8 @@ model Machine {
   heartbeats   MachineHeartbeat[]
   kpiSnapshots MachineKpiSnapshot[]
   events       MachineEvent[]
+  cycles       MachineCycle[]
+
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -161,3 +163,27 @@ model MachineEvent {
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, eventType, ts])
 }
+model MachineCycle {
+  id                  String   @id @default(uuid())
+  orgId               String
+  machineId           String
+  ts                  DateTime @default(now())
+
+  cycleCount          Int?
+  actualCycleTime     Float
+  theoreticalCycleTime Float?
+
+  workOrderId         String?
+  sku                 String?
+
+  cavities            Int?
+  goodDelta           Int?
+  scrapDelta          Int?
+
+  createdAt           DateTime @default(now())
+
+  machine             Machine  @relation(fields: [machineId], references: [id])
+  @@index([orgId, machineId, ts])
+  @@index([orgId, machineId, cycleCount])
+}
+
