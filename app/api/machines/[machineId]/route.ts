@@ -4,9 +4,26 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 
 function normalizeEvent(row: any) {
-  // data can be object OR [object]
+  // -----------------------------
+  // 1) Parse row.data safely
+  // data may be:
+  //   - object
+  //   - array of objects
+  //   - JSON string of either
+  // -----------------------------
   const raw = row.data;
-  const blob = Array.isArray(raw) ? raw[0] : raw;
+
+  let parsed: any = raw;
+  if (typeof raw === "string") {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = raw; // keep as string if not JSON
+    }
+  }
+
+  // data can be object OR [object]
+  const blob = Array.isArray(parsed) ? parsed[0] : parsed;
 
   // some payloads nest details under blob.data
   const inner = blob?.data ?? blob ?? {};
@@ -17,21 +34,71 @@ function normalizeEvent(row: any) {
       .toLowerCase()
       .replace(/_/g, "-");
 
-  // Prefer the DB columns if they are meaningful
-  const fromDbType = row.eventType && row.eventType !== "unknown" ? row.eventType : null;
-  const fromBlobType = blob?.anomaly_type ?? blob?.eventType ?? blob?.topic ?? inner?.anomaly_type ?? inner?.eventType ?? null;
+  // -----------------------------
+  // 2) Alias mapping (canonical types)
+  // -----------------------------
+  const ALIAS: Record<string, string> = {
+    // Spanish / synonyms
+    macroparo: "macrostop",
+    "macro-stop": "macrostop",
+    macro_stop: "macrostop",
 
-  // infer slow-cycle if the signature exists
+    microparo: "microstop",
+    "micro-paro": "microstop",
+    micro_stop: "microstop",
+
+    // Node-RED types
+    "production-stopped": "stop", // we'll classify to micro/macro below
+
+    // legacy / generic
+    down: "stop",
+  };
+
+  // -----------------------------
+  // 3) Determine event type from DB or blob
+  // -----------------------------
+  const fromDbType =
+    row.eventType && row.eventType !== "unknown" ? row.eventType : null;
+
+  const fromBlobType =
+    blob?.anomaly_type ??
+    blob?.eventType ??
+    blob?.topic ??
+    inner?.anomaly_type ??
+    inner?.eventType ??
+    null;
+
+  // infer slow-cycle if signature exists
   const inferredType =
     fromDbType ??
     fromBlobType ??
-    ((inner?.actual_cycle_time && inner?.theoretical_cycle_time) || (blob?.actual_cycle_time && blob?.theoretical_cycle_time)
+    ((inner?.actual_cycle_time && inner?.theoretical_cycle_time) ||
+    (blob?.actual_cycle_time && blob?.theoretical_cycle_time)
       ? "slow-cycle"
       : "unknown");
 
+  const eventTypeRaw = normalizeType(inferredType);
+  let eventType = ALIAS[eventTypeRaw] ?? eventTypeRaw;
 
-  const eventType = normalizeType(inferredType);
+  // -----------------------------
+  // 4) Optional: classify "stop" into micro/macro based on duration if present
+  // (keeps old rows usable even if they stored production-stopped)
+  // -----------------------------
+  if (eventType === "stop") {
+    const stopSec =
+      (typeof inner?.stoppage_duration_seconds === "number" && inner.stoppage_duration_seconds) ||
+      (typeof blob?.stoppage_duration_seconds === "number" && blob.stoppage_duration_seconds) ||
+      (typeof inner?.stop_duration_seconds === "number" && inner.stop_duration_seconds) ||
+      null;
 
+    // tune these thresholds to match your MES spec
+    const MACROSTOP_SEC = 300; // 5 min
+    eventType = stopSec != null && stopSec >= MACROSTOP_SEC ? "macrostop" : "microstop";
+  }
+
+  // -----------------------------
+  // 5) Severity, title, description, timestamp
+  // -----------------------------
   const severity =
     String(
       (row.severity && row.severity !== "info" ? row.severity : null) ??
@@ -55,10 +122,10 @@ function normalizeEvent(row: any) {
     blob?.description ??
     inner?.description ??
     (eventType === "slow-cycle" &&
-    inner?.actual_cycle_time &&
-    inner?.theoretical_cycle_time &&
-    inner?.delta_percent != null
-      ? `Cycle took ${Number(inner.actual_cycle_time).toFixed(1)}s (+${inner.delta_percent}% vs ${Number(inner.theoretical_cycle_time).toFixed(1)}s objetivo)`
+    (inner?.actual_cycle_time ?? blob?.actual_cycle_time) &&
+    (inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time) &&
+    (inner?.delta_percent ?? blob?.delta_percent) != null
+      ? `Cycle took ${Number(inner?.actual_cycle_time ?? blob?.actual_cycle_time).toFixed(1)}s (+${Number(inner?.delta_percent ?? blob?.delta_percent)}% vs ${Number(inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time).toFixed(1)}s objetivo)`
       : null);
 
   const ts =
@@ -161,24 +228,54 @@ export async function GET(
 
 const ALLOWED_TYPES = new Set([
   "slow-cycle",
-  "anomaly-detected",
-  "performance-degradation",
-  "scrap-spike",
-  "down",
   "microstop",
+  "macrostop",
+  "oee-drop",
+  "quality-spike",
+  "performance-degradation",
+  "predictive-oee-decline",
 ]);
 
 const events = normalized
   .filter((e) => ALLOWED_TYPES.has(e.eventType))
   // keep slow-cycle even if severity is info, otherwise require warning/critical/error
-  .filter((e) => e.eventType === "slow-cycle" || ["warning", "critical", "error"].includes(e.severity))
+  .filter((e) =>
+    ["slow-cycle", "microstop", "macrostop"].includes(e.eventType) ||
+    ["warning", "critical", "error"].includes(e.severity)
+  )
   .slice(0, 30);
 
+
+// ---- cycles window ----
+const url = new URL(_req.url);
+const windowSec = Number(url.searchParams.get("windowSec") ?? "10800"); // default 3h
+
+const latestKpi = machine.kpiSnapshots[0] ?? null;
+
+// If KPI cycleTime missing, fallback to DB cycles (we fetch 1 first)
+const latestCycleForIdeal = await prisma.machineCycle.findFirst({
+  where: { orgId: session.orgId, machineId },
+  orderBy: { ts: "desc" },
+  select: { theoreticalCycleTime: true },
+});
+
+const effectiveCycleTime =
+  latestKpi?.cycleTime ??
+  latestCycleForIdeal?.theoreticalCycleTime ??
+  null;
+
+// Estimate how many cycles we need to cover the window.
+// Add buffer so the chart doesn’t look “tight”.
+const estCycleSec = Math.max(1, Number(effectiveCycleTime ?? 14));
+const needed = Math.ceil(windowSec / estCycleSec) + 50;
+
+// Safety cap to avoid crazy payloads
+const takeCycles = Math.min(5000, Math.max(200, needed));
 
 const rawCycles = await prisma.machineCycle.findMany({
   where: { orgId: session.orgId, machineId },
   orderBy: { ts: "desc" },
-  take: 200,
+  take: takeCycles,
   select: {
     ts: true,
     cycleCount: true,
@@ -194,23 +291,14 @@ const cycles = rawCycles
   .slice()
   .reverse()
   .map((c) => ({
-    ts: c.ts,                       // keep Date for “time ago” UI
-    t: c.ts.getTime(),              // numeric x-axis for charts
+    ts: c.ts,
+    t: c.ts.getTime(),
     cycleCount: c.cycleCount ?? null,
-    actual: c.actualCycleTime,      // rename to what chart expects
+    actual: c.actualCycleTime,
     ideal: c.theoreticalCycleTime ?? null,
     workOrderId: c.workOrderId ?? null,
     sku: c.sku ?? null,
-  }
-));
-
-const latestKpi = machine.kpiSnapshots[0] ?? null;
-
-// rawCycles is ordered DESC, so [0] is the most recent cycle row
-const latestCycleIdeal = rawCycles[0]?.theoreticalCycleTime ?? null;
-
-// REAL effective value (not mock): prefer KPI if present, else fallback to cycles table
-const effectiveCycleTime = latestKpi?.cycleTime ?? latestCycleIdeal ?? null;
+  }));
 
 
 

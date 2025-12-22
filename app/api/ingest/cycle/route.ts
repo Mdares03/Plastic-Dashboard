@@ -30,7 +30,7 @@ export async function POST(req: Request) {
     data: {
       orgId: machine.orgId,
       machineId: machine.id,
-      ts,
+      ts,   
       cycleCount: typeof c.cycle_count === "number" ? c.cycle_count : null,
       actualCycleTime: Number(c.actual_cycle_time),
       theoreticalCycleTime: c.theoretical_cycle_time != null ? Number(c.theoretical_cycle_time) : null,
@@ -41,6 +41,5 @@ export async function POST(req: Request) {
       scrapDelta: typeof c.scrap_delta === "number" ? c.scrap_delta : null,
     },
   });
-
   return NextResponse.json({ ok: true, id: row.id, ts: row.ts });
 }

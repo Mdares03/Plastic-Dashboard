@@ -110,7 +110,7 @@ export default function MachineDetailClient() {
 
     async function load() {
       try {
-        const res = await fetch(`/api/machines/${machineId}`, {
+        const res = await fetch(`/api/machines/${machineId}?windowSec=10800`, {
           cache: "no-store",
           credentials: "include",
         });
@@ -238,6 +238,77 @@ export default function MachineDetailClient() {
         <div className="text-sm font-semibold text-white">{title}</div>
         <div className="mt-1 text-xs text-zinc-400">{subtitle}</div>
         <div className="mt-4 text-3xl font-semibold text-white">{value}</div>
+      </div>
+    );
+  }
+
+
+  function MachineActivityTimeline({
+    segments,
+    windowSec,
+  }: {
+    segments: TimelineSeg[];
+    windowSec: number;
+  }) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-semibold text-white">Machine Activity Timeline</div>
+            <div className="mt-1 text-xs text-zinc-400">Análisis en tiempo real de ciclos de producción</div>
+          </div>
+          <div className="text-xs text-zinc-400">{windowSec}s</div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
+          {(["normal","slow","microstop","macrostop"] as const).map((k) => (
+            <div key={k} className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BUCKET[k].dot }} />
+              <span>{BUCKET[k].label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+          {/* time marks */}
+          <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
+            <span>0s</span>
+            <span>3h</span>
+          </div>
+
+          {/* strip */}
+          <div className="flex h-14 w-full overflow-hidden rounded-2xl">
+            {segments.length === 0 ? (
+              <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
+                No timeline data yet.
+              </div>
+            ) : (
+              segments.map((seg, idx) => {
+                const wPct = Math.max(0.25, (seg.durationSec / windowSec) * 100); // min width for visibility
+                const meta = BUCKET[seg.state];
+
+                const glow =
+                  seg.state === "microstop" || seg.state === "macrostop"
+                    ? `0 0 22px ${meta.glow}`
+                    : `0 0 12px ${meta.glow}`;
+
+                return (
+                  <div
+                    key={`${seg.start}-${seg.end}-${idx}`}
+                    title={`${meta.label}: ${seg.durationSec.toFixed(1)}s`}
+                    className="h-full"
+                    style={{
+                      width: `${wPct}%`,
+                      background: meta.dot,
+                      boxShadow: glow,
+                      opacity: 0.95,
+                    }}
+                  />
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
     );
   }
@@ -409,6 +480,91 @@ export default function MachineDetailClient() {
     return { rows, total };
   }, [cycleDerived.mapped]);
 
+  type TimelineState = "normal" | "slow" | "microstop" | "macrostop";
+type TimelineSeg = {
+  start: number;      // ms
+  end: number;        // ms
+  durationSec: number;
+  state: TimelineState;
+};
+
+function classifyGap(dtSec: number, idealSec: number): TimelineState {
+  const SLOW_X = 1.5;
+  const STOP_X = 3.0;
+  const MACRO_X = 10.0;
+
+  if (dtSec <= idealSec * SLOW_X) return "normal";
+  if (dtSec <= idealSec * STOP_X) return "slow";
+  if (dtSec <= idealSec * MACRO_X) return "microstop";
+  return "macrostop";
+}
+
+function mergeAdjacent(segs: TimelineSeg[]): TimelineSeg[] {
+  if (!segs.length) return [];
+  const out: TimelineSeg[] = [segs[0]];
+  for (let i = 1; i < segs.length; i++) {
+    const prev = out[out.length - 1];
+    const cur = segs[i];
+    // merge if same state and touching
+    if (cur.state === prev.state && cur.start <= prev.end + 1) {
+      prev.end = Math.max(prev.end, cur.end);
+      prev.durationSec = (prev.end - prev.start) / 1000;
+    } else {
+      out.push(cur);
+    }
+  }
+  return out;
+}
+
+const timeline = useMemo(() => {
+  const rows = cycles ?? [];
+  if (rows.length < 2) {
+    return { windowSec: 10800, segments: [] as TimelineSeg[], start: null as number | null, end: null as number | null };
+  }
+
+  // window: last 180s (like your screenshot)
+  const windowSec = 10800;
+  const end = rows[rows.length - 1].t;
+  const start = end - windowSec * 1000;
+
+  // keep cycles that overlap window (need one cycle before start to build first interval)
+  const idxFirst = Math.max(
+    0,
+    rows.findIndex(r => r.t >= start) - 1
+  );
+  const sliced = rows.slice(idxFirst);
+
+  const segs: TimelineSeg[] = [];
+
+  for (let i = 1; i < sliced.length; i++) {
+    const prev = sliced[i - 1];
+    const cur = sliced[i];
+
+    const s = Math.max(prev.t, start);
+    const e = Math.min(cur.t, end);
+    if (e <= s) continue;
+
+    const dtSec = (cur.t - prev.t) / 1000;
+
+    const ideal = (cur.ideal ?? prev.ideal ?? cycleTarget ?? 0) as number;
+    if (!ideal || ideal <= 0) continue;
+
+    const state = classifyGap(dtSec, ideal);
+
+    segs.push({
+      start: s,
+      end: e,
+      durationSec: (e - s) / 1000,
+      state,
+    });
+  }
+
+  const segments = mergeAdjacent(segs);
+
+  return { windowSec, segments, start, end };
+}, [cycles, cycleTarget]);
+
+
 
   return (
     <div className="p-6">
@@ -469,6 +625,10 @@ export default function MachineDetailClient() {
               <div className="text-xs text-zinc-400">Quality</div>
               <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(kpi?.quality)}</div>
             </div>
+          </div>
+
+          <div className="mt-6">
+            <MachineActivityTimeline segments={timeline.segments} windowSec={timeline.windowSec} />
           </div>
 
           {/* Work order + recent events */}
