@@ -76,6 +76,10 @@ model Machine {
   location  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  tsDevice  DateTime @default(now()) @map("ts")
+  tsServer  DateTime @default(now()) @map("ts_server")
+  schemaVersion String? @map("schema_version")
+  seq       BigInt?  @map("seq")
 
   org          Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   heartbeats   MachineHeartbeat[]
@@ -93,6 +97,9 @@ model MachineHeartbeat {
   orgId     String
   machineId String
   ts        DateTime @default(now())
+  tsServer  DateTime @default(now()) @map("ts_server")
+  schemaVersion String? @map("schema_version")
+  seq       BigInt?  @map("seq")
 
   status    String
   message   String?
@@ -131,6 +138,9 @@ model MachineKpiSnapshot {
 
   trackingEnabled   Boolean?
   productionStarted Boolean?
+  tsServer  DateTime @default(now()) @map("ts_server")
+  schemaVersion String? @map("schema_version")
+  seq       BigInt?  @map("seq")
 
   org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
@@ -150,6 +160,9 @@ model MachineEvent {
   requiresAck Boolean @default(false)
   title       String
   description String?
+  tsServer  DateTime @default(now()) @map("ts_server")
+  schemaVersion String? @map("schema_version")
+  seq       BigInt?  @map("seq")
 
   // store the raw data blob so we don't lose fields
   data Json?
@@ -179,6 +192,9 @@ model MachineCycle {
   cavities            Int?
   goodDelta           Int?
   scrapDelta          Int?
+  tsServer  DateTime @default(now()) @map("ts_server")
+  schemaVersion String? @map("schema_version")
+  seq       BigInt?  @map("seq")
 
   createdAt           DateTime @default(now())
 
@@ -186,4 +202,28 @@ model MachineCycle {
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, cycleCount])
 }
+
+model IngestLog {
+  id        String   @id @default(uuid())
+  orgId     String?
+  machineId String?
+  endpoint  String
+  schemaVersion String?
+  seq       BigInt?
+  tsDevice  DateTime?
+  tsServer  DateTime @default(now())
+
+  ok        Boolean
+  status    Int
+  errorCode String?
+  errorMsg  String?
+  body      Json?
+  ip        String?
+  userAgent String?
+
+  @@index([endpoint, tsServer])
+  @@index([machineId, tsServer])
+  @@index([machineId, seq])
+}
+
 
