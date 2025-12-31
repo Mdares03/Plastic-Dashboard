@@ -10,6 +10,53 @@ export const SCHEMA_VERSION = "1.0";
 // KPI scale is frozen as 0..100 (you confirmed)
 const KPI_0_100 = z.number().min(0).max(100);
 
+function unwrapCanonicalEnvelope(raw: unknown) {
+  if (!raw || typeof raw !== "object") return raw;
+  const obj: any = raw;
+  const payload = obj.payload;
+  if (!payload || typeof payload !== "object") return raw;
+
+  const hasMeta =
+    obj.schemaVersion !== undefined ||
+    obj.machineId !== undefined ||
+    obj.tsMs !== undefined ||
+    obj.tsDevice !== undefined ||
+    obj.seq !== undefined ||
+    obj.type !== undefined;
+  if (!hasMeta) return raw;
+
+  const tsDevice =
+    typeof obj.tsDevice === "number"
+      ? obj.tsDevice
+      : typeof obj.tsMs === "number"
+        ? obj.tsMs
+        : typeof payload.tsDevice === "number"
+          ? payload.tsDevice
+          : typeof payload.tsMs === "number"
+            ? payload.tsMs
+            : undefined;
+
+  return {
+    ...payload,
+    schemaVersion: obj.schemaVersion ?? payload.schemaVersion,
+    machineId: obj.machineId ?? payload.machineId,
+    tsDevice: tsDevice ?? payload.tsDevice,
+    seq: obj.seq ?? payload.seq,
+  };
+}
+
+function normalizeTsDevice(raw: unknown) {
+  if (!raw || typeof raw !== "object") return raw;
+  const obj: any = raw;
+  if (typeof obj.tsDevice === "number") return obj;
+  if (typeof obj.tsMs === "number") return { ...obj, tsDevice: obj.tsMs };
+  return obj;
+}
+
+function preprocessPayload(raw: unknown) {
+  return normalizeTsDevice(unwrapCanonicalEnvelope(raw));
+}
+
 export const SnapshotV1 = z
   .object({
     schemaVersion: z.literal(SCHEMA_VERSION),
@@ -20,15 +67,26 @@ export const SnapshotV1 = z
 
     // current shape (keep it flat so Node-RED changes are minimal)
     activeWorkOrder: z
-      .object({
-        id: z.string(),
-        sku: z.string().optional(),
-        target: z.number().optional(),
-        good: z.number().optional(),
-        scrap: z.number().optional(),
-      })
-      .partial()
-      .optional(),
+    .object({
+      id: z.string(),
+      sku: z.string().optional(),
+      target: z.number().optional(),
+      good: z.number().optional(),
+      scrap: z.number().optional(),
+
+      // add the ones you actually rely on
+      cycleTime: z.number().optional(),
+      cavities: z.number().optional(),
+      progressPercent: z.number().optional(),
+      status: z.string().optional(),
+      lastUpdateIso: z.string().optional(),
+      cycle_count: z.number().optional(),
+      good_parts: z.number().optional(),
+      scrap_parts: z.number().optional(),
+    })
+    .partial()
+    .passthrough()
+    .optional(),
 
     cycle_count: z.number().int().nonnegative().optional(),
     good_parts: z.number().int().nonnegative().optional(),
@@ -64,15 +122,16 @@ const SnapshotLegacy = z
 export type SnapshotV1Type = z.infer<typeof SnapshotV1>;
 
 export function normalizeSnapshotV1(raw: unknown): { ok: true; value: SnapshotV1Type } | { ok: false; error: string } {
-  const strict = SnapshotV1.safeParse(raw);
+  const candidate = preprocessPayload(raw);
+  const strict = SnapshotV1.safeParse(candidate);
   if (strict.success) return { ok: true, value: strict.data };
 
   // Legacy fallback (temporary)
-  const legacy = SnapshotLegacy.safeParse(raw);
+  const legacy = SnapshotLegacy.safeParse(candidate);
   if (!legacy.success) {
     return { ok: false, error: strict.error.message };
   }
-
+/*
   const b: any = legacy.data;
 
   // Build a "best effort" SnapshotV1 so ingest works during transition.
@@ -89,6 +148,93 @@ export function normalizeSnapshotV1(raw: unknown): { ok: true; value: SnapshotV1
   const recheck = SnapshotV1.safeParse(migrated);
   if (!recheck.success) return { ok: false, error: recheck.error.message };
   return { ok: true, value: recheck.data };
+  */
+    const b: any = legacy.data;
+
+    const legacyCycleTime =
+      b.cycleTime ??
+      b.cycle_time ??
+      b.theoretical_cycle_time ??
+      b.theoreticalCycleTime ??
+      b.standard_cycle_time ??
+      b.kpi_snapshot?.cycleTime ??
+      b.kpi_snapshot?.cycle_time ??
+      undefined;
+
+    const legacyActualCycleTime =
+      b.actualCycleTime ??
+      b.actual_cycle_time ??
+      b.actualCycleSeconds ??
+      b.kpi_snapshot?.actualCycleTime ??
+      b.kpi_snapshot?.actual_cycle_time ??
+      undefined;
+
+    const legacyWorkOrderId =
+      b.activeWorkOrder?.id ??
+      b.work_order_id ??
+      b.workOrderId ??
+      b.kpis?.workOrderId ??
+      b.kpi_snapshot?.work_order_id ??
+      undefined;
+
+    const legacySku =
+      b.activeWorkOrder?.sku ??
+      b.sku ??
+      b.kpis?.sku ??
+      b.kpi_snapshot?.sku ??
+      undefined;
+
+    const legacyTarget =
+      b.activeWorkOrder?.target ??
+      b.target ??
+      b.kpis?.target ??
+      b.kpi_snapshot?.target ??
+      undefined;
+
+    const legacyGood =
+      b.activeWorkOrder?.good ??
+      b.good_parts ??
+      b.good ??
+      b.kpis?.good ??
+      b.kpi_snapshot?.good_parts ??
+      undefined;
+
+    const legacyScrap =
+      b.activeWorkOrder?.scrap ??
+      b.scrap_parts ??
+      b.scrap ??
+      b.kpis?.scrap ??
+      b.kpi_snapshot?.scrap_parts ??
+      undefined;
+
+    const migrated: any = {
+      schemaVersion: SCHEMA_VERSION,
+      machineId: String(b.machineId),
+      tsDevice: typeof b.tsDevice === "number" ? b.tsDevice : Date.now(),
+      seq: typeof b.seq === "number" || typeof b.seq === "string" ? b.seq : "0",
+
+      // canonical fields (force them)
+      cycleTime: legacyCycleTime != null ? Number(legacyCycleTime) : undefined,
+      actualCycleTime: legacyActualCycleTime != null ? Number(legacyActualCycleTime) : undefined,
+
+      activeWorkOrder: legacyWorkOrderId
+        ? {
+            id: String(legacyWorkOrderId),
+            sku: legacySku != null ? String(legacySku) : undefined,
+            target: legacyTarget != null ? Number(legacyTarget) : undefined,
+            good: legacyGood != null ? Number(legacyGood) : undefined,
+            scrap: legacyScrap != null ? Number(legacyScrap) : undefined,
+          }
+        : b.activeWorkOrder,
+
+      // keep everything else
+      ...b,
+      
+  };
+  const recheck = SnapshotV1.safeParse(migrated);
+  if (!recheck.success) return { ok: false, error: recheck.error.message };
+  return { ok: true, value: recheck.data };
+
 }
 
 const HeartbeatV1 = z.object({
@@ -108,11 +254,12 @@ const HeartbeatV1 = z.object({
 }).passthrough();
 
 export function normalizeHeartbeatV1(raw: unknown) {
-  const strict = HeartbeatV1.safeParse(raw);
+  const candidate = preprocessPayload(raw);
+  const strict = HeartbeatV1.safeParse(candidate);
   if (strict.success) return { ok: true as const, value: strict.data };
 
   // legacy fallback: allow missing meta
-  const legacy = z.object({ machineId: z.any() }).passthrough().safeParse(raw);
+  const legacy = z.object({ machineId: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
   const b: any = legacy.data;
@@ -149,11 +296,12 @@ const CycleV1 = z.object({
 }).passthrough();
 
 export function normalizeCycleV1(raw: unknown) {
-  const strict = CycleV1.safeParse(raw);
+  const candidate = preprocessPayload(raw);
+  const strict = CycleV1.safeParse(candidate);
   if (strict.success) return { ok: true as const, value: strict.data };
 
   // legacy fallback: { machineId, cycle }
-  const legacy = z.object({ machineId: z.any(), cycle: z.any() }).passthrough().safeParse(raw);
+  const legacy = z.object({ machineId: z.any(), cycle: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
   const b: any = legacy.data;
@@ -187,11 +335,12 @@ const EventV1 = z.object({
 }).passthrough();
 
 export function normalizeEventV1(raw: unknown) {
-  const strict = EventV1.safeParse(raw);
+  const candidate = preprocessPayload(raw);
+  const strict = EventV1.safeParse(candidate);
   if (strict.success) return { ok: true as const, value: strict.data };
 
   // legacy fallback: allow missing meta, but STILL reject arrays later
-  const legacy = z.object({ machineId: z.any(), event: z.any() }).passthrough().safeParse(raw);
+  const legacy = z.object({ machineId: z.any(), event: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
   const b: any = legacy.data;

@@ -238,11 +238,7 @@ const ALLOWED_TYPES = new Set([
 
 const events = normalized
   .filter((e) => ALLOWED_TYPES.has(e.eventType))
-  // keep slow-cycle even if severity is info, otherwise require warning/critical/error
-  .filter((e) =>
-    ["slow-cycle", "microstop", "macrostop"].includes(e.eventType) ||
-    ["warning", "critical", "error"].includes(e.severity)
-  )
+  // drop severity gating so recent info events appear
   .slice(0, 30);
 
 

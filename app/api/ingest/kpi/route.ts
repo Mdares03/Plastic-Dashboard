@@ -103,6 +103,8 @@ export async function POST(req: Request) {
     orgId = machine.orgId;
 
     const wo = body.activeWorkOrder ?? {};
+    const good = typeof wo.good === "number" ? wo.good : (typeof wo.goodParts === "number" ? wo.goodParts : null);
+    const scrap = typeof wo.scrap === "number" ? wo.scrap : (typeof wo.scrapParts === "number" ? wo.scrapParts : null)
     const k = body.kpis ?? {};
     const safeCycleTime =
     typeof body.cycleTime === "number" && body.cycleTime > 0
@@ -128,8 +130,8 @@ export async function POST(req: Request) {
         workOrderId: wo.id ? String(wo.id) : null,
         sku: wo.sku ? String(wo.sku) : null,
         target: typeof wo.target === "number" ? Math.trunc(wo.target) : null,
-        good: typeof wo.good === "number" ? Math.trunc(wo.good) : null,
-        scrap: typeof wo.scrap === "number" ? Math.trunc(wo.scrap) : null,
+        good: good != null ? Math.trunc(good) : null,
+        scrap: scrap != null ? Math.trunc(scrap) : null,
 
         // Counters
         cycleCount: typeof body.cycle_count === "number" ? body.cycle_count : null,

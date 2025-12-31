@@ -1,11 +1,37 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+function unwrapEnvelope(raw: any) {
+  if (!raw || typeof raw !== "object") return raw;
+  const payload = raw.payload;
+  if (!payload || typeof payload !== "object") return raw;
+
+  const hasMeta =
+    raw.schemaVersion !== undefined ||
+    raw.machineId !== undefined ||
+    raw.tsMs !== undefined ||
+    raw.tsDevice !== undefined ||
+    raw.seq !== undefined ||
+    raw.type !== undefined;
+  if (!hasMeta) return raw;
+
+  return {
+    ...payload,
+    machineId: raw.machineId ?? payload.machineId,
+    tsMs: raw.tsMs ?? payload.tsMs,
+    tsDevice: raw.tsDevice ?? payload.tsDevice,
+    schemaVersion: raw.schemaVersion ?? payload.schemaVersion,
+    seq: raw.seq ?? payload.seq,
+  };
+}
+
 export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
   if (!apiKey) return NextResponse.json({ ok: false, error: "Missing api key" }, { status: 401 });
 
-  const body = await req.json().catch(() => null);
+  let body = await req.json().catch(() => null);
+  body = unwrapEnvelope(body);
+
   if (!body?.machineId || !body?.cycle) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
@@ -22,6 +48,8 @@ export async function POST(req: Request) {
     (typeof c.timestamp === "number" && c.timestamp) ||
     (typeof c.ts === "number" && c.ts) ||
     (typeof c.event_timestamp === "number" && c.event_timestamp) ||
+    (typeof body.tsMs === "number" && body.tsMs) ||
+    (typeof body.tsDevice === "number" && body.tsDevice) ||
     undefined;
 
   const ts = tsMs ? new Date(tsMs) : new Date();
@@ -30,7 +58,7 @@ export async function POST(req: Request) {
     data: {
       orgId: machine.orgId,
       machineId: machine.id,
-      ts,   
+      ts,
       cycleCount: typeof c.cycle_count === "number" ? c.cycle_count : null,
       actualCycleTime: Number(c.actual_cycle_time),
       theoreticalCycleTime: c.theoretical_cycle_time != null ? Number(c.theoretical_cycle_time) : null,
