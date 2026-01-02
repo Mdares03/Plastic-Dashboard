@@ -1,0 +1,368 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireSession } from "@/lib/auth/requireSession";
+
+const RANGE_MS: Record<string, number> = {
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "30d": 30 * 24 * 60 * 60 * 1000,
+};
+
+function parseDate(input?: string | null) {
+  if (!input) return null;
+  const n = Number(input);
+  if (!Number.isNaN(n)) return new Date(n);
+  const d = new Date(input);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function pickRange(req: NextRequest) {
+  const url = new URL(req.url);
+  const range = url.searchParams.get("range") ?? "24h";
+  const now = new Date();
+
+  if (range === "custom") {
+    const start = parseDate(url.searchParams.get("start")) ?? new Date(now.getTime() - RANGE_MS["24h"]);
+    const end = parseDate(url.searchParams.get("end")) ?? now;
+    return { start, end };
+  }
+
+  const ms = RANGE_MS[range] ?? RANGE_MS["24h"];
+  return { start: new Date(now.getTime() - ms), end: now };
+}
+
+function safeNum(v: unknown) {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+export async function GET(req: NextRequest) {
+  const session = await requireSession();
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+  const url = new URL(req.url);
+  const machineId = url.searchParams.get("machineId") ?? undefined;
+  const { start, end } = pickRange(req);
+  const workOrderId = url.searchParams.get("workOrderId") ?? undefined;
+  const sku = url.searchParams.get("sku") ?? undefined;
+  const baseWhere = {
+    orgId: session.orgId,
+    ...(machineId ? { machineId } : {}),
+    ...(workOrderId ? { workOrderId } : {}),
+    ...(sku ? { sku } : {}),
+  };
+
+  const kpiRows = await prisma.machineKpiSnapshot.findMany({
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    orderBy: { ts: "asc" },
+    select: {
+      ts: true,
+      oee: true,
+      availability: true,
+      performance: true,
+      quality: true,
+      good: true,
+      scrap: true,
+      target: true,
+      machineId: true,
+    },
+  });
+
+  let oeeSum = 0;
+  let oeeCount = 0;
+  let availSum = 0;
+  let availCount = 0;
+  let perfSum = 0;
+  let perfCount = 0;
+  let qualSum = 0;
+  let qualCount = 0;
+
+  for (const k of kpiRows) {
+    if (safeNum(k.oee) != null) {
+      oeeSum += Number(k.oee);
+      oeeCount += 1;
+    }
+    if (safeNum(k.availability) != null) {
+      availSum += Number(k.availability);
+      availCount += 1;
+    }
+    if (safeNum(k.performance) != null) {
+      perfSum += Number(k.performance);
+      perfCount += 1;
+    }
+    if (safeNum(k.quality) != null) {
+      qualSum += Number(k.quality);
+      qualCount += 1;
+    }
+  }
+
+  const cycles = await prisma.machineCycle.findMany({
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    select: { goodDelta: true, scrapDelta: true },
+  });
+
+  let goodTotal = 0;
+  let scrapTotal = 0;
+
+  for (const c of cycles) {
+    if (safeNum(c.goodDelta) != null) goodTotal += Number(c.goodDelta);
+    if (safeNum(c.scrapDelta) != null) scrapTotal += Number(c.scrapDelta);
+  }
+
+  const kpiAgg = await prisma.machineKpiSnapshot.groupBy({
+    by: ["machineId"],
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    _max: { good: true, scrap: true, target: true },
+    _min: { good: true, scrap: true },
+    _count: { _all: true },
+  });
+
+  let targetTotal = 0;
+  if (goodTotal === 0 && scrapTotal === 0) {
+    let goodFallback = 0;
+    let scrapFallback = 0;
+
+    for (const row of kpiAgg) {
+      const count = row._count._all ?? 0;
+      const maxGood = safeNum(row._max.good);
+      const minGood = safeNum(row._min.good);
+      const maxScrap = safeNum(row._max.scrap);
+      const minScrap = safeNum(row._min.scrap);
+
+      if (count > 1 && maxGood != null && minGood != null) {
+        goodFallback += Math.max(0, maxGood - minGood);
+      } else if (maxGood != null) {
+        goodFallback += maxGood;
+      }
+
+      if (count > 1 && maxScrap != null && minScrap != null) {
+        scrapFallback += Math.max(0, maxScrap - minScrap);
+      } else if (maxScrap != null) {
+        scrapFallback += maxScrap;
+      }
+    }
+
+    goodTotal = goodFallback;
+    scrapTotal = scrapFallback;
+  }
+
+  for (const row of kpiAgg) {
+    const maxTarget = safeNum(row._max.target);
+    if (maxTarget != null) targetTotal += maxTarget;
+  }
+
+  const events = await prisma.machineEvent.findMany({
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    select: { eventType: true, data: true },
+  });
+
+  let macrostopSec = 0;
+  let microstopSec = 0;
+  let slowCycleCount = 0;
+  let qualitySpikeCount = 0;
+  let performanceDegradationCount = 0;
+  let oeeDropCount = 0;
+
+  for (const e of events) {
+    const type = String(e.eventType ?? "").toLowerCase();
+    let blob: any = e.data;
+
+    if (typeof blob === "string") {
+      try {
+        blob = JSON.parse(blob);
+      } catch {
+        blob = null;
+      }
+    }
+
+    const inner = blob?.data ?? blob ?? {};
+    const stopSec =
+      (typeof inner?.stoppage_duration_seconds === "number" && inner.stoppage_duration_seconds) ||
+      (typeof inner?.stop_duration_seconds === "number" && inner.stop_duration_seconds) ||
+      0;
+
+    if (type === "macrostop") macrostopSec += Number(stopSec) || 0;
+    else if (type === "microstop") microstopSec += Number(stopSec) || 0;
+    else if (type === "slow-cycle") slowCycleCount += 1;
+    else if (type === "quality-spike") qualitySpikeCount += 1;
+    else if (type === "performance-degradation") performanceDegradationCount += 1;
+    else if (type === "oee-drop") oeeDropCount += 1;
+  }
+
+  type TrendPoint = { t: string; v: number };
+
+  const trend: {
+    oee: TrendPoint[];
+    availability: TrendPoint[];
+    performance: TrendPoint[];
+    quality: TrendPoint[];
+    scrapRate: TrendPoint[];
+  } = {
+    oee: [],
+    availability: [],
+    performance: [],
+    quality: [],
+    scrapRate: [],
+  };
+
+  for (const k of kpiRows) {
+    const t = k.ts.toISOString();
+    if (safeNum(k.oee) != null) trend.oee.push({ t, v: Number(k.oee) });
+    if (safeNum(k.availability) != null) trend.availability.push({ t, v: Number(k.availability) });
+    if (safeNum(k.performance) != null) trend.performance.push({ t, v: Number(k.performance) });
+    if (safeNum(k.quality) != null) trend.quality.push({ t, v: Number(k.quality) });
+
+    const good = safeNum(k.good);
+    const scrap = safeNum(k.scrap);
+    if (good != null && scrap != null && good + scrap > 0) {
+      trend.scrapRate.push({ t, v: (scrap / (good + scrap)) * 100 });
+    }
+  }
+  const cycleRows = await prisma.machineCycle.findMany({
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    select: { actualCycleTime: true },
+  });
+
+  const values = cycleRows
+    .map((c) => Number(c.actualCycleTime))
+    .filter((v) => Number.isFinite(v) && v > 0)
+    .sort((a, b) => a - b);
+
+  let cycleTimeBins: {
+    label: string;
+    count: number;
+    rangeStart?: number;
+    rangeEnd?: number;
+    overflow?: "low" | "high";
+    minValue?: number;
+    maxValue?: number;
+  }[] = [];
+
+  if (values.length) {
+    const pct = (p: number) => {
+      const idx = Math.max(0, Math.min(values.length - 1, Math.floor(p * (values.length - 1))));
+      return values[idx];
+    };
+
+    const p5 = pct(0.05);
+    const p95 = pct(0.95);
+
+    const inRange = values.filter((v) => v >= p5 && v <= p95);
+    const low = values.filter((v) => v < p5);
+    const high = values.filter((v) => v > p95);
+
+    const binCount = 10;
+    const span = Math.max(0.1, p95 - p5);
+    const step = span / binCount;
+
+    const counts = new Array(binCount).fill(0);
+    for (const v of inRange) {
+      const idx = Math.min(binCount - 1, Math.floor((v - p5) / step));
+      counts[idx] += 1;
+    }
+    const decimals = step < 0.1 ? 2 : step < 1 ? 1 : 0;
+
+    cycleTimeBins = counts.map((count, i) => {
+      const a = p5 + step * i;
+      const b = p5 + step * (i + 1);
+      return {
+        label: `${a.toFixed(decimals)}-${b.toFixed(decimals)}s`,
+        count,
+        rangeStart: a,
+        rangeEnd: b,
+      };
+    });
+    
+
+    if (low.length) {
+      cycleTimeBins.unshift({
+        label: `< ${p5.toFixed(1)}s`,
+        count: low.length,
+        rangeEnd: p5,
+        overflow: "low",
+        minValue: low[0],
+        maxValue: low[low.length - 1],
+      });
+    }
+
+    if (high.length) {
+      cycleTimeBins.push({
+        label: `> ${p95.toFixed(1)}s`,
+        count: high.length,
+        rangeStart: p95,
+        overflow: "high",
+        minValue: high[0],
+        maxValue: high[high.length - 1],
+      });
+    }
+  }
+  const scrapRate =
+    goodTotal + scrapTotal > 0 ? (scrapTotal / (goodTotal + scrapTotal)) * 100 : null;
+
+
+
+  // top scrap SKU / work order (from cycles)
+  const scrapBySku = new Map<string, number>();
+  const scrapByWo = new Map<string, number>();
+
+  const scrapRows = await prisma.machineCycle.findMany({
+    where: { ...baseWhere, ts: { gte: start, lte: end } },
+    select: { sku: true, workOrderId: true, scrapDelta: true },
+  });
+
+  for (const row of scrapRows) {
+    const scrap = safeNum(row.scrapDelta);
+    if (scrap == null || scrap <= 0) continue;
+    if (row.sku) scrapBySku.set(row.sku, (scrapBySku.get(row.sku) ?? 0) + scrap);
+    if (row.workOrderId) scrapByWo.set(row.workOrderId, (scrapByWo.get(row.workOrderId) ?? 0) + scrap);
+  }
+
+  const topScrapSku = [...scrapBySku.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+  const topScrapWorkOrder = [...scrapByWo.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+  const oeeAvg = oeeCount ? oeeSum / oeeCount : null;
+  const availabilityAvg = availCount ? availSum / availCount : null;
+  const performanceAvg = perfCount ? perfSum / perfCount : null;
+  const qualityAvg = qualCount ? qualSum / qualCount : null;
+
+  // insights
+  const insights: string[] = [];
+  if (scrapRate != null && scrapRate > 5) insights.push(`Scrap rate is ${scrapRate.toFixed(1)}% (above 5%).`);
+  if (performanceAvg != null && performanceAvg < 85) insights.push("Performance below 85%.");
+  if (availabilityAvg != null && availabilityAvg < 85) insights.push("Availability below 85%.");
+  if (oeeAvg != null && oeeAvg < 85) insights.push("OEE below 85%.");
+  if (macrostopSec > 1800) insights.push("Macrostop time exceeds 30 minutes in this range.");
+
+
+
+  return NextResponse.json({
+    ok: true,
+    summary: {
+    oeeAvg,
+    availabilityAvg,
+    performanceAvg,
+    qualityAvg,
+    goodTotal,
+    scrapTotal,
+    targetTotal,
+    scrapRate,
+    topScrapSku,
+    topScrapWorkOrder,
+  },
+
+    downtime: {
+      macrostopSec,
+      microstopSec,
+      slowCycleCount,
+      qualitySpikeCount,
+      performanceDegradationCount,
+      oeeDropCount,
+    },
+    trend,
+    insights,
+    distribution: { 
+      cycleTime: cycleTimeBins 
+    },
+
+  });
+}

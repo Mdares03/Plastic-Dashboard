@@ -13,12 +13,16 @@ model Org {
   slug      String   @unique
   createdAt DateTime @default(now())
 
-  members      OrgUser[]
-  sessions     Session[]
-  machines     Machine[]
-  heartbeats   MachineHeartbeat[]
-  kpiSnapshots MachineKpiSnapshot[]
-  events       MachineEvent[]
+  members         OrgUser[]
+  sessions        Session[]
+  machines        Machine[]
+  heartbeats      MachineHeartbeat[]
+  kpiSnapshots    MachineKpiSnapshot[]
+  events          MachineEvent[]
+  settings        OrgSettings?
+  shifts          OrgShift[]
+  machineSettings MachineSettings[]
+  settingsAudits  SettingsAudit[]
 }
 
 model User {
@@ -68,38 +72,39 @@ model Session {
 }
 
 model Machine {
-  id        String   @id @default(uuid())
-  orgId     String
-  name      String
-  apiKey    String?  @unique
-  code      String?
-  location  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tsDevice  DateTime @default(now()) @map("ts")
-  tsServer  DateTime @default(now()) @map("ts_server")
-  schemaVersion String? @map("schema_version")
-  seq       BigInt?  @map("seq")
+  id            String   @id @default(uuid())
+  orgId         String
+  name          String
+  apiKey        String?  @unique
+  code          String?
+  location      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  tsDevice      DateTime @default(now()) @map("ts")
+  tsServer      DateTime @default(now()) @map("ts_server")
+  schemaVersion String?  @map("schema_version")
+  seq           BigInt?  @map("seq")
 
-  org          Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  heartbeats   MachineHeartbeat[]
-  kpiSnapshots MachineKpiSnapshot[]
-  events       MachineEvent[]
-  cycles       MachineCycle[]
-
+  org            Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  heartbeats     MachineHeartbeat[]
+  kpiSnapshots   MachineKpiSnapshot[]
+  events         MachineEvent[]
+  cycles         MachineCycle[]
+  settings       MachineSettings?
+  settingsAudits SettingsAudit[]
 
   @@unique([orgId, name])
   @@index([orgId])
 }
 
 model MachineHeartbeat {
-  id        String   @id @default(uuid())
-  orgId     String
-  machineId String
-  ts        DateTime @default(now())
-  tsServer  DateTime @default(now()) @map("ts_server")
-  schemaVersion String? @map("schema_version")
-  seq       BigInt?  @map("seq")
+  id            String   @id @default(uuid())
+  orgId         String
+  machineId     String
+  ts            DateTime @default(now())
+  tsServer      DateTime @default(now()) @map("ts_server")
+  schemaVersion String?  @map("schema_version")
+  seq           BigInt?  @map("seq")
 
   status    String
   message   String?
@@ -138,9 +143,9 @@ model MachineKpiSnapshot {
 
   trackingEnabled   Boolean?
   productionStarted Boolean?
-  tsServer  DateTime @default(now()) @map("ts_server")
-  schemaVersion String? @map("schema_version")
-  seq       BigInt?  @map("seq")
+  tsServer          DateTime @default(now()) @map("ts_server")
+  schemaVersion     String?  @map("schema_version")
+  seq               BigInt?  @map("seq")
 
   org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
@@ -154,15 +159,15 @@ model MachineEvent {
   machineId String
   ts        DateTime @default(now())
 
-  topic       String // "anomaly-detected"
-  eventType   String // "slow-cycle"
-  severity    String // "critical"
-  requiresAck Boolean @default(false)
-  title       String
-  description String?
-  tsServer  DateTime @default(now()) @map("ts_server")
-  schemaVersion String? @map("schema_version")
-  seq       BigInt?  @map("seq")
+  topic         String // "anomaly-detected"
+  eventType     String // "slow-cycle"
+  severity      String // "critical"
+  requiresAck   Boolean  @default(false)
+  title         String
+  description   String?
+  tsServer      DateTime @default(now()) @map("ts_server")
+  schemaVersion String?  @map("schema_version")
+  seq           BigInt?  @map("seq")
 
   // store the raw data blob so we don't lose fields
   data Json?
@@ -176,42 +181,44 @@ model MachineEvent {
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, eventType, ts])
 }
-model MachineCycle {
-  id                  String   @id @default(uuid())
-  orgId               String
-  machineId           String
-  ts                  DateTime @default(now())
 
-  cycleCount          Int?
-  actualCycleTime     Float
+model MachineCycle {
+  id        String   @id @default(uuid())
+  orgId     String
+  machineId String
+  ts        DateTime @default(now())
+
+  cycleCount           Int?
+  actualCycleTime      Float
   theoreticalCycleTime Float?
 
-  workOrderId         String?
-  sku                 String?
+  workOrderId String?
+  sku         String?
 
-  cavities            Int?
-  goodDelta           Int?
-  scrapDelta          Int?
-  tsServer  DateTime @default(now()) @map("ts_server")
-  schemaVersion String? @map("schema_version")
-  seq       BigInt?  @map("seq")
+  cavities      Int?
+  goodDelta     Int?
+  scrapDelta    Int?
+  tsServer      DateTime @default(now()) @map("ts_server")
+  schemaVersion String?  @map("schema_version")
+  seq           BigInt?  @map("seq")
 
-  createdAt           DateTime @default(now())
+  createdAt DateTime @default(now())
 
-  machine             Machine  @relation(fields: [machineId], references: [id])
+  machine Machine @relation(fields: [machineId], references: [id])
+
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, cycleCount])
 }
 
 model IngestLog {
-  id        String   @id @default(uuid())
-  orgId     String?
-  machineId String?
-  endpoint  String
+  id            String    @id @default(uuid())
+  orgId         String?
+  machineId     String?
+  endpoint      String
   schemaVersion String?
-  seq       BigInt?
-  tsDevice  DateTime?
-  tsServer  DateTime @default(now())
+  seq           BigInt?
+  tsDevice      DateTime?
+  tsServer      DateTime  @default(now())
 
   ok        Boolean
   status    Int
@@ -226,4 +233,69 @@ model IngestLog {
   @@index([machineId, seq])
 }
 
+model OrgSettings {
+  orgId                   String   @id @map("org_id")
+  timezone                String   @default("UTC")
+  shiftChangeCompMin      Int      @default(10) @map("shift_change_comp_min")
+  lunchBreakMin           Int      @default(30) @map("lunch_break_min")
+  stoppageMultiplier      Float    @default(1.5) @map("stoppage_multiplier")
+  oeeAlertThresholdPct    Float    @default(90) @map("oee_alert_threshold_pct")
+  performanceThresholdPct Float    @default(85) @map("performance_threshold_pct")
+  qualitySpikeDeltaPct    Float    @default(5) @map("quality_spike_delta_pct")
+  alertsJson              Json?    @map("alerts_json")
+  defaultsJson            Json?    @map("defaults_json")
+  version                 Int      @default(1)
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  updatedBy               String?  @map("updated_by")
 
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_settings")
+}
+
+model OrgShift {
+  id        String  @id @default(uuid())
+  orgId     String  @map("org_id")
+  name      String
+  startTime String  @map("start_time")
+  endTime   String  @map("end_time")
+  sortOrder Int     @map("sort_order")
+  enabled   Boolean @default(true)
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@index([orgId, sortOrder])
+  @@map("org_shifts")
+}
+
+model MachineSettings {
+  machineId     String   @id @map("machine_id")
+  orgId         String   @map("org_id")
+  overridesJson Json?    @map("overrides_json")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  updatedBy     String?  @map("updated_by")
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId])
+  @@map("machine_settings")
+}
+
+model SettingsAudit {
+  id          String   @id @default(uuid())
+  orgId       String   @map("org_id")
+  machineId   String?  @map("machine_id")
+  actorId     String?  @map("actor_id")
+  source      String
+  payloadJson Json     @map("payload_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  org     Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, createdAt])
+  @@index([machineId, createdAt])
+  @@map("settings_audit")
+}

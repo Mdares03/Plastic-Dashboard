@@ -33,14 +33,34 @@ export async function GET() {
         take: 1,
         select: { ts: true, status: true, message: true, ip: true, fwVersion: true },
       },
+      kpiSnapshots: {
+        orderBy: { ts: "desc" },
+        take: 1,
+        select: {
+          ts: true,
+          oee: true,
+          availability: true,
+          performance: true,
+          quality: true,
+          workOrderId: true,
+          sku: true,
+          good: true,
+          scrap: true,
+          target: true,
+          cycleTime: true,
+        },
+      },
     },
   });
+
 
   // flatten latest heartbeat for UI convenience
   const out = machines.map((m) => ({
     ...m,
     latestHeartbeat: m.heartbeats[0] ?? null,
+    latestKpi: m.kpiSnapshots[0] ?? null,
     heartbeats: undefined,
+    kpiSnapshots: undefined,
   }));
 
   return NextResponse.json({ ok: true, machines: out });
