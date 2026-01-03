@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
-import { buildSessionCookieOptions, COOKIE_NAME, SESSION_DAYS } from "@/lib/auth/sessionCookie";
+
+const COOKIE_NAME = "mis_session";
+const SESSION_DAYS = 7;
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -16,10 +18,6 @@ export async function POST(req: Request) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.isActive) {
     return NextResponse.json({ ok: false, error: "Invalid credentials" }, { status: 401 });
-  }
-
-  if (!user.emailVerifiedAt) {
-    return NextResponse.json({ ok: false, error: "Email not verified" }, { status: 403 });
   }
 
   const ok = await bcrypt.compare(password, user.passwordHash);
@@ -49,7 +47,14 @@ export async function POST(req: Request) {
   });
 
   const res = NextResponse.json({ ok: true, next });
-  res.cookies.set(COOKIE_NAME, session.id, buildSessionCookieOptions(req));
+
+  res.cookies.set(COOKIE_NAME, session.id, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: false, // set true once HTTPS only
+    path: "/",
+    maxAge: SESSION_DAYS * 24 * 60 * 60,
+  });
 
   return res;
 }

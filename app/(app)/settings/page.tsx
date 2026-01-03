@@ -38,6 +38,31 @@ type SettingsPayload = {
   updatedBy?: string;
 };
 
+type OrgInfo = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+type MemberRow = {
+  id: string;
+  membershipId: string;
+  name?: string | null;
+  email: string;
+  role: string;
+  isActive: boolean;
+  joinedAt: string;
+};
+
+type InviteRow = {
+  id: string;
+  email: string;
+  role: string;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
 const DEFAULT_SHIFT: Shift = {
   name: "Shift 1",
   start: "06:00",
@@ -187,6 +212,15 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [orgInfo, setOrgInfo] = useState<OrgInfo | null>(null);
+  const [members, setMembers] = useState<MemberRow[]>([]);
+  const [invites, setInvites] = useState<InviteRow[]>([]);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState("MEMBER");
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -208,9 +242,36 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const buildInviteUrl = useCallback((token: string) => {
+    if (typeof window === "undefined") return `/invite/${token}`;
+    return `${window.location.origin}/invite/${token}`;
+  }, []);
+
+  const loadTeam = useCallback(async () => {
+    setTeamLoading(true);
+    setTeamError(null);
+    try {
+      const response = await fetch("/api/org/members", { cache: "no-store" });
+      const { data, text } = await readResponse(response);
+      if (!response.ok || !data?.ok) {
+        const message =
+          data?.error || data?.message || text || `Failed to load team (${response.status})`;
+        throw new Error(message);
+      }
+      setOrgInfo(data.org ?? null);
+      setMembers(Array.isArray(data.members) ? data.members : []);
+      setInvites(Array.isArray(data.invites) ? data.invites : []);
+    } catch (err) {
+      setTeamError(err instanceof Error ? err.message : "Failed to load team");
+    } finally {
+      setTeamLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadSettings();
-  }, [loadSettings]);
+    loadTeam();
+  }, [loadSettings, loadTeam]);
 
   const updateShift = useCallback((index: number, patch: Partial<Shift>) => {
     setDraft((prev) => {
@@ -336,6 +397,77 @@ export default function SettingsPage() {
     []
   );
 
+  const copyInviteLink = useCallback(
+    async (token: string) => {
+      const url = buildInviteUrl(token);
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(url);
+          setInviteStatus("Invite link copied");
+        } else {
+          setInviteStatus(url);
+        }
+      } catch {
+        setInviteStatus(url);
+      }
+    },
+    [buildInviteUrl]
+  );
+
+  const revokeInvite = useCallback(async (inviteId: string) => {
+    setInviteStatus(null);
+    try {
+      const response = await fetch(`/api/org/invites/${inviteId}`, { method: "DELETE" });
+      const { data, text } = await readResponse(response);
+      if (!response.ok || !data?.ok) {
+        const message =
+          data?.error || data?.message || text || `Failed to revoke invite (${response.status})`;
+        throw new Error(message);
+      }
+      setInvites((prev) => prev.filter((invite) => invite.id !== inviteId));
+    } catch (err) {
+      setInviteStatus(err instanceof Error ? err.message : "Failed to revoke invite");
+    }
+  }, []);
+
+  const createInvite = useCallback(async () => {
+    if (!inviteEmail.trim()) {
+      setInviteStatus("Email is required");
+      return;
+    }
+    setInviteSubmitting(true);
+    setInviteStatus(null);
+    try {
+      const response = await fetch("/api/org/members", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
+      });
+      const { data, text } = await readResponse(response);
+      if (!response.ok || !data?.ok) {
+        const message =
+          data?.error || data?.message || text || `Failed to create invite (${response.status})`;
+        throw new Error(message);
+      }
+      const nextInvite = data.invite;
+      if (nextInvite) {
+        setInvites((prev) => [nextInvite, ...prev.filter((invite) => invite.id !== nextInvite.id)]);
+        const inviteUrl = buildInviteUrl(nextInvite.token);
+        if (data.emailSent === false) {
+          setInviteStatus(`Invite created, email failed: ${inviteUrl}`);
+        } else {
+          setInviteStatus("Invite email sent");
+        }
+      }
+      setInviteEmail("");
+      await loadTeam();
+    } catch (err) {
+      setInviteStatus(err instanceof Error ? err.message : "Failed to create invite");
+    } finally {
+      setInviteSubmitting(false);
+    }
+  }, [buildInviteUrl, inviteEmail, inviteRole, loadTeam]);
+
   const saveSettings = useCallback(async () => {
     if (!draft) return;
     setSaving(true);
@@ -436,7 +568,10 @@ export default function SettingsPage() {
           <div className="mt-4 space-y-3">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
               <div className="text-xs text-zinc-400">Plant Name</div>
-              <div className="mt-1 text-sm text-zinc-300">MIS Plant</div>
+              <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || "Loading..."}</div>
+              {orgInfo?.slug ? (
+                <div className="mt-1 text-[11px] text-zinc-500">Slug: {orgInfo.slug}</div>
+              ) : null}
             </div>
             <label className="block rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
               Time Zone
@@ -685,6 +820,136 @@ export default function SettingsPage() {
               <div className="text-xs text-zinc-400">ERP Sync</div>
               <div className="mt-1 text-sm text-zinc-300">Not configured</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-semibold text-white">Team Members</div>
+            <div className="text-xs text-zinc-400">{members.length} total</div>
+          </div>
+
+          {teamLoading && <div className="text-sm text-zinc-400">Loading team...</div>}
+          {teamError && (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+              {teamError}
+            </div>
+          )}
+
+          {!teamLoading && !teamError && members.length === 0 && (
+            <div className="text-sm text-zinc-400">No team members yet.</div>
+          )}
+
+          {!teamLoading && !teamError && members.length > 0 && (
+            <div className="space-y-2">
+              {members.map((member) => (
+                <div
+                  key={member.membershipId}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-white">
+                      {member.name || member.email}
+                    </div>
+                    <div className="truncate text-xs text-zinc-400">{member.email}</div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 text-xs text-zinc-400">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-white">
+                      {member.role}
+                    </span>
+                    {!member.isActive ? (
+                      <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-200">
+                        Inactive
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="mb-3 text-sm font-semibold text-white">Invitations</div>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+              Invite Email
+              <input
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              />
+            </label>
+            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+              Role
+              <select
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value)}
+                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+              >
+                <option value="MEMBER">Member</option>
+                <option value="ADMIN">Admin</option>
+                <option value="OWNER">Owner</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={createInvite}
+              disabled={inviteSubmitting}
+              className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
+            >
+              {inviteSubmitting ? "Creating..." : "Create Invite"}
+            </button>
+            <button
+              type="button"
+              onClick={loadTeam}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+            >
+              Refresh
+            </button>
+            {inviteStatus && <div className="text-xs text-zinc-400">{inviteStatus}</div>}
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {invites.length === 0 && (
+              <div className="text-sm text-zinc-400">No pending invites.</div>
+            )}
+            {invites.map((invite) => (
+              <div key={invite.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-white">{invite.email}</div>
+                    <div className="text-xs text-zinc-400">
+                      {invite.role} - Expires {new Date(invite.expiresAt).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => copyInviteLink(invite.token)}
+                      className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
+                    >
+                      Copy Link
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => revokeInvite(invite.id)}
+                      className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 hover:bg-red-500/20"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-zinc-400">
+                  {buildInviteUrl(invite.token)}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

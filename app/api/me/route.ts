@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth/requireSession";
 import { prisma } from "@/lib/prisma";
 
+
+
 export async function GET() {
   try {
-    const { userId, orgId } = await requireSession();
+    const session = await requireSession();
+    if (!session) {
+      return NextResponse.json({ ok: false }, { status: 401 });
+    }
+    const { userId, orgId } = session;
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -16,7 +22,12 @@ export async function GET() {
       select: { id: true, name: true, slug: true },
     });
 
-    return NextResponse.json({ ok: true, user, org });
+    const membership = await prisma.orgUser.findUnique({
+      where: { orgId_userId: { orgId, userId } },
+      select: { role: true },
+    });
+
+    return NextResponse.json({ ok: true, user, org, membership });
   } catch {
     return NextResponse.json({ ok: false }, { status: 401 });
   }

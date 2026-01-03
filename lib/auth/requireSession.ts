@@ -6,7 +6,7 @@ const COOKIE_NAME = "mis_session";
 export async function requireSession() {
   const jar = await cookies();
   const sessionId = jar.get(COOKIE_NAME)?.value;
-  if (!sessionId) throw new Error("UNAUTHORIZED");
+  if (!sessionId) return null;
 
   const session = await prisma.session.findFirst({
     where: {
@@ -14,9 +14,21 @@ export async function requireSession() {
       revokedAt: null,
       expiresAt: { gt: new Date() },
     },
+    include: {
+      user: {
+        select: { isActive: true, emailVerifiedAt: true },
+      },
+    },
   });
 
-  if (!session) throw new Error("UNAUTHORIZED");
+  if (!session) return null;
+
+  if (!session.user?.isActive || !session.user?.emailVerifiedAt) {
+    await prisma.session
+      .update({ where: { id: session.id }, data: { revokedAt: new Date() } })
+      .catch(() => {});
+    return null;
+  }
 
   // Optional: update lastSeenAt (useful later)
   await prisma.session

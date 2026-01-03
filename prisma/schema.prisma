@@ -23,6 +23,7 @@ model Org {
   shifts          OrgShift[]
   machineSettings MachineSettings[]
   settingsAudits  SettingsAudit[]
+  invites         OrgInvite[]
 }
 
 model User {
@@ -32,9 +33,13 @@ model User {
   passwordHash String
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
+  emailVerifiedAt           DateTime? @map("email_verified_at")
+  emailVerificationToken    String?   @unique @map("email_verification_token")
+  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
 
-  orgs     OrgUser[]
-  sessions Session[]
+  orgs        OrgUser[]
+  sessions    Session[]
+  sentInvites OrgInvite[] @relation("OrgInviteInviter")
 }
 
 model OrgUser {
@@ -50,6 +55,27 @@ model OrgUser {
   @@unique([orgId, userId])
   @@index([userId])
   @@index([orgId])
+}
+
+model OrgInvite {
+  id         String   @id @default(uuid())
+  orgId      String   @map("org_id")
+  email      String
+  role       String   @default("MEMBER") // OWNER | ADMIN | MEMBER
+  token      String   @unique
+  invitedBy  String?  @map("invited_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  expiresAt  DateTime @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  org     Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  inviter User? @relation("OrgInviteInviter", fields: [invitedBy], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgId, email])
+  @@index([expiresAt])
+  @@map("org_invites")
 }
 
 model Session {
@@ -84,6 +110,9 @@ model Machine {
   tsServer      DateTime @default(now()) @map("ts_server")
   schemaVersion String?  @map("schema_version")
   seq           BigInt?  @map("seq")
+  pairingCode   String?  @unique @map("pairing_code")
+  pairingCodeExpiresAt DateTime? @map("pairing_code_expires_at")
+  pairingCodeUsedAt DateTime? @map("pairing_code_used_at")
 
   org            Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
   heartbeats     MachineHeartbeat[]

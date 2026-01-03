@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 const items = [
   { href: "/overview", label: "Overview", icon: "🏠" },
@@ -13,6 +14,30 @@ const items = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const [me, setMe] = useState<{
+    user?: { name?: string | null; email?: string | null };
+    org?: { name?: string | null };
+    membership?: { role?: string | null };
+  } | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function loadMe() {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (alive && res.ok && data?.ok) {
+          setMe(data);
+        }
+      } catch {
+        if (alive) setMe(null);
+      }
+    }
+    loadMe();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function onLogout() {
     await fetch("/api/logout", { method: "POST" });
@@ -50,8 +75,10 @@ export function Sidebar() {
 
       <div className="px-5 py-4 border-t border-white/10 space-y-3">
         <div>
-          <div className="text-sm text-white">Juan Pérez</div>
-          <div className="text-xs text-zinc-500">Plant Manager</div>
+          <div className="text-sm text-white">{me?.user?.name || me?.user?.email || "User"}</div>
+          <div className="text-xs text-zinc-500">
+            {me?.org?.name ? `${me.org.name} - ${me?.membership?.role || "MEMBER"}` : "Loading..."}
+          </div>
         </div>
 
         <button

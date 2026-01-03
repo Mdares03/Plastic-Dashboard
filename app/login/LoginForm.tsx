@@ -78,7 +78,12 @@ export default function LoginForm() {
             {loading ? "Signing in..." : "Login"}
           </button>
 
-          <div className="text-xs text-zinc-500">(Dev mode) This will be replaced with JWT auth later.</div>
+          <div className="text-xs text-zinc-500">
+            New here?{" "}
+            <a href="/signup" className="text-emerald-300 hover:text-emerald-200">
+              Create an account
+            </a>
+          </div>
         </div>
       </form>
     </div>

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
+import { generatePairingCode } from "@/lib/pairingCode";
 
 const COOKIE_NAME = "mis_session";
 
@@ -8,10 +10,16 @@ async function requireSession() {
   const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
   if (!sessionId) return null;
 
-  return prisma.session.findFirst({
+  const session = await prisma.session.findFirst({
     where: { id: sessionId, revokedAt: null, expiresAt: { gt: new Date() } },
     include: { org: true, user: true },
   });
+
+  if (!session || !session.user?.isActive || !session.user?.emailVerifiedAt) {
+    return null;
+  }
+
+  return session;
 }
 
 export async function GET() {
@@ -64,4 +72,75 @@ export async function GET() {
   }));
 
   return NextResponse.json({ ok: true, machines: out });
+}
+
+export async function POST(req: Request) {
+  const session = await requireSession();
+  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const name = String(body.name || "").trim();
+  const codeRaw = String(body.code || "").trim();
+  const locationRaw = String(body.location || "").trim();
+
+  if (!name) {
+    return NextResponse.json({ ok: false, error: "Machine name is required" }, { status: 400 });
+  }
+
+  const existing = await prisma.machine.findFirst({
+    where: { orgId: session.orgId, name },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return NextResponse.json({ ok: false, error: "Machine name already exists" }, { status: 409 });
+  }
+
+  const apiKey = randomBytes(24).toString("hex");
+  const pairingExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+  let machine = null as null | {
+    id: string;
+    name: string;
+    code?: string | null;
+    location?: string | null;
+    pairingCode?: string | null;
+    pairingCodeExpiresAt?: Date | null;
+  };
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const pairingCode = generatePairingCode();
+    try {
+      machine = await prisma.machine.create({
+        data: {
+          orgId: session.orgId,
+          name,
+          code: codeRaw || null,
+          location: locationRaw || null,
+          apiKey,
+          pairingCode,
+          pairingCodeExpiresAt: pairingExpiresAt,
+        },
+        select: {
+          id: true,
+          name: true,
+          code: true,
+          location: true,
+          pairingCode: true,
+          pairingCodeExpiresAt: true,
+        },
+      });
+      break;
+    } catch (err: any) {
+      if (err?.code !== "P2002") {
+        throw err;
+      }
+    }
+  }
+
+  if (!machine?.pairingCode) {
+    return NextResponse.json({ ok: false, error: "Failed to generate pairing code" }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, machine });
 }

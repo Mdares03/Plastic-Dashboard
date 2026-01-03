@@ -20,7 +20,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     include: { user: true, org: true },
   });
 
-  if (!session) redirect("/login?next=/machines");
+  if (!session || !session.user?.isActive || !session.user?.emailVerifiedAt) {
+    redirect("/login?next=/machines");
+  }
 
   return (
     <div className="min-h-screen bg-black text-white">
