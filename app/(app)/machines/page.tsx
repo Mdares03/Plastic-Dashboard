@@ -26,7 +26,13 @@ function secondsAgo(ts?: string) {
 
 function isOffline(ts?: string) {
   if (!ts) return true;
-  return Date.now() - new Date(ts).getTime() > 15000; // 15s threshold
+  return Date.now() - new Date(ts).getTime() > 30000; // 30s threshold
+}
+
+function normalizeStatus(status?: string) {
+  const s = (status ?? "").toUpperCase();
+  if (s === "ONLINE") return "RUN";
+  return s;
 }
 
 function badgeClass(status?: string, offline?: boolean) {
@@ -261,7 +267,8 @@ export default function MachinesPage() {
         {(!loading ? machines : []).map((m) => {
           const hb = m.latestHeartbeat;
           const offline = isOffline(hb?.ts);
-          const statusLabel = offline ? "OFFLINE" : hb?.status ?? "UNKNOWN";
+          const normalizedStatus = normalizeStatus(hb?.status);
+          const statusLabel = offline ? "OFFLINE" : normalizedStatus || "UNKNOWN";
           const lastSeen = secondsAgo(hb?.ts);
 
           return (
@@ -280,7 +287,7 @@ export default function MachinesPage() {
 
                 <span
                   className={`shrink-0 rounded-full px-3 py-1 text-xs ${badgeClass(
-                    hb?.status,
+                    normalizedStatus,
                     offline
                   )}`}
                 >

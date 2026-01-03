@@ -139,6 +139,22 @@ function CycleTooltip({ active, payload }: any) {
   );
 }
 
+function DowntimeTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload ?? {};
+  const label = row.name ?? payload[0]?.name ?? "";
+  const value = row.value ?? payload[0]?.value ?? 0;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
+      <div className="text-sm font-semibold text-white">{label}</div>
+      <div className="mt-2 text-xs text-zinc-300">
+        Downtime: <span className="text-white">{Number(value)} min</span>
+      </div>
+    </div>
+  );
+}
+
 function buildCsv(report: ReportPayload) {
   const rows = new Map<string, Record<string, string | number>>();
   const addSeries = (series: ReportTrendPoint[], key: string) => {
@@ -674,10 +690,7 @@ export default function ReportsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
                   <XAxis dataKey="name" tick={{ fill: "#a1a1aa" }} />
                   <YAxis tick={{ fill: "#a1a1aa" }} />
-                  <Tooltip
-                    contentStyle={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.1)" }}
-                    formatter={(val: any) => [`${Number(val)} min`, "Downtime"]}
-                  />
+                  <Tooltip content={<DowntimeTooltip />} />
                   <Bar dataKey="value" radius={[10, 10, 0, 0]} isAnimationActive={false}>
                     {downtimeSeries.map((row, idx) => (
                       <Cell key={`${row.name}-${idx}`} fill={downtimeColors[row.name] ?? "#94a3b8"} />

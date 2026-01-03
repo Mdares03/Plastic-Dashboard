@@ -170,7 +170,13 @@ export default function MachineDetailClient() {
 
   function isOffline(ts?: string) {
     if (!ts) return true;
-    return Date.now() - new Date(ts).getTime() > 15000;
+    return Date.now() - new Date(ts).getTime() > 30000;
+  }
+
+  function normalizeStatus(status?: string) {
+    const s = (status ?? "").toUpperCase();
+    if (s === "ONLINE") return "RUN";
+    return s;
   }
 
   function statusBadgeClass(status?: string, offline?: boolean) {
@@ -192,7 +198,8 @@ export default function MachineDetailClient() {
   const hb = machine?.latestHeartbeat ?? null;
   const kpi = machine?.latestKpi ?? null;
   const offline = useMemo(() => isOffline(hb?.ts), [hb?.ts]);
-  const statusLabel = offline ? "OFFLINE" : (hb?.status ?? "UNKNOWN");
+  const normalizedStatus = normalizeStatus(hb?.status);
+  const statusLabel = offline ? "OFFLINE" : (normalizedStatus || "UNKNOWN");
   const cycleTarget = (machine as any)?.effectiveCycleTime ?? kpi?.cycleTime ?? null;
 
   const ActiveRing = (props: any) => {
@@ -574,7 +581,7 @@ const timeline = useMemo(() => {
             <h1 className="truncate text-2xl font-semibold text-white">
               {machine?.name ?? "Machine"}
             </h1>
-            <span className={`rounded-full px-3 py-1 text-xs ${statusBadgeClass(hb?.status, offline)}`}>
+            <span className={`rounded-full px-3 py-1 text-xs ${statusBadgeClass(normalizedStatus, offline)}`}>
               {statusLabel}
             </span>
           </div>

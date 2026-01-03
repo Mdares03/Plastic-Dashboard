@@ -56,7 +56,7 @@ type CycleRow = {
   ideal: number | null;
 };
 
-const OFFLINE_MS = 15000;
+const OFFLINE_MS = 30000;
 const EVENT_WINDOW_SEC = 1800;
 const MAX_EVENT_MACHINES = 6;
 const TOL = 0.10;
@@ -72,6 +72,12 @@ function secondsAgo(ts?: string) {
 function isOffline(ts?: string) {
   if (!ts) return true;
   return Date.now() - new Date(ts).getTime() > OFFLINE_MS;
+}
+
+function normalizeStatus(status?: string) {
+  const s = (status ?? "").toUpperCase();
+  if (s === "ONLINE") return "RUN";
+  return s;
 }
 
 function fmtPct(v?: number | null) {
@@ -273,7 +279,7 @@ export default function OverviewPage() {
       const offline = isOffline(hb?.ts);
       if (!offline) online += 1;
 
-      const status = (hb?.status ?? "").toUpperCase();
+      const status = normalizeStatus(hb?.status);
       if (!offline) {
         if (status === "RUN") running += 1;
         else if (status === "IDLE") idle += 1;
