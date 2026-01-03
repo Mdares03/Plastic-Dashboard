@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
@@ -87,84 +88,90 @@ export async function GET() {
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const loaded = await prisma.$transaction(async (tx) => {
-    const found = await ensureOrgSettings(tx, session.orgId, session.userId);
-    if (!found?.settings) throw new Error("SETTINGS_NOT_FOUND");
-    return found;
-  });
+  try {
+    const loaded = await prisma.$transaction(async (tx) => {
+      const found = await ensureOrgSettings(tx, session.orgId, session.userId);
+      if (!found?.settings) throw new Error("SETTINGS_NOT_FOUND");
+      return found;
+    });
 
-  const payload = buildSettingsPayload(loaded.settings, loaded.shifts ?? []);
-  return NextResponse.json({ ok: true, settings: payload });
+    const payload = buildSettingsPayload(loaded.settings, loaded.shifts ?? []);
+    return NextResponse.json({ ok: true, settings: payload });
+  } catch (err) {
+    console.error("[settings GET] failed", err);
+    const message = err instanceof Error ? err.message : "Internal error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+  }
 }
 
 export async function PUT(req: Request) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const body = await req.json().catch(() => ({}));
-  const source = String(body.source ?? "control_tower");
-  const timezone = body.timezone;
-  const shiftSchedule = body.shiftSchedule;
-  const thresholds = body.thresholds;
-  const alerts = body.alerts;
-  const defaults = body.defaults;
-  const expectedVersion = body.version;
+  try {
+    const body = await req.json().catch(() => ({}));
+    const source = String(body.source ?? "control_tower");
+    const timezone = body.timezone;
+    const shiftSchedule = body.shiftSchedule;
+    const thresholds = body.thresholds;
+    const alerts = body.alerts;
+    const defaults = body.defaults;
+    const expectedVersion = body.version;
 
-  if (
-    timezone === undefined &&
-    shiftSchedule === undefined &&
-    thresholds === undefined &&
-    alerts === undefined &&
-    defaults === undefined
-  ) {
-    return NextResponse.json({ ok: false, error: "No settings provided" }, { status: 400 });
-  }
-
-  if (shiftSchedule && !isPlainObject(shiftSchedule)) {
-    return NextResponse.json({ ok: false, error: "shiftSchedule must be an object" }, { status: 400 });
-  }
-  if (thresholds !== undefined && !isPlainObject(thresholds)) {
-    return NextResponse.json({ ok: false, error: "thresholds must be an object" }, { status: 400 });
-  }
-  if (alerts !== undefined && !isPlainObject(alerts)) {
-    return NextResponse.json({ ok: false, error: "alerts must be an object" }, { status: 400 });
-  }
-  if (defaults !== undefined && !isPlainObject(defaults)) {
-    return NextResponse.json({ ok: false, error: "defaults must be an object" }, { status: 400 });
-  }
-
-  const shiftValidation = validateShiftFields(
-    shiftSchedule?.shiftChangeCompensationMin,
-    shiftSchedule?.lunchBreakMin
-  );
-  if (!shiftValidation.ok) {
-    return NextResponse.json({ ok: false, error: shiftValidation.error }, { status: 400 });
-  }
-
-  const thresholdsValidation = validateThresholds(thresholds);
-  if (!thresholdsValidation.ok) {
-    return NextResponse.json({ ok: false, error: thresholdsValidation.error }, { status: 400 });
-  }
-
-  const defaultsValidation = validateDefaults(defaults);
-  if (!defaultsValidation.ok) {
-    return NextResponse.json({ ok: false, error: defaultsValidation.error }, { status: 400 });
-  }
-
-  let shiftRows: any[] = [];
-  let hasShiftUpdate = false;
-  if (shiftSchedule?.shifts !== undefined) {
-    const shiftResult = validateShiftSchedule(shiftSchedule.shifts);
-    if (!shiftResult.ok) {
-      return NextResponse.json({ ok: false, error: shiftResult.error }, { status: 400 });
+    if (
+      timezone === undefined &&
+      shiftSchedule === undefined &&
+      thresholds === undefined &&
+      alerts === undefined &&
+      defaults === undefined
+    ) {
+      return NextResponse.json({ ok: false, error: "No settings provided" }, { status: 400 });
     }
-    shiftRows = shiftResult.shifts ?? [];
-    hasShiftUpdate = true;
-  }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const current = await ensureOrgSettings(tx, session.orgId, session.userId);
-    if (!current?.settings) throw new Error("SETTINGS_NOT_FOUND");
+    if (shiftSchedule && !isPlainObject(shiftSchedule)) {
+      return NextResponse.json({ ok: false, error: "shiftSchedule must be an object" }, { status: 400 });
+    }
+    if (thresholds !== undefined && !isPlainObject(thresholds)) {
+      return NextResponse.json({ ok: false, error: "thresholds must be an object" }, { status: 400 });
+    }
+    if (alerts !== undefined && !isPlainObject(alerts)) {
+      return NextResponse.json({ ok: false, error: "alerts must be an object" }, { status: 400 });
+    }
+    if (defaults !== undefined && !isPlainObject(defaults)) {
+      return NextResponse.json({ ok: false, error: "defaults must be an object" }, { status: 400 });
+    }
+
+    const shiftValidation = validateShiftFields(
+      shiftSchedule?.shiftChangeCompensationMin,
+      shiftSchedule?.lunchBreakMin
+    );
+    if (!shiftValidation.ok) {
+      return NextResponse.json({ ok: false, error: shiftValidation.error }, { status: 400 });
+    }
+
+    const thresholdsValidation = validateThresholds(thresholds);
+    if (!thresholdsValidation.ok) {
+      return NextResponse.json({ ok: false, error: thresholdsValidation.error }, { status: 400 });
+    }
+
+    const defaultsValidation = validateDefaults(defaults);
+    if (!defaultsValidation.ok) {
+      return NextResponse.json({ ok: false, error: defaultsValidation.error }, { status: 400 });
+    }
+
+    let shiftRows: any[] | null = null;
+    if (shiftSchedule?.shifts !== undefined) {
+      const shiftResult = validateShiftSchedule(shiftSchedule.shifts);
+      if (!shiftResult.ok) {
+        return NextResponse.json({ ok: false, error: shiftResult.error }, { status: 400 });
+      }
+      shiftRows = shiftResult.shifts ?? [];
+    }
+    const shiftRowsSafe = shiftRows ?? [];
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const current = await ensureOrgSettings(tx, session.orgId, session.userId);
+      if (!current?.settings) throw new Error("SETTINGS_NOT_FOUND");
 
     if (expectedVersion != null && Number(expectedVersion) !== Number(current.settings.version)) {
       return { error: "VERSION_MISMATCH", currentVersion: current.settings.version } as const;
@@ -197,6 +204,7 @@ export async function PUT(req: Request) {
       defaultsJson: nextDefaults,
     });
 
+    const hasShiftUpdate = shiftRows !== null;
     const hasSettingsUpdate = Object.keys(updateData).length > 0;
 
     if (!hasShiftUpdate && !hasSettingsUpdate) {
@@ -216,9 +224,9 @@ export async function PUT(req: Request) {
 
     if (hasShiftUpdate) {
       await tx.orgShift.deleteMany({ where: { orgId: session.orgId } });
-      if (shiftRows.length) {
+      if (shiftRowsSafe.length) {
         await tx.orgShift.createMany({
-          data: shiftRows.map((s) => ({
+          data: shiftRowsSafe.map((s) => ({
             ...s,
             orgId: session.orgId,
           })),
@@ -244,20 +252,25 @@ export async function PUT(req: Request) {
       },
     });
 
-    return { settings: refreshed, shifts: refreshedShifts };
-  });
+      return { settings: refreshed, shifts: refreshedShifts };
+    });
 
-  if ((updated as any)?.error === "VERSION_MISMATCH") {
-    return NextResponse.json(
-      { ok: false, error: "Version mismatch", currentVersion: (updated as any).currentVersion },
-      { status: 409 }
-    );
+    if ((updated as any)?.error === "VERSION_MISMATCH") {
+      return NextResponse.json(
+        { ok: false, error: "Version mismatch", currentVersion: (updated as any).currentVersion },
+        { status: 409 }
+      );
+    }
+
+    if ((updated as any)?.error) {
+      return NextResponse.json({ ok: false, error: (updated as any).error }, { status: 400 });
+    }
+
+    const payload = buildSettingsPayload(updated.settings, updated.shifts ?? []);
+    return NextResponse.json({ ok: true, settings: payload });
+  } catch (err) {
+    console.error("[settings PUT] failed", err);
+    const message = err instanceof Error ? err.message : "Internal error";
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
-
-  if ((updated as any)?.error) {
-    return NextResponse.json({ ok: false, error: (updated as any).error }, { status: 400 });
-  }
-
-  const payload = buildSettingsPayload(updated.settings, updated.shifts ?? []);
-  return NextResponse.json({ ok: true, settings: payload });
 }
