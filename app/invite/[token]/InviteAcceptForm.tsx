@@ -10,22 +10,40 @@ type InviteInfo = {
   expiresAt: string;
 };
 
-export default function InviteAcceptForm({ token }: { token: string }) {
+type InviteAcceptFormProps = {
+  token: string;
+  initialInvite?: InviteInfo | null;
+  initialError?: string | null;
+};
+
+export default function InviteAcceptForm({
+  token,
+  initialInvite = null,
+  initialError = null,
+}: InviteAcceptFormProps) {
   const router = useRouter();
-  const [invite, setInvite] = useState<InviteInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cleanedToken = token.trim();
+  const [invite, setInvite] = useState<InviteInfo | null>(initialInvite);
+  const [loading, setLoading] = useState(!initialInvite && !initialError);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError);
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
 
   useEffect(() => {
+    if (initialInvite || initialError) {
+      setLoading(false);
+      return;
+    }
+
     let alive = true;
     async function loadInvite() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/invites/${token}`, { cache: "no-store" });
+        const res = await fetch(`/api/invites/${encodeURIComponent(cleanedToken)}`, {
+          cache: "no-store",
+        });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
           throw new Error(data.error || "Invite not found");
@@ -42,14 +60,14 @@ export default function InviteAcceptForm({ token }: { token: string }) {
     return () => {
       alive = false;
     };
-  }, [token]);
+  }, [cleanedToken, initialInvite, initialError]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/invites/${token}`, {
+      const res = await fetch(`/api/invites/${encodeURIComponent(cleanedToken)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, password }),
