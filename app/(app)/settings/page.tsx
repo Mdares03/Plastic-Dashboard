@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type Shift = {
   name: string;
@@ -63,8 +64,7 @@ type InviteRow = {
   expiresAt: string;
 };
 
-const DEFAULT_SHIFT: Shift = {
-  name: "Shift 1",
+const DEFAULT_SHIFT: Omit<Shift, "name"> = {
   start: "06:00",
   end: "15:00",
   enabled: true,
@@ -75,7 +75,7 @@ const DEFAULT_SETTINGS: SettingsPayload = {
   version: 0,
   timezone: "UTC",
   shiftSchedule: {
-    shifts: [DEFAULT_SHIFT],
+    shifts: [],
     shiftChangeCompensationMin: 10,
     lunchBreakMin: 30,
   },
@@ -111,22 +111,30 @@ async function readResponse(response: Response) {
   }
 }
 
-function normalizeShift(raw: any, index: number): Shift {
-  const name = String(raw?.name || `Shift ${index + 1}`);
+function normalizeShift(raw: any, index: number, fallbackName: string): Shift {
+  const name = String(raw?.name || fallbackName);
   const start = String(raw?.start || raw?.startTime || DEFAULT_SHIFT.start);
   const end = String(raw?.end || raw?.endTime || DEFAULT_SHIFT.end);
   const enabled = raw?.enabled !== false;
   return { name, start, end, enabled };
 }
 
-function normalizeSettings(raw: any): SettingsPayload {
-  if (!raw || typeof raw !== "object") return { ...DEFAULT_SETTINGS };
+function normalizeSettings(raw: any, fallbackName: (index: number) => string): SettingsPayload {
+  if (!raw || typeof raw !== "object") {
+    return {
+      ...DEFAULT_SETTINGS,
+      shiftSchedule: {
+        ...DEFAULT_SETTINGS.shiftSchedule,
+        shifts: [{ name: fallbackName(1), ...DEFAULT_SHIFT }],
+      },
+    };
+  }
 
   const shiftSchedule = raw.shiftSchedule || {};
   const shiftsRaw = Array.isArray(shiftSchedule.shifts) ? shiftSchedule.shifts : [];
   const shifts = shiftsRaw.length
-    ? shiftsRaw.map((s: any, idx: number) => normalizeShift(s, idx))
-    : [DEFAULT_SHIFT];
+    ? shiftsRaw.map((s: any, idx: number) => normalizeShift(s, idx, fallbackName(idx + 1)))
+    : [{ name: fallbackName(1), ...DEFAULT_SHIFT }];
 
   return {
     orgId: String(raw.orgId || ""),
@@ -207,11 +215,12 @@ function Toggle({
 }
 
 export default function SettingsPage() {
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState<SettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveStatus, setSaveStatus] = useState<"saved" | null>(null);
   const [orgInfo, setOrgInfo] = useState<OrgInfo | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [invites, setInvites] = useState<InviteRow[]>([]);
@@ -221,6 +230,10 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const defaultShiftName = useCallback(
+    (index: number) => t("settings.shift.defaultName", { index }),
+    [t]
+  );
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
@@ -229,18 +242,17 @@ export default function SettingsPage() {
       const response = await fetch("/api/settings", { cache: "no-store" });
       const { data, text } = await readResponse(response);
       if (!response.ok || !data?.ok) {
-        const message =
-          data?.error || data?.message || text || `Failed to load settings (${response.status})`;
+        const message = data?.error || data?.message || text || t("settings.failedLoad");
         throw new Error(message);
       }
-      const next = normalizeSettings(data.settings);
+      const next = normalizeSettings(data.settings, defaultShiftName);
       setDraft(next);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load settings");
+      setError(err instanceof Error ? err.message : t("settings.failedLoad"));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [defaultShiftName, t]);
 
   const buildInviteUrl = useCallback((token: string) => {
     if (typeof window === "undefined") return `/invite/${token}`;
@@ -254,19 +266,18 @@ export default function SettingsPage() {
       const response = await fetch("/api/org/members", { cache: "no-store" });
       const { data, text } = await readResponse(response);
       if (!response.ok || !data?.ok) {
-        const message =
-          data?.error || data?.message || text || `Failed to load team (${response.status})`;
+        const message = data?.error || data?.message || text || t("settings.failedTeam");
         throw new Error(message);
       }
       setOrgInfo(data.org ?? null);
       setMembers(Array.isArray(data.members) ? data.members : []);
       setInvites(Array.isArray(data.invites) ? data.invites : []);
     } catch (err) {
-      setTeamError(err instanceof Error ? err.message : "Failed to load team");
+      setTeamError(err instanceof Error ? err.message : t("settings.failedTeam"));
     } finally {
       setTeamLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     loadSettings();
@@ -295,10 +306,8 @@ export default function SettingsPage() {
       if (prev.shiftSchedule.shifts.length >= 3) return prev;
       const nextIndex = prev.shiftSchedule.shifts.length + 1;
       const newShift: Shift = {
-        name: `Shift ${nextIndex}`,
-        start: DEFAULT_SHIFT.start,
-        end: DEFAULT_SHIFT.end,
-        enabled: true,
+        name: defaultShiftName(nextIndex),
+        ...DEFAULT_SHIFT,
       };
       return {
         ...prev,
@@ -308,7 +317,7 @@ export default function SettingsPage() {
         },
       };
     });
-  }, []);
+  }, [defaultShiftName]);
 
   const removeShift = useCallback((index: number) => {
     setDraft((prev) => {
@@ -403,7 +412,7 @@ export default function SettingsPage() {
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(url);
-          setInviteStatus("Invite link copied");
+          setInviteStatus(t("settings.inviteStatus.copied"));
         } else {
           setInviteStatus(url);
         }
@@ -411,7 +420,7 @@ export default function SettingsPage() {
         setInviteStatus(url);
       }
     },
-    [buildInviteUrl]
+    [buildInviteUrl, t]
   );
 
   const revokeInvite = useCallback(async (inviteId: string) => {
@@ -420,19 +429,18 @@ export default function SettingsPage() {
       const response = await fetch(`/api/org/invites/${inviteId}`, { method: "DELETE" });
       const { data, text } = await readResponse(response);
       if (!response.ok || !data?.ok) {
-        const message =
-          data?.error || data?.message || text || `Failed to revoke invite (${response.status})`;
+        const message = data?.error || data?.message || text || t("settings.inviteStatus.failed");
         throw new Error(message);
       }
       setInvites((prev) => prev.filter((invite) => invite.id !== inviteId));
     } catch (err) {
-      setInviteStatus(err instanceof Error ? err.message : "Failed to revoke invite");
+      setInviteStatus(err instanceof Error ? err.message : t("settings.inviteStatus.failed"));
     }
-  }, []);
+  }, [t]);
 
   const createInvite = useCallback(async () => {
     if (!inviteEmail.trim()) {
-      setInviteStatus("Email is required");
+      setInviteStatus(t("settings.inviteStatus.emailRequired"));
       return;
     }
     setInviteSubmitting(true);
@@ -445,8 +453,7 @@ export default function SettingsPage() {
       });
       const { data, text } = await readResponse(response);
       if (!response.ok || !data?.ok) {
-        const message =
-          data?.error || data?.message || text || `Failed to create invite (${response.status})`;
+        const message = data?.error || data?.message || text || t("settings.inviteStatus.createFailed");
         throw new Error(message);
       }
       const nextInvite = data.invite;
@@ -454,19 +461,19 @@ export default function SettingsPage() {
         setInvites((prev) => [nextInvite, ...prev.filter((invite) => invite.id !== nextInvite.id)]);
         const inviteUrl = buildInviteUrl(nextInvite.token);
         if (data.emailSent === false) {
-          setInviteStatus(`Invite created, email failed: ${inviteUrl}`);
+          setInviteStatus(t("settings.inviteStatus.emailFailed", { url: inviteUrl }));
         } else {
-          setInviteStatus("Invite email sent");
+          setInviteStatus(t("settings.inviteStatus.sent"));
         }
       }
       setInviteEmail("");
       await loadTeam();
     } catch (err) {
-      setInviteStatus(err instanceof Error ? err.message : "Failed to create invite");
+      setInviteStatus(err instanceof Error ? err.message : t("settings.inviteStatus.createFailed"));
     } finally {
       setInviteSubmitting(false);
     }
-  }, [buildInviteUrl, inviteEmail, inviteRole, loadTeam]);
+  }, [buildInviteUrl, inviteEmail, inviteRole, loadTeam, t]);
 
   const saveSettings = useCallback(async () => {
     if (!draft) return;
@@ -490,33 +497,43 @@ export default function SettingsPage() {
       const { data, text } = await readResponse(response);
       if (!response.ok || !data?.ok) {
         if (response.status === 409) {
-          throw new Error("Settings changed elsewhere. Refresh and try again.");
+          throw new Error(t("settings.conflict"));
         }
-        const message =
-          data?.error || data?.message || text || `Failed to save settings (${response.status})`;
+        const message = data?.error || data?.message || text || t("settings.failedSave");
         throw new Error(message);
       }
-      const next = normalizeSettings(data.settings);
+      const next = normalizeSettings(data.settings, defaultShiftName);
       setDraft(next);
-      setSaveStatus("Saved");
+      setSaveStatus("saved");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save settings");
+      setError(err instanceof Error ? err.message : t("settings.failedSave"));
     } finally {
       setSaving(false);
     }
-  }, [draft]);
+  }, [defaultShiftName, draft, t]);
 
   const statusLabel = useMemo(() => {
-    if (loading) return "Loading settings...";
-    if (saving) return "Saving...";
-    return saveStatus;
-  }, [loading, saving, saveStatus]);
+    if (loading) return t("settings.loading");
+    if (saving) return t("settings.saving");
+    if (saveStatus === "saved") return t("settings.saved");
+    return null;
+  }, [loading, saving, saveStatus, t]);
+
+  const formatRole = useCallback(
+    (role?: string | null) => {
+      if (!role) return "";
+      const key = `settings.role.${role.toLowerCase()}`;
+      const label = t(key);
+      return label === key ? role : label;
+    },
+    [t]
+  );
 
   if (loading && !draft) {
     return (
       <div className="p-6">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-zinc-300">
-          Loading settings...
+          {t("settings.loading")}
         </div>
       </div>
     );
@@ -524,11 +541,11 @@ export default function SettingsPage() {
 
   if (!draft) {
     return (
-      <div className="p-6">
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-          {error || "Settings are unavailable."}
-        </div>
+    <div className="p-6">
+      <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
+        {error || t("settings.unavailable")}
       </div>
+    </div>
     );
   }
 
@@ -536,22 +553,22 @@ export default function SettingsPage() {
     <div className="p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Settings</h1>
-          <p className="text-sm text-zinc-400">Live configuration for shifts, alerts, and defaults.</p>
+          <h1 className="text-2xl font-semibold text-white">{t("settings.title")}</h1>
+          <p className="text-sm text-zinc-400">{t("settings.subtitle")}</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={loadSettings}
             className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
           >
-            Refresh
+            {t("settings.refresh")}
           </button>
           <button
             onClick={saveSettings}
             disabled={saving}
             className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Save Changes
+            {t("settings.save")}
           </button>
         </div>
       </div>
@@ -564,17 +581,19 @@ export default function SettingsPage() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-1">
-          <div className="text-sm font-semibold text-white">Organization</div>
+          <div className="text-sm font-semibold text-white">{t("settings.org.title")}</div>
           <div className="mt-4 space-y-3">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">Plant Name</div>
-              <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || "Loading..."}</div>
+              <div className="text-xs text-zinc-400">{t("settings.org.plantName")}</div>
+              <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || t("common.loading")}</div>
               {orgInfo?.slug ? (
-                <div className="mt-1 text-[11px] text-zinc-500">Slug: {orgInfo.slug}</div>
+                <div className="mt-1 text-[11px] text-zinc-500">
+                  {t("settings.org.slug")}: {orgInfo.slug}
+                </div>
               ) : null}
             </div>
             <label className="block rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Time Zone
+              {t("settings.org.timeZone")}
               <input
                 value={draft.timezone || ""}
                 onChange={(event) =>
@@ -591,20 +610,21 @@ export default function SettingsPage() {
               />
             </label>
             <div className="text-xs text-zinc-500">
-              Updated: {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString() : "-"}
+              {t("settings.updated")}:{" "}
+              {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString(locale) : t("common.na")}
             </div>
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
           <div className="mb-3 flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-white">Alert Thresholds</div>
-            <div className="text-xs text-zinc-400">Applies to all machines</div>
+            <div className="text-sm font-semibold text-white">{t("settings.thresholds")}</div>
+            <div className="text-xs text-zinc-400">{t("settings.thresholds.appliesAll")}</div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              OEE Alert (%)
+              {t("settings.thresholds.oee")} (%)
               <input
                 type="number"
                 min={50}
@@ -617,7 +637,7 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Stoppage Multiplier
+              {t("settings.thresholds.stoppage")}
               <input
                 type="number"
                 min={1.1}
@@ -631,7 +651,7 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Performance Alert (%)
+              {t("settings.thresholds.performance")} (%)
               <input
                 type="number"
                 min={50}
@@ -644,7 +664,7 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Quality Spike Delta (%)
+              {t("settings.thresholds.qualitySpike")} (%)
               <input
                 type="number"
                 min={0}
@@ -663,8 +683,8 @@ export default function SettingsPage() {
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
           <div className="mb-3 flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-white">Shift Schedule</div>
-            <div className="text-xs text-zinc-400">Max 3 shifts, HH:mm</div>
+            <div className="text-sm font-semibold text-white">{t("settings.shiftSchedule")}</div>
+            <div className="text-xs text-zinc-400">{t("settings.shiftHint")}</div>
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -682,7 +702,7 @@ export default function SettingsPage() {
                     disabled={draft.shiftSchedule.shifts.length <= 1}
                     className="ml-3 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white disabled:opacity-40"
                   >
-                    Remove
+                    {t("settings.shiftRemove")}
                   </button>
                 </div>
                 <div className="mt-3 flex items-center gap-2">
@@ -692,7 +712,7 @@ export default function SettingsPage() {
                     onChange={(event) => updateShift(index, { start: event.target.value })}
                     className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
                   />
-                  <span className="text-xs text-zinc-400">to</span>
+                  <span className="text-xs text-zinc-400">{t("settings.shiftTo")}</span>
                   <input
                     type="time"
                     value={shift.end}
@@ -707,7 +727,7 @@ export default function SettingsPage() {
                     onChange={(event) => updateShift(index, { enabled: event.target.checked })}
                     className="h-4 w-4 rounded border border-white/20 bg-black/20"
                   />
-                  Enabled
+                  {t("settings.shiftEnabled")}
                 </div>
               </div>
             ))}
@@ -720,11 +740,11 @@ export default function SettingsPage() {
               disabled={draft.shiftSchedule.shifts.length >= 3}
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white disabled:opacity-40"
             >
-              Add Shift
+              {t("settings.shiftAdd")}
             </button>
             <div className="flex flex-1 flex-wrap gap-3">
               <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-                Shift Change Compensation (min)
+                {t("settings.shiftCompLabel")}
                 <input
                   type="number"
                   min={0}
@@ -737,7 +757,7 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-                Lunch Break (min)
+                {t("settings.lunchBreakLabel")}
                 <input
                   type="number"
                   min={0}
@@ -752,29 +772,29 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-sm font-semibold text-white">Alerts</div>
+          <div className="text-sm font-semibold text-white">{t("settings.alerts")}</div>
           <div className="mt-4 space-y-3">
             <Toggle
-              label="OEE Drop"
-              helper="Notify when OEE falls below threshold"
+              label={t("settings.alerts.oeeDrop")}
+              helper={t("settings.alerts.oeeDropHelper")}
               enabled={draft.alerts.oeeDropEnabled}
               onChange={(next) => updateAlerts("oeeDropEnabled", next)}
             />
             <Toggle
-              label="Performance Degradation"
-              helper="Flag prolonged slow cycles"
+              label={t("settings.alerts.performanceDegradation")}
+              helper={t("settings.alerts.performanceDegradationHelper")}
               enabled={draft.alerts.performanceDegradationEnabled}
               onChange={(next) => updateAlerts("performanceDegradationEnabled", next)}
             />
             <Toggle
-              label="Quality Spike"
-              helper="Alert on scrap spikes"
+              label={t("settings.alerts.qualitySpike")}
+              helper={t("settings.alerts.qualitySpikeHelper")}
               enabled={draft.alerts.qualitySpikeEnabled}
               onChange={(next) => updateAlerts("qualitySpikeEnabled", next)}
             />
             <Toggle
-              label="Predictive OEE Decline"
-              helper="Warn before OEE drops"
+              label={t("settings.alerts.predictive")}
+              helper={t("settings.alerts.predictiveHelper")}
               enabled={draft.alerts.predictiveOeeDeclineEnabled}
               onChange={(next) => updateAlerts("predictiveOeeDeclineEnabled", next)}
             />
@@ -784,10 +804,10 @@ export default function SettingsPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">Mold Defaults</div>
+          <div className="mb-3 text-sm font-semibold text-white">{t("settings.defaults")}</div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Mold Total
+              {t("settings.defaults.moldTotal")}
               <input
                 type="number"
                 min={0}
@@ -797,7 +817,7 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Mold Active
+              {t("settings.defaults.moldActive")}
               <input
                 type="number"
                 min={0}
@@ -810,15 +830,15 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">Integrations</div>
+          <div className="mb-3 text-sm font-semibold text-white">{t("settings.integrations")}</div>
           <div className="space-y-3 text-sm text-zinc-300">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">Webhook URL</div>
+              <div className="text-xs text-zinc-400">{t("settings.integrations.webhook")}</div>
               <div className="mt-1 text-sm text-white">https://hooks.example.com/iiot</div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">ERP Sync</div>
-              <div className="mt-1 text-sm text-zinc-300">Not configured</div>
+              <div className="text-xs text-zinc-400">{t("settings.integrations.erp")}</div>
+              <div className="mt-1 text-sm text-zinc-300">{t("settings.integrations.erpNotConfigured")}</div>
             </div>
           </div>
         </div>
@@ -827,11 +847,11 @@ export default function SettingsPage() {
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
           <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">Team Members</div>
-            <div className="text-xs text-zinc-400">{members.length} total</div>
+            <div className="text-sm font-semibold text-white">{t("settings.team")}</div>
+            <div className="text-xs text-zinc-400">{t("settings.teamTotal", { count: members.length })}</div>
           </div>
 
-          {teamLoading && <div className="text-sm text-zinc-400">Loading team...</div>}
+          {teamLoading && <div className="text-sm text-zinc-400">{t("settings.loadingTeam")}</div>}
           {teamError && (
             <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
               {teamError}
@@ -839,7 +859,7 @@ export default function SettingsPage() {
           )}
 
           {!teamLoading && !teamError && members.length === 0 && (
-            <div className="text-sm text-zinc-400">No team members yet.</div>
+            <div className="text-sm text-zinc-400">{t("settings.teamNone")}</div>
           )}
 
           {!teamLoading && !teamError && members.length > 0 && (
@@ -857,11 +877,11 @@ export default function SettingsPage() {
                   </div>
                   <div className="flex flex-col items-end gap-1 text-xs text-zinc-400">
                     <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-white">
-                      {member.role}
+                      {formatRole(member.role)}
                     </span>
                     {!member.isActive ? (
                       <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-200">
-                        Inactive
+                        {t("settings.role.inactive")}
                       </span>
                     ) : null}
                   </div>
@@ -872,10 +892,10 @@ export default function SettingsPage() {
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">Invitations</div>
+          <div className="mb-3 text-sm font-semibold text-white">{t("settings.invites")}</div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Invite Email
+              {t("settings.inviteEmail")}
               <input
                 value={inviteEmail}
                 onChange={(event) => setInviteEmail(event.target.value)}
@@ -883,15 +903,15 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Role
+              {t("settings.inviteRole")}
               <select
                 value={inviteRole}
                 onChange={(event) => setInviteRole(event.target.value)}
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
               >
-                <option value="MEMBER">Member</option>
-                <option value="ADMIN">Admin</option>
-                <option value="OWNER">Owner</option>
+                <option value="MEMBER">{t("settings.inviteRole.member")}</option>
+                <option value="ADMIN">{t("settings.inviteRole.admin")}</option>
+                <option value="OWNER">{t("settings.inviteRole.owner")}</option>
               </select>
             </label>
           </div>
@@ -903,21 +923,21 @@ export default function SettingsPage() {
               disabled={inviteSubmitting}
               className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
             >
-              {inviteSubmitting ? "Creating..." : "Create Invite"}
+              {inviteSubmitting ? t("settings.inviteSending") : t("settings.inviteSend")}
             </button>
             <button
               type="button"
               onClick={loadTeam}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
             >
-              Refresh
+              {t("settings.refresh")}
             </button>
             {inviteStatus && <div className="text-xs text-zinc-400">{inviteStatus}</div>}
           </div>
 
           <div className="mt-4 space-y-3">
             {invites.length === 0 && (
-              <div className="text-sm text-zinc-400">No pending invites.</div>
+              <div className="text-sm text-zinc-400">{t("settings.inviteNone")}</div>
             )}
             {invites.map((invite) => (
               <div key={invite.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
@@ -925,7 +945,10 @@ export default function SettingsPage() {
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-white">{invite.email}</div>
                     <div className="text-xs text-zinc-400">
-                      {invite.role} - Expires {new Date(invite.expiresAt).toLocaleDateString()}
+                      {formatRole(invite.role)} -{" "}
+                      {t("settings.inviteExpires", {
+                        date: new Date(invite.expiresAt).toLocaleDateString(locale),
+                      })}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
@@ -934,14 +957,14 @@ export default function SettingsPage() {
                       onClick={() => copyInviteLink(invite.token)}
                       className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
                     >
-                      Copy Link
+                      {t("settings.inviteCopy")}
                     </button>
                     <button
                       type="button"
                       onClick={() => revokeInvite(invite.id)}
                       className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 hover:bg-red-500/20"
                     >
-                      Revoke
+                      {t("settings.inviteRevoke")}
                     </button>
                   </div>
                 </div>

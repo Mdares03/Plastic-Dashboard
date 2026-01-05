@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 import {
   Bar,
   BarChart,
@@ -66,6 +67,7 @@ type ReportPayload = {
 
 type MachineOption = { id: string; name: string };
 type FilterOptions = { workOrders: string[]; skus: string[] };
+type Translator = (key: string, vars?: Record<string, string | number>) => string;
 
 function fmtPct(v?: number | null) {
   if (v === null || v === undefined || Number.isNaN(v)) return "--";
@@ -102,23 +104,23 @@ function formatTickLabel(ts: string, range: RangeKey) {
   return `${month}-${day}`;
 }
 
-function CycleTooltip({ active, payload }: any) {
+function CycleTooltip({ active, payload, t }: any) {
   if (!active || !payload?.length) return null;
   const p = payload[0]?.payload;
   if (!p) return null;
 
   let detail = "";
   if (p.overflow === "low") {
-    detail = `Below ${p.rangeEnd?.toFixed(1)}s`;
+    detail = `${t("reports.tooltip.below")} ${p.rangeEnd?.toFixed(1)}s`;
   } else if (p.overflow === "high") {
-    detail = `Above ${p.rangeStart?.toFixed(1)}s`;
+    detail = `${t("reports.tooltip.above")} ${p.rangeStart?.toFixed(1)}s`;
   } else if (p.rangeStart != null && p.rangeEnd != null) {
     detail = `${p.rangeStart.toFixed(1)}s - ${p.rangeEnd.toFixed(1)}s`;
   }
 
   const extreme =
     p.overflow && (p.minValue != null || p.maxValue != null)
-      ? `Extremes: ${p.minValue?.toFixed(1) ?? "--"}s - ${p.maxValue?.toFixed(1) ?? "--"}s`
+      ? `${t("reports.tooltip.extremes")}: ${p.minValue?.toFixed(1) ?? "--"}s - ${p.maxValue?.toFixed(1) ?? "--"}s`
       : "";
 
   return (
@@ -126,11 +128,11 @@ function CycleTooltip({ active, payload }: any) {
       <div className="text-sm font-semibold text-white">{p.label}</div>
       <div className="mt-2 space-y-1 text-xs text-zinc-300">
         <div>
-          Cycles: <span className="text-white">{p.count}</span>
+          {t("reports.tooltip.cycles")}: <span className="text-white">{p.count}</span>
         </div>
         {detail ? (
           <div>
-            Range: <span className="text-white">{detail}</span>
+            {t("reports.tooltip.range")}: <span className="text-white">{detail}</span>
           </div>
         ) : null}
         {extreme ? <div className="text-zinc-400">{extreme}</div> : null}
@@ -139,7 +141,7 @@ function CycleTooltip({ active, payload }: any) {
   );
 }
 
-function DowntimeTooltip({ active, payload }: any) {
+function DowntimeTooltip({ active, payload, t }: any) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload ?? {};
   const label = row.name ?? payload[0]?.name ?? "";
@@ -149,13 +151,13 @@ function DowntimeTooltip({ active, payload }: any) {
     <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
       <div className="text-sm font-semibold text-white">{label}</div>
       <div className="mt-2 text-xs text-zinc-300">
-        Downtime: <span className="text-white">{Number(value)} min</span>
+        {t("reports.tooltip.downtime")}: <span className="text-white">{Number(value)} min</span>
       </div>
     </div>
   );
 }
 
-function buildCsv(report: ReportPayload) {
+function buildCsv(report: ReportPayload, t: Translator) {
   const rows = new Map<string, Record<string, string | number>>();
   const addSeries = (series: ReportTrendPoint[], key: string) => {
     for (const p of series) {
@@ -195,7 +197,9 @@ function buildCsv(report: ReportPayload) {
   const downtime = report.downtime;
 
   const sectionLines: string[] = [];
-  sectionLines.push("section,key,value");
+  sectionLines.push(
+    [t("reports.csv.section"), t("reports.csv.key"), t("reports.csv.value")].join(",")
+  );
   const addRow = (section: string, key: string, value: string | number | null | undefined) => {
     sectionLines.push(
       [section, key, value == null ? "" : String(value)]
@@ -248,7 +252,8 @@ function downloadText(filename: string, content: string) {
 function buildPdfHtml(
   report: ReportPayload,
   rangeLabel: string,
-  filters: { machine: string; workOrder: string; sku: string }
+  filters: { machine: string; workOrder: string; sku: string },
+  t: Translator
 ) {
   const summary = report.summary;
   const downtime = report.downtime;
@@ -260,7 +265,7 @@ function buildPdfHtml(
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Report Export</title>
+  <title>${t("reports.pdf.title")}</title>
   <style>
     body { font-family: Arial, sans-serif; color: #111; margin: 24px; }
     h1 { margin: 0 0 6px; }
@@ -275,8 +280,8 @@ function buildPdfHtml(
   </style>
 </head>
 <body>
-  <h1>Reports</h1>
-  <div class="meta">Range: ${rangeLabel} | Machine: ${filters.machine} | Work Order: ${filters.workOrder} | SKU: ${filters.sku}</div>
+  <h1>${t("reports.title")}</h1>
+  <div class="meta">${t("reports.pdf.range")}: ${rangeLabel} | ${t("reports.pdf.machine")}: ${filters.machine} | ${t("reports.pdf.workOrder")}: ${filters.workOrder} | ${t("reports.pdf.sku")}: ${filters.sku}</div>
 
   <div class="grid">
     <div class="card">
@@ -298,44 +303,44 @@ function buildPdfHtml(
   </div>
 
   <div class="card" style="margin-top: 16px;">
-    <div class="label">Top Loss Drivers</div>
+    <div class="label">${t("reports.pdf.topLoss")}</div>
     <table>
       <thead>
-        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><th>${t("reports.pdf.metric")}</th><th>${t("reports.pdf.value")}</th></tr>
       </thead>
       <tbody>
-        <tr><td>Macrostop (sec)</td><td>${downtime.macrostopSec}</td></tr>
-        <tr><td>Microstop (sec)</td><td>${downtime.microstopSec}</td></tr>
-        <tr><td>Slow Cycles</td><td>${downtime.slowCycleCount}</td></tr>
-        <tr><td>Quality Spikes</td><td>${downtime.qualitySpikeCount}</td></tr>
-        <tr><td>Performance Degradation</td><td>${downtime.performanceDegradationCount}</td></tr>
-        <tr><td>OEE Drops</td><td>${downtime.oeeDropCount}</td></tr>
+        <tr><td>${t("reports.loss.macrostop")} (sec)</td><td>${downtime.macrostopSec}</td></tr>
+        <tr><td>${t("reports.loss.microstop")} (sec)</td><td>${downtime.microstopSec}</td></tr>
+        <tr><td>${t("reports.loss.slowCycle")}</td><td>${downtime.slowCycleCount}</td></tr>
+        <tr><td>${t("reports.loss.qualitySpike")}</td><td>${downtime.qualitySpikeCount}</td></tr>
+        <tr><td>${t("reports.loss.perfDegradation")}</td><td>${downtime.performanceDegradationCount}</td></tr>
+        <tr><td>${t("reports.loss.oeeDrop")}</td><td>${downtime.oeeDropCount}</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="card" style="margin-top: 16px;">
-    <div class="label">Quality Summary</div>
+    <div class="label">${t("reports.pdf.qualitySummary")}</div>
     <table>
       <thead>
-        <tr><th>Metric</th><th>Value</th></tr>
+        <tr><th>${t("reports.pdf.metric")}</th><th>${t("reports.pdf.value")}</th></tr>
       </thead>
       <tbody>
-        <tr><td>Scrap Rate</td><td>${summary.scrapRate != null ? summary.scrapRate.toFixed(1) + "%" : "--"}</td></tr>
-        <tr><td>Good Total</td><td>${summary.goodTotal ?? "--"}</td></tr>
-        <tr><td>Scrap Total</td><td>${summary.scrapTotal ?? "--"}</td></tr>
-        <tr><td>Target Total</td><td>${summary.targetTotal ?? "--"}</td></tr>
-        <tr><td>Top Scrap SKU</td><td>${summary.topScrapSku ?? "--"}</td></tr>
-        <tr><td>Top Scrap Work Order</td><td>${summary.topScrapWorkOrder ?? "--"}</td></tr>
+        <tr><td>${t("reports.scrapRate")}</td><td>${summary.scrapRate != null ? summary.scrapRate.toFixed(1) + "%" : "--"}</td></tr>
+        <tr><td>${t("overview.good")}</td><td>${summary.goodTotal ?? "--"}</td></tr>
+        <tr><td>${t("overview.scrap")}</td><td>${summary.scrapTotal ?? "--"}</td></tr>
+        <tr><td>${t("overview.target")}</td><td>${summary.targetTotal ?? "--"}</td></tr>
+        <tr><td>${t("reports.topScrapSku")}</td><td>${summary.topScrapSku ?? "--"}</td></tr>
+        <tr><td>${t("reports.topScrapWorkOrder")}</td><td>${summary.topScrapWorkOrder ?? "--"}</td></tr>
       </tbody>
     </table>
   </div>
 
   <div class="card" style="margin-top: 16px;">
-    <div class="label">Cycle Time Distribution</div>
+    <div class="label">${t("reports.pdf.cycleDistribution")}</div>
     <table>
       <thead>
-        <tr><th>Bin</th><th>Count</th></tr>
+        <tr><th>${t("reports.tooltip.range")}</th><th>${t("reports.tooltip.cycles")}</th></tr>
       </thead>
       <tbody>
         ${cycleBins
@@ -346,8 +351,8 @@ function buildPdfHtml(
   </div>
 
   <div class="card" style="margin-top: 16px;">
-    <div class="label">Notes for Ops</div>
-    ${insights.length ? `<ul>${insights.map((n) => `<li>${n}</li>`).join("")}</ul>` : "<div>None</div>"}
+    <div class="label">${t("reports.pdf.notes")}</div>
+    ${insights.length ? `<ul>${insights.map((n) => `<li>${n}</li>`).join("")}</ul>` : `<div>${t("reports.pdf.none")}</div>`}
   </div>
 </body>
 </html>
@@ -355,6 +360,7 @@ function buildPdfHtml(
 }
 
 export default function ReportsPage() {
+  const { t, locale } = useI18n();
   const [range, setRange] = useState<RangeKey>("24h");
   const [report, setReport] = useState<ReportPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -366,11 +372,11 @@ export default function ReportsPage() {
   const [sku, setSku] = useState("");
 
   const rangeLabel = useMemo(() => {
-    if (range === "24h") return "Last 24 hours";
-    if (range === "7d") return "Last 7 days";
-    if (range === "30d") return "Last 30 days";
-    return "Custom range";
-  }, [range]);
+    if (range === "24h") return t("reports.rangeLabel.last24");
+    if (range === "7d") return t("reports.rangeLabel.last7");
+    if (range === "30d") return t("reports.rangeLabel.last30");
+    return t("reports.rangeLabel.custom");
+  }, [range, t]);
 
   useEffect(() => {
     let alive = true;
@@ -400,14 +406,14 @@ export default function ReportsPage() {
         const json = await res.json();
         if (!alive) return;
         if (!res.ok || json?.ok === false) {
-          setError(json?.error ?? "Failed to load reports");
+          setError(json?.error ?? t("reports.error.failed"));
           setReport(null);
         } else {
           setReport(json);
         }
       } catch {
         if (!alive) return;
-        setError("Network error");
+        setError(t("reports.error.network"));
         setReport(null);
       } finally {
         if (alive) setLoading(false);
@@ -494,26 +500,31 @@ export default function ReportsPage() {
   };
 
   const machineLabel = useMemo(() => {
-    if (!machineId) return "All machines";
+    if (!machineId) return t("reports.filter.allMachines");
     return machines.find((m) => m.id === machineId)?.name ?? machineId;
-  }, [machineId, machines]);
+  }, [machineId, machines, t]);
 
-  const workOrderLabel = workOrderId || "All work orders";
-  const skuLabel = sku || "All SKUs";
+  const workOrderLabel = workOrderId || t("reports.filter.allWorkOrders");
+  const skuLabel = sku || t("reports.filter.allSkus");
 
   const handleExportCsv = () => {
     if (!report) return;
-    const csv = buildCsv(report);
+    const csv = buildCsv(report, t);
     downloadText("reports.csv", csv);
   };
 
   const handleExportPdf = () => {
     if (!report) return;
-    const html = buildPdfHtml(report, rangeLabel, {
-      machine: machineLabel,
-      workOrder: workOrderLabel,
-      sku: skuLabel,
-    });
+    const html = buildPdfHtml(
+      report,
+      rangeLabel,
+      {
+        machine: machineLabel,
+        workOrder: workOrderLabel,
+        sku: skuLabel,
+      },
+      t
+    );
 
     const win = window.open("", "_blank", "width=900,height=650");
     if (!win) return;
@@ -528,10 +539,8 @@ export default function ReportsPage() {
     <div className="p-6">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Reports</h1>
-          <p className="text-sm text-zinc-400">
-            Trends, downtime, and quality analytics across machines.
-          </p>
+          <h1 className="text-2xl font-semibold text-white">{t("reports.title")}</h1>
+          <p className="text-sm text-zinc-400">{t("reports.subtitle")}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -539,26 +548,26 @@ export default function ReportsPage() {
             onClick={handleExportCsv}
             className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
           >
-            Export CSV
+            {t("reports.exportCsv")}
           </button>
           <button
             onClick={handleExportPdf}
             className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
           >
-            Export PDF
+            {t("reports.exportPdf")}
           </button>
         </div>
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="text-sm font-semibold text-white">Filters</div>
+          <div className="text-sm font-semibold text-white">{t("reports.filters")}</div>
           <div className="text-xs text-zinc-400">{rangeLabel}</div>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="text-[11px] text-zinc-400">Range</div>
+            <div className="text-[11px] text-zinc-400">{t("reports.filter.range")}</div>
             <div className="mt-2 flex flex-wrap gap-2">
               {(["24h", "7d", "30d", "custom"] as RangeKey[]).map((k) => (
                 <button
@@ -577,13 +586,13 @@ export default function ReportsPage() {
           </div>
 
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="text-[11px] text-zinc-400">Machine</div>
+            <div className="text-[11px] text-zinc-400">{t("reports.filter.machine")}</div>
             <select
               value={machineId}
               onChange={(e) => setMachineId(e.target.value)}
               className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300"
             >
-              <option value="">All machines</option>
+              <option value="">{t("reports.filter.allMachines")}</option>
               {machines.map((m) => (
                 <option key={m.id} value={m.id}>
                   {m.name}
@@ -593,12 +602,12 @@ export default function ReportsPage() {
           </div>
 
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="text-[11px] text-zinc-400">Work Order</div>
+            <div className="text-[11px] text-zinc-400">{t("reports.filter.workOrder")}</div>
             <input
               list="work-order-list"
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
-              placeholder="All work orders"
+              placeholder={t("reports.filter.allWorkOrders")}
               className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-500"
             />
             <datalist id="work-order-list">
@@ -609,12 +618,12 @@ export default function ReportsPage() {
           </div>
 
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-            <div className="text-[11px] text-zinc-400">SKU</div>
+            <div className="text-[11px] text-zinc-400">{t("reports.filter.sku")}</div>
             <input
               list="sku-list"
               value={sku}
               onChange={(e) => setSku(e.target.value)}
-              placeholder="All SKUs"
+              placeholder={t("reports.filter.allSkus")}
               className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-500"
             />
             <datalist id="sku-list">
@@ -627,7 +636,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="mt-4">
-        {loading && <div className="text-sm text-zinc-400">Loading reports...</div>}
+        {loading && <div className="text-sm text-zinc-400">{t("reports.loading")}</div>}
         {error && !loading && (
           <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
             {error}
@@ -646,7 +655,7 @@ export default function ReportsPage() {
             <div className="text-xs text-zinc-400">{kpi.label} (avg)</div>
             <div className={`mt-2 text-3xl font-semibold ${kpi.tone}`}>{kpi.value}</div>
             <div className="mt-2 text-xs text-zinc-500">
-              {summary ? "Computed from KPI snapshots." : "No data in selected range."}
+              {summary ? t("reports.kpi.note.withData") : t("reports.kpi.note.noData")}
             </div>
           </div>
         ))}
@@ -654,19 +663,23 @@ export default function ReportsPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-2 text-sm font-semibold text-white">OEE Trend</div>
+          <div className="mb-2 text-sm font-semibold text-white">{t("reports.oeeTrend")}</div>
           <div className="h-[260px] rounded-2xl border border-white/10 bg-black/25 p-4">
             {oeeSeries.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={oeeSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="label" tick={{ fill: "#a1a1aa" }} />
-                  <YAxis domain={[0, 100]} tick={{ fill: "#a1a1aa" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
+                  <XAxis dataKey="label" tick={{ fill: "var(--app-chart-tick)" }} />
+                  <YAxis domain={[0, 100]} tick={{ fill: "var(--app-chart-tick)" }} />
                   <Tooltip
-                    contentStyle={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.1)" }}
+                    contentStyle={{
+                      background: "var(--app-chart-tooltip-bg)",
+                      border: "1px solid var(--app-chart-tooltip-border)",
+                    }}
+                    labelStyle={{ color: "var(--app-chart-label)" }}
                     labelFormatter={(_, payload) => {
                       const row = payload?.[0]?.payload;
-                      return row?.ts ? new Date(row.ts).toLocaleString() : "";
+                      return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
                     formatter={(val: any) => [`${Number(val).toFixed(1)}%`, "OEE"]}
                   />
@@ -675,22 +688,22 @@ export default function ReportsPage() {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                No trend data yet.
+                {t("reports.noTrend")}
               </div>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-2 text-sm font-semibold text-white">Downtime Pareto</div>
+          <div className="mb-2 text-sm font-semibold text-white">{t("reports.downtimePareto")}</div>
           <div className="h-[260px] rounded-2xl border border-white/10 bg-black/25 p-4">
             {downtimeSeries.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={downtimeSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="name" tick={{ fill: "#a1a1aa" }} />
-                  <YAxis tick={{ fill: "#a1a1aa" }} />
-                  <Tooltip content={<DowntimeTooltip />} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
+                  <XAxis dataKey="name" tick={{ fill: "var(--app-chart-tick)" }} />
+                  <YAxis tick={{ fill: "var(--app-chart-tick)" }} />
+                  <Tooltip content={<DowntimeTooltip t={t} />} />
                   <Bar dataKey="value" radius={[10, 10, 0, 0]} isAnimationActive={false}>
                     {downtimeSeries.map((row, idx) => (
                       <Cell key={`${row.name}-${idx}`} fill={downtimeColors[row.name] ?? "#94a3b8"} />
@@ -700,7 +713,7 @@ export default function ReportsPage() {
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                No downtime data yet.
+                {t("reports.noTrend")}
               </div>
             )}
           </div>
@@ -709,65 +722,69 @@ export default function ReportsPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-2 text-sm font-semibold text-white">Cycle Time Distribution</div>
+          <div className="mb-2 text-sm font-semibold text-white">{t("reports.cycleDistribution")}</div>
           <div className="h-[220px] rounded-2xl border border-white/10 bg-black/25 p-4">
             {cycleHistogram.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={cycleHistogram}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="label" tick={{ fill: "#a1a1aa", fontSize: 10 }} />
-                  <YAxis tick={{ fill: "#a1a1aa" }} />
-                  <Tooltip content={<CycleTooltip />} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
+                  <XAxis dataKey="label" tick={{ fill: "var(--app-chart-tick)", fontSize: 10 }} />
+                  <YAxis tick={{ fill: "var(--app-chart-tick)" }} />
+                  <Tooltip content={<CycleTooltip t={t} />} />
                   <Bar dataKey="count" radius={[8, 8, 0, 0]} fill="#60a5fa" isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                No cycle data yet.
+                {t("reports.noCycle")}
               </div>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-2 text-sm font-semibold text-white">Scrap Trend</div>
+          <div className="mb-2 text-sm font-semibold text-white">{t("reports.scrapTrend")}</div>
           <div className="h-[220px] rounded-2xl border border-white/10 bg-black/25 p-4">
             {scrapSeries.length ? (
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={scrapSeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                  <XAxis dataKey="label" tick={{ fill: "#a1a1aa" }} />
-                  <YAxis domain={[0, 100]} tick={{ fill: "#a1a1aa" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
+                  <XAxis dataKey="label" tick={{ fill: "var(--app-chart-tick)" }} />
+                  <YAxis domain={[0, 100]} tick={{ fill: "var(--app-chart-tick)" }} />
                   <Tooltip
-                    contentStyle={{ background: "rgba(0,0,0,0.85)", border: "1px solid rgba(255,255,255,0.1)" }}
+                    contentStyle={{
+                      background: "var(--app-chart-tooltip-bg)",
+                      border: "1px solid var(--app-chart-tooltip-border)",
+                    }}
+                    labelStyle={{ color: "var(--app-chart-label)" }}
                     labelFormatter={(_, payload) => {
                       const row = payload?.[0]?.payload;
-                      return row?.ts ? new Date(row.ts).toLocaleString() : "";
+                      return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
-                    formatter={(val: any) => [`${Number(val).toFixed(1)}%`, "Scrap Rate"]}
+                    formatter={(val: any) => [`${Number(val).toFixed(1)}%`, t("reports.scrapRate")]}
                   />
                   <Line type="monotone" dataKey="value" stroke="#f97316" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (
               <div className="flex h-full items-center justify-center text-sm text-zinc-500">
-                No scrap data yet.
+                {t("reports.noDowntime")}
               </div>
             )}
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-2 text-sm font-semibold text-white">Top Loss Drivers</div>
+          <div className="mb-2 text-sm font-semibold text-white">{t("reports.topLossDrivers")}</div>
           <div className="space-y-3 text-sm text-zinc-300">
             {[
-              { label: "Macrostop", value: fmtDuration(downtime?.macrostopSec) },
-              { label: "Microstop", value: fmtDuration(downtime?.microstopSec) },
-              { label: "Slow Cycle", value: downtime ? `${downtime.slowCycleCount}` : "--" },
-              { label: "Quality Spike", value: downtime ? `${downtime.qualitySpikeCount}` : "--" },
-              { label: "OEE Drop", value: downtime ? `${downtime.oeeDropCount}` : "--" },
+              { label: t("reports.loss.macrostop"), value: fmtDuration(downtime?.macrostopSec) },
+              { label: t("reports.loss.microstop"), value: fmtDuration(downtime?.microstopSec) },
+              { label: t("reports.loss.slowCycle"), value: downtime ? `${downtime.slowCycleCount}` : "--" },
+              { label: t("reports.loss.qualitySpike"), value: downtime ? `${downtime.qualitySpikeCount}` : "--" },
+              { label: t("reports.loss.oeeDrop"), value: downtime ? `${downtime.oeeDropCount}` : "--" },
               {
-                label: "Perf Degradation",
+                label: t("reports.loss.perfDegradation"),
                 value: downtime ? `${downtime.performanceDegradationCount}` : "--",
               },
             ].map((row) => (
@@ -782,29 +799,29 @@ export default function ReportsPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">Quality Summary</div>
+          <div className="mb-3 text-sm font-semibold text-white">{t("reports.qualitySummary")}</div>
           <div className="space-y-3 text-sm text-zinc-300">
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">Scrap Rate</div>
+              <div className="text-xs text-zinc-400">{t("reports.scrapRate")}</div>
               <div className="mt-1 text-lg font-semibold text-white">
                 {summary?.scrapRate != null ? fmtPct(summary.scrapRate) : "--"}
               </div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">Top Scrap SKU</div>
+              <div className="text-xs text-zinc-400">{t("reports.topScrapSku")}</div>
               <div className="mt-1 text-sm text-zinc-300">{summary?.topScrapSku ?? "--"}</div>
             </div>
             <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">Top Scrap Work Order</div>
+              <div className="text-xs text-zinc-400">{t("reports.topScrapWorkOrder")}</div>
               <div className="mt-1 text-sm text-zinc-300">{summary?.topScrapWorkOrder ?? "--"}</div>
             </div>
           </div>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">Notes for Ops</div>
+          <div className="mb-3 text-sm font-semibold text-white">{t("reports.notes")}</div>
           <div className="rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
-            <div className="mb-2 text-xs text-zinc-400">Suggested actions</div>
+            <div className="mb-2 text-xs text-zinc-400">{t("reports.notes.suggested")}</div>
             {report?.insights && report.insights.length > 0 ? (
               <div className="space-y-2">
                 {report.insights.map((note, idx) => (
@@ -812,7 +829,7 @@ export default function ReportsPage() {
                 ))}
               </div>
             ) : (
-              <div>No insights yet. Generate reports after data collection.</div>
+              <div>{t("reports.notes.none")}</div>
             )}
           </div>
         </div>

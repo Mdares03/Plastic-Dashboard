@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type MachineRow = {
   id: string;
@@ -17,11 +18,12 @@ type MachineRow = {
   };
 };
 
-function secondsAgo(ts?: string) {
-  if (!ts) return "never";
+function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
+  if (!ts) return fallback;
   const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  if (diff < 60) return `${diff}s ago`;
-  return `${Math.floor(diff / 60)}m ago`;
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (diff < 60) return rtf.format(-diff, "second");
+  return rtf.format(-Math.floor(diff / 60), "minute");
 }
 
 function isOffline(ts?: string) {
@@ -45,6 +47,7 @@ function badgeClass(status?: string, offline?: boolean) {
 }
 
 export default function MachinesPage() {
+  const { t, locale } = useI18n();
   const [machines, setMachines] = useState<MachineRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -88,7 +91,7 @@ export default function MachinesPage() {
 
   async function createMachine() {
     if (!createName.trim()) {
-      setCreateError("Machine name is required");
+      setCreateError(t("machines.create.error.nameRequired"));
       return;
     }
 
@@ -107,7 +110,7 @@ export default function MachinesPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to create machine");
+        throw new Error(data.error || t("machines.create.error.failed"));
       }
 
       const nextMachine = {
@@ -126,7 +129,7 @@ export default function MachinesPage() {
       setCreateLocation("");
       setShowCreate(false);
     } catch (err: any) {
-      setCreateError(err?.message || "Failed to create machine");
+      setCreateError(err?.message || t("machines.create.error.failed"));
     } finally {
       setCreating(false);
     }
@@ -136,12 +139,12 @@ export default function MachinesPage() {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(text);
-        setCopyStatus("Copied");
+        setCopyStatus(t("machines.pairing.copied"));
       } else {
-        setCopyStatus("Copy not supported");
+        setCopyStatus(t("machines.pairing.copyUnsupported"));
       }
     } catch {
-      setCopyStatus("Copy failed");
+      setCopyStatus(t("machines.pairing.copyFailed"));
     }
     setTimeout(() => setCopyStatus(null), 2000);
   }
@@ -152,8 +155,8 @@ export default function MachinesPage() {
     <div className="p-6">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Machines</h1>
-          <p className="text-sm text-zinc-400">Select a machine to view live KPIs.</p>
+          <h1 className="text-2xl font-semibold text-white">{t("machines.title")}</h1>
+          <p className="text-sm text-zinc-400">{t("machines.subtitle")}</p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -162,13 +165,13 @@ export default function MachinesPage() {
             onClick={() => setShowCreate((prev) => !prev)}
             className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30"
           >
-            {showCreate ? "Cancel" : "Add Machine"}
+            {showCreate ? t("machines.cancel") : t("machines.addMachine")}
           </button>
           <Link
             href="/overview"
             className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
           >
-            Back to Overview
+            {t("machines.backOverview")}
           </Link>
         </div>
       </div>
@@ -177,16 +180,14 @@ export default function MachinesPage() {
         <div className="mb-6 rounded-2xl border border-white/10 bg-white/5 p-5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <div className="text-sm font-semibold text-white">Add a machine</div>
-              <div className="text-xs text-zinc-400">
-                Generate the machine ID and API key for your Node-RED edge.
-              </div>
+              <div className="text-sm font-semibold text-white">{t("machines.addCardTitle")}</div>
+              <div className="text-xs text-zinc-400">{t("machines.addCardSubtitle")}</div>
             </div>
           </div>
 
           <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Machine Name
+              {t("machines.field.name")}
               <input
                 value={createName}
                 onChange={(event) => setCreateName(event.target.value)}
@@ -194,7 +195,7 @@ export default function MachinesPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Code (optional)
+              {t("machines.field.code")}
               <input
                 value={createCode}
                 onChange={(event) => setCreateCode(event.target.value)}
@@ -202,7 +203,7 @@ export default function MachinesPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              Location (optional)
+              {t("machines.field.location")}
               <input
                 value={createLocation}
                 onChange={(event) => setCreateLocation(event.target.value)}
@@ -218,8 +219,8 @@ export default function MachinesPage() {
               disabled={creating}
               className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
             >
-              {creating ? "Creating..." : "Create Machine"}
-            </button>
+            {creating ? t("machines.create.loading") : t("machines.create.default")}
+          </button>
             {createError && <div className="text-xs text-red-200">{createError}</div>}
           </div>
         </div>
@@ -227,22 +228,22 @@ export default function MachinesPage() {
 
       {createdMachine && (
       <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-          <div className="text-sm font-semibold text-white">Edge pairing code</div>
+          <div className="text-sm font-semibold text-white">{t("machines.pairing.title")}</div>
           <div className="mt-2 text-xs text-zinc-300">
-            Machine: <span className="text-white">{createdMachine.name}</span>
+            {t("machines.pairing.machine")} <span className="text-white">{createdMachine.name}</span>
           </div>
           <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
-            <div className="text-xs uppercase tracking-wide text-zinc-400">Pairing code</div>
+            <div className="text-xs uppercase tracking-wide text-zinc-400">{t("machines.pairing.codeLabel")}</div>
             <div className="mt-2 text-3xl font-semibold text-white">{createdMachine.pairingCode}</div>
             <div className="mt-2 text-xs text-zinc-400">
-              Expires{" "}
+              {t("machines.pairing.expires")}{" "}
               {createdMachine.pairingExpiresAt
-                ? new Date(createdMachine.pairingExpiresAt).toLocaleString()
-                : "soon"}
+                ? new Date(createdMachine.pairingExpiresAt).toLocaleString(locale)
+                : t("machines.pairing.soon")}
             </div>
           </div>
           <div className="mt-3 text-xs text-zinc-300">
-            Enter this code on the Node-RED Control Tower settings screen to link the edge device.
+            {t("machines.pairing.instructions")}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
@@ -250,17 +251,17 @@ export default function MachinesPage() {
               onClick={() => copyText(createdMachine.pairingCode)}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
             >
-              Copy Code
+              {t("machines.pairing.copy")}
             </button>
             {copyStatus && <div className="text-xs text-zinc-300">{copyStatus}</div>}
           </div>
         </div>
       )}
 
-      {loading && <div className="mb-4 text-sm text-zinc-400">Loading machines…</div>}
+      {loading && <div className="mb-4 text-sm text-zinc-400">{t("machines.loading")}</div>}
 
       {!loading && machines.length === 0 && (
-        <div className="mb-4 text-sm text-zinc-400">No machines found for this org.</div>
+        <div className="mb-4 text-sm text-zinc-400">{t("machines.empty")}</div>
       )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -268,8 +269,8 @@ export default function MachinesPage() {
           const hb = m.latestHeartbeat;
           const offline = isOffline(hb?.ts);
           const normalizedStatus = normalizeStatus(hb?.status);
-          const statusLabel = offline ? "OFFLINE" : normalizedStatus || "UNKNOWN";
-          const lastSeen = secondsAgo(hb?.ts);
+          const statusLabel = offline ? t("machines.status.offline") : (normalizedStatus || t("machines.status.unknown"));
+          const lastSeen = secondsAgo(hb?.ts, locale, t("common.never"));
 
           return (
             <Link
@@ -281,7 +282,7 @@ export default function MachinesPage() {
                 <div className="min-w-0">
                   <div className="truncate text-lg font-semibold text-white">{m.name}</div>
                   <div className="mt-1 text-xs text-zinc-400">
-                    {m.code ? m.code : "—"} • Last seen {lastSeen}
+                    {m.code ? m.code : t("common.na")} - {t("machines.lastSeen", { time: lastSeen })}
                   </div>
                 </div>
 
@@ -295,9 +296,9 @@ export default function MachinesPage() {
                 </span>
               </div>
 
-              <div className="mt-4 text-sm text-zinc-400">Status</div>
+              <div className="mt-4 text-sm text-zinc-400">{t("machines.status")}</div>
               <div className="text-xl font-semibold text-white">
-                {offline ? "No heartbeat" : hb?.message ?? "OK"}
+                {offline ? t("machines.status.noHeartbeat") : (hb?.message ?? t("machines.status.ok"))}
               </div>
             </Link>
           );
@@ -306,3 +307,7 @@ export default function MachinesPage() {
     </div>
   );
 }
+
+
+
+

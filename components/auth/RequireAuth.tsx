@@ -19,7 +19,7 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <div className="min-h-screen bg-[#070A0C] text-zinc-200 flex items-center justify-center">
+      <div className="min-h-screen bg-black text-zinc-200 flex items-center justify-center">
         Loading…
       </div>
     );

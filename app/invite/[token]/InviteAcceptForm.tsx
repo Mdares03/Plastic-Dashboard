@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type InviteInfo = {
   email: string;
@@ -22,6 +23,7 @@ export default function InviteAcceptForm({
   initialError = null,
 }: InviteAcceptFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const cleanedToken = token.trim();
   const [invite, setInvite] = useState<InviteInfo | null>(initialInvite);
   const [loading, setLoading] = useState(!initialInvite && !initialError);
@@ -46,11 +48,11 @@ export default function InviteAcceptForm({
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.ok) {
-          throw new Error(data.error || "Invite not found");
+          throw new Error(data.error || t("invite.error.notFound"));
         }
         if (alive) setInvite(data.invite);
       } catch (err: any) {
-        if (alive) setError(err?.message || "Invite not found");
+        if (alive) setError(err?.message || t("invite.error.notFound"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -74,12 +76,12 @@ export default function InviteAcceptForm({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Invite acceptance failed");
+        throw new Error(data.error || t("invite.error.acceptFailed"));
       }
       router.push("/machines");
       router.refresh();
     } catch (err: any) {
-      setError(err?.message || "Invite acceptance failed");
+      setError(err?.message || t("invite.error.acceptFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -88,7 +90,7 @@ export default function InviteAcceptForm({
   if (loading) {
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6 text-zinc-300">
-        Loading invite...
+        {t("invite.loading")}
       </div>
     );
   }
@@ -97,7 +99,7 @@ export default function InviteAcceptForm({
     return (
       <div className="min-h-screen bg-black flex items-center justify-center p-6">
         <div className="max-w-md rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
-          {error || "Invite not found."}
+          {error || t("invite.notFound")}
         </div>
       </div>
     );
@@ -106,14 +108,16 @@ export default function InviteAcceptForm({
   return (
     <div className="min-h-screen bg-black flex items-center justify-center p-6">
       <form onSubmit={onSubmit} className="w-full max-w-lg rounded-2xl border border-white/10 bg-white/5 p-8">
-        <h1 className="text-2xl font-semibold text-white">Join {invite.org.name}</h1>
+        <h1 className="text-2xl font-semibold text-white">
+          {t("invite.joinTitle", { org: invite.org.name })}
+        </h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Accept the invite for {invite.email} as {invite.role}.
+          {t("invite.acceptCopy", { email: invite.email, role: invite.role })}
         </p>
 
         <div className="mt-6 space-y-4">
           <div>
-            <label className="text-sm text-zinc-300">Your name</label>
+            <label className="text-sm text-zinc-300">{t("invite.yourName")}</label>
             <input
               className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
               value={name}
@@ -123,7 +127,7 @@ export default function InviteAcceptForm({
           </div>
 
           <div>
-            <label className="text-sm text-zinc-300">Password</label>
+            <label className="text-sm text-zinc-300">{t("invite.password")}</label>
             <input
               type="password"
               className="mt-1 w-full rounded-xl border border-white/10 bg-black/40 px-4 py-3 text-white outline-none"
@@ -140,7 +144,7 @@ export default function InviteAcceptForm({
             disabled={submitting}
             className="mt-2 w-full rounded-xl bg-emerald-400 py-3 font-semibold text-black disabled:opacity-70"
           >
-            {submitting ? "Joining..." : "Join organization"}
+            {submitting ? t("invite.submit.loading") : t("invite.submit.default")}
           </button>
         </div>
       </form>
