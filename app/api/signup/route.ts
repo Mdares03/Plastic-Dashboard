@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { DEFAULT_ALERTS, DEFAULT_DEFAULTS, DEFAULT_SHIFT } from "@/lib/settings";
 import { buildVerifyEmail, sendEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/appUrl";
+import { logLine } from "@/lib/logger";
+
 
 function slugify(input: string) {
   const trimmed = input.trim().toLowerCase();
@@ -120,10 +122,16 @@ export async function POST(req: Request) {
       text: emailContent.text,
       html: emailContent.html,
     });
-  } catch {
+  } catch (err: any) {
     emailSent = false;
+    logLine("signup.verify_email.failed", {
+      email,
+      message: err?.message,
+      code: err?.code,
+      response: err?.response,
+      responseCode: err?.responseCode,
+    });
   }
-
   return NextResponse.json({
     ok: true,
     verificationRequired: true,

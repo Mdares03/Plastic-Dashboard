@@ -1,4 +1,6 @@
 import nodemailer from "nodemailer";
+import { logLine } from "@/lib/logger";
+
 
 type EmailPayload = {
   to: string;
@@ -25,11 +27,23 @@ function getTransporter() {
     throw new Error("SMTP not configured");
   }
 
+  const smtpDebug = process.env.SMTP_DEBUG === "true";
+  logLine("smtp.config", {
+    host,
+    port,
+    secure,
+    user,
+    from: process.env.SMTP_FROM,
+    smtpDebug,
+  });
+
   cachedTransport = nodemailer.createTransport({
     host,
     port,
     secure,
     auth: { user, pass },
+    logger: smtpDebug,
+    debug: smtpDebug,
   });
 
   return cachedTransport;
@@ -40,15 +54,55 @@ export async function sendEmail(payload: EmailPayload) {
   if (!from) {
     throw new Error("SMTP_FROM not configured");
   }
-
-  const transporter = getTransporter();
-  return transporter.sendMail({
-    from,
+   logLine("email.send.start", {
     to: payload.to,
     subject: payload.subject,
-    text: payload.text,
-    html: payload.html,
+    from,
   });
+
+
+  const transporter = getTransporter();
+    try {
+    const info = await transporter.sendMail({
+      from,
+      to: payload.to,
+      subject: payload.subject,
+      text: payload.text,
+      html: payload.html,
+      headers: {
+        "X-Mailer": "MIS Control Tower",
+      },
+
+      replyTo: from,
+    });
+
+    // Nodemailer response details:
+    logLine("email.send.ok", {
+      to: payload.to,
+      from,
+      messageId: info.messageId,
+      response: info.response,
+      accepted: info.accepted,
+      rejected: info.rejected,
+      pending: (info as any).pending,
+    });
+
+    return info;
+  } catch (err: any) {
+    logLine("email.send.err", {
+      to: payload.to,
+      from,
+      name: err?.name,
+      message: err?.message,
+      code: err?.code,
+      command: err?.command,
+      response: err?.response,
+      responseCode: err?.responseCode,
+      stack: err?.stack,
+    });
+    throw err;
+  }
+  
 }
 
 export function buildVerifyEmail(params: { appName: string; verifyUrl: string }) {
