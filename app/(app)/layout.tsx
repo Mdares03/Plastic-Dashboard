@@ -1,4 +1,4 @@
-import { Sidebar } from "@/components/layout/Sidebar";
+import { AppShell } from "@/components/layout/AppShell";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
@@ -24,12 +24,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login?next=/machines");
   }
 
-  return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="flex">
-        <Sidebar />
-        <main className="flex-1 min-h-screen">{children}</main>
-      </div>
-    </div>
-  );
+  return <AppShell>{children}</AppShell>;
 }

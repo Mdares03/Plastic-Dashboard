@@ -37,12 +37,15 @@ export function useI18n() {
     return () => window.removeEventListener(LOCALE_EVENT, handler);
   }, []);
 
-  const setLocaleAndPersist = useCallback((next: Locale) => {
-    document.documentElement.setAttribute("lang", next);
-    document.cookie = `${LOCALE_COOKIE}=${next}; Path=/; Max-Age=31536000; SameSite=Lax`;
-    setLocale(next);
-    window.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: next }));
-  }, [setLocale]);
+  const setLocaleAndPersist = useCallback(
+    (next: Locale) => {
+      document.documentElement.setAttribute("lang", next);
+      document.cookie = `${LOCALE_COOKIE}=${next}; Path=/; Max-Age=31536000; SameSite=Lax`;
+      setLocale(next);
+      window.dispatchEvent(new CustomEvent(LOCALE_EVENT, { detail: next }));
+    },
+    [setLocale]
+  );
 
   const t = useCallback(
     (key: string, vars?: Record<string, string | number>) => translate(locale, key, vars),
