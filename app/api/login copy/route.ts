@@ -1,19 +1,33 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
 const COOKIE_NAME = "mis_session";
 const SESSION_DAYS = 7;
 
+const loginSchema = z.object({
+  email: z.string().trim().min(1).max(254).email(),
+  password: z.string().min(1).max(256),
+  next: z.string().optional(),
+});
+
+function safeNextPath(value: unknown) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "/machines";
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/machines";
+  return raw;
+}
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const email = String(body.email || "").trim().toLowerCase();
-  const password = String(body.password || "");
-  const next = String(body.next || "/machines");
-
-  if (!email || !password) {
-    return NextResponse.json({ ok: false, error: "Missing email/password" }, { status: 400 });
+  const parsed = loginSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid login payload" }, { status: 400 });
   }
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
+  const next = safeNextPath(parsed.data.next);
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user || !user.isActive) {

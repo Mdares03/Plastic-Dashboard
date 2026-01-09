@@ -3,7 +3,10 @@ import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 
-function normalizeEvent(row: any) {
+function normalizeEvent(
+  row: any,
+  thresholds: { microMultiplier: number; macroMultiplier: number }
+) {
   // -----------------------------
   // 1) Parse row.data safely
   // data may be:
@@ -91,9 +94,24 @@ function normalizeEvent(row: any) {
       (typeof inner?.stop_duration_seconds === "number" && inner.stop_duration_seconds) ||
       null;
 
-    // tune these thresholds to match your MES spec
-    const MACROSTOP_SEC = 300; // 5 min
-    eventType = stopSec != null && stopSec >= MACROSTOP_SEC ? "macrostop" : "microstop";
+    const microMultiplier = Number(thresholds?.microMultiplier ?? 1.5);
+    const macroMultiplier = Math.max(
+      microMultiplier,
+      Number(thresholds?.macroMultiplier ?? 5)
+    );
+
+    const theoreticalCycle =
+      Number(inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time) || 0;
+
+    if (stopSec != null) {
+      if (theoreticalCycle > 0) {
+        const macroThresholdSec = theoreticalCycle * macroMultiplier;
+        eventType = stopSec >= macroThresholdSec ? "macrostop" : "microstop";
+      } else {
+        const fallbackMacroSec = 300;
+        eventType = stopSec >= fallbackMacroSec ? "macrostop" : "microstop";
+      }
+    }
   }
 
   // -----------------------------
@@ -203,6 +221,17 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
+  const orgSettings = await prisma.orgSettings.findUnique({
+    where: { orgId: session.orgId },
+    select: { stoppageMultiplier: true, macroStoppageMultiplier: true },
+  });
+
+  const microMultiplier = Number(orgSettings?.stoppageMultiplier ?? 1.5);
+  const macroMultiplier = Math.max(
+    microMultiplier,
+    Number(orgSettings?.macroStoppageMultiplier ?? 5)
+  );
+
   const rawEvents = await prisma.machineEvent.findMany({
     where: {
       orgId: session.orgId,
@@ -224,7 +253,9 @@ export async function GET(
     },
   });
 
-  const normalized = rawEvents.map(normalizeEvent);
+  const normalized = rawEvents.map((row) =>
+    normalizeEvent(row, { microMultiplier, macroMultiplier })
+  );
 
 const ALLOWED_TYPES = new Set([
   "slow-cycle",
@@ -308,14 +339,15 @@ const cycles = rawCycles
       location: machine.location,
       latestHeartbeat: machine.heartbeats[0] ?? null,
       latestKpi: machine.kpiSnapshots[0] ?? null,
-      effectiveCycleTime
+      effectiveCycleTime,
       
+    },
+    thresholds: {
+      stoppageMultiplier: microMultiplier,
+      macroStoppageMultiplier: macroMultiplier,
     },
     events,
     cycles
   });
   
 }
-
-
-

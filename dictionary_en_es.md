@@ -178,6 +178,14 @@ Main KPIs remain English in ES-MX (OEE, KPI, SKU, AVAILABILITY, PERFORMANCE, QUA
 | machine.detail.error.failed | Failed to load machine | No se pudo cargar la máquina |
 | machine.detail.error.network | Network error | Error de red |
 | machine.detail.back | Back | Volver |
+| machine.detail.workOrders.upload | Upload Work Orders | Subir ordenes de trabajo |
+| machine.detail.workOrders.uploading | Uploading... | Subiendo... |
+| machine.detail.workOrders.uploadParsing | Parsing file... | Leyendo archivo... |
+| machine.detail.workOrders.uploadHint | CSV or XLSX with Work Order ID, SKU, Theoretical Cycle Time (Seconds), Target Quantity. | CSV o XLSX con Work Order ID, SKU, Theoretical Cycle Time (Seconds), Target Quantity. |
+| machine.detail.workOrders.uploadSuccess | Uploaded {count} work orders | Se cargaron {count} ordenes de trabajo |
+| machine.detail.workOrders.uploadError | Upload failed | No se pudo cargar |
+| machine.detail.workOrders.uploadInvalid | No valid work orders found | No se encontraron ordenes de trabajo validas |
+| machine.detail.workOrders.uploadUnauthorized | Not authorized to upload work orders | No autorizado para cargar ordenes de trabajo |
 | machine.detail.status.offline | OFFLINE | FUERA DE LÍNEA |
 | machine.detail.status.unknown | UNKNOWN | DESCONOCIDO |
 | machine.detail.status.run | RUN | EN MARCHA |
@@ -334,6 +342,7 @@ Main KPIs remain English in ES-MX (OEE, KPI, SKU, AVAILABILITY, PERFORMANCE, QUA
 | settings.thresholds.stoppage | Stoppage multiplier | Multiplicador de paro |
 | settings.alerts | Alerts | Alertas |
 | settings.alertsSubtitle | Choose which alerts to notify. | Elige qué alertas notificar. |
+| settings.thresholds.macroStoppage | Macro stoppage multiplier | Multiplicador de macroparo |
 | settings.alerts.oeeDrop | OEE drop alerts | Alertas por caída de OEE |
 | settings.alerts.oeeDropHelper | Notify when OEE falls below threshold | Notificar cuando OEE esté por debajo del umbral |
 | settings.alerts.performanceDegradation | Performance degradation alerts | Alertas por baja de Performance |

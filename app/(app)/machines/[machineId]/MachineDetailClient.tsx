@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -76,6 +76,11 @@ type MachineDetail = {
   latestKpi: Kpi | null;
 };
 
+type Thresholds = {
+  stoppageMultiplier: number;
+  macroStoppageMultiplier: number;
+};
+
 type TimelineState = "normal" | "slow" | "microstop" | "macrostop";
 
 type TimelineSeg = {
@@ -85,32 +90,148 @@ type TimelineSeg = {
   state: TimelineState;
 };
 
+type UploadState = {
+  status: "idle" | "parsing" | "uploading" | "success" | "error";
+  message?: string;
+  count?: number;
+};
+
+type WorkOrderUpload = {
+  workOrderId: string;
+  sku?: string;
+  targetQty?: number;
+  cycleTime?: number;
+};
+
 const TOL = 0.10;
+const DEFAULT_MICRO_MULT = 1.5;
+const DEFAULT_MACRO_MULT = 5;
+const NORMAL_TOL_SEC = 0.1;
 
-function classifyGap(dtSec: number, idealSec: number): TimelineState {
-  const SLOW_X = 1.5;
-  const STOP_X = 3.0;
-  const MACRO_X = 10.0;
 
-  if (dtSec <= idealSec * SLOW_X) return "normal";
-  if (dtSec <= idealSec * STOP_X) return "slow";
-  if (dtSec <= idealSec * MACRO_X) return "microstop";
+function resolveMultipliers(thresholds?: Thresholds | null) {
+  const micro = Number(thresholds?.stoppageMultiplier ?? DEFAULT_MICRO_MULT);
+  const macro = Math.max(
+    micro,
+    Number(thresholds?.macroStoppageMultiplier ?? DEFAULT_MACRO_MULT)
+  );
+  return { micro, macro };
+}
+
+function classifyCycleDuration(
+  actualSec: number,
+  idealSec: number,
+  thresholds?: Thresholds | null
+): TimelineState {
+  const { micro, macro } = resolveMultipliers(thresholds);
+
+  if (actualSec < idealSec + NORMAL_TOL_SEC) return "normal";
+  if (actualSec < idealSec * micro) return "slow";
+  if (actualSec < idealSec * macro) return "microstop";
   return "macrostop";
 }
 
-function mergeAdjacent(segs: TimelineSeg[]): TimelineSeg[] {
-  if (!segs.length) return [];
-  const out: TimelineSeg[] = [segs[0]];
-  for (let i = 1; i < segs.length; i++) {
-    const prev = out[out.length - 1];
-    const cur = segs[i];
-    if (cur.state === prev.state && cur.start <= prev.end + 1) {
-      prev.end = Math.max(prev.end, cur.end);
-      prev.durationSec = (prev.end - prev.start) / 1000;
-    } else {
-      out.push(cur);
+
+const WORK_ORDER_KEYS = {
+  id: new Set(["workorderid", "workorder", "orderid", "woid", "work_order_id", "otid"]),
+  sku: new Set(["sku"]),
+  cycle: new Set([
+    "theoreticalcycletimeseconds",
+    "theoreticalcycletime",
+    "cycletime",
+    "cycle_time",
+    "theoretical_cycle_time",
+  ]),
+  target: new Set(["targetquantity", "targetqty", "target", "target_qty"]),
+};
+
+function normalizeKey(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseCsvText(text: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+
+    if (ch === "\"") {
+      if (inQuotes && text[i + 1] === "\"") {
+        field += "\"";
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
     }
+
+    if (ch === "," && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && text[i + 1] === "\n") i += 1;
+      row.push(field);
+      field = "";
+      if (row.some((cell) => cell.trim().length > 0)) {
+        rows.push(row);
+      }
+      row = [];
+      continue;
+    }
+
+    field += ch;
   }
+
+  row.push(field);
+  if (row.some((cell) => cell.trim().length > 0)) {
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const headers = rows.shift()!.map((h) => h.trim());
+  return rows.map((cols) => {
+    const obj: Record<string, string> = {};
+    headers.forEach((header, idx) => {
+      obj[header] = (cols[idx] ?? "").trim();
+    });
+    return obj;
+  });
+}
+
+function pickRowValue(row: Record<string, any>, keys: Set<string>) {
+  for (const [key, value] of Object.entries(row)) {
+    if (keys.has(normalizeKey(key))) return value;
+  }
+  return undefined;
+}
+
+function rowsToWorkOrders(rows: Array<Record<string, any>>): WorkOrderUpload[] {
+  const seen = new Set<string>();
+  const out: WorkOrderUpload[] = [];
+
+  rows.forEach((row) => {
+    const rawId = pickRowValue(row, WORK_ORDER_KEYS.id);
+    const workOrderId = String(rawId ?? "").trim();
+    if (!workOrderId || seen.has(workOrderId)) return;
+    seen.add(workOrderId);
+
+    const sku = String(pickRowValue(row, WORK_ORDER_KEYS.sku) ?? "").trim();
+    const targetRaw = pickRowValue(row, WORK_ORDER_KEYS.target);
+    const cycleRaw = pickRowValue(row, WORK_ORDER_KEYS.cycle);
+
+    const targetQty = Number.isFinite(Number(targetRaw)) ? Math.trunc(Number(targetRaw)) : undefined;
+    const cycleTime = Number.isFinite(Number(cycleRaw)) ? Number(cycleRaw) : undefined;
+
+    out.push({ workOrderId, sku: sku || undefined, targetQty, cycleTime });
+  });
+
   return out;
 }
 
@@ -124,7 +245,10 @@ export default function MachineDetailClient() {
   const [events, setEvents] = useState<EventRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<CycleRow[]>([]);
+  const [thresholds, setThresholds] = useState<Thresholds | null>(null);
   const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
 
   const BUCKET = {
     normal: {
@@ -183,6 +307,7 @@ export default function MachineDetailClient() {
         setMachine(json.machine ?? null);
         setEvents(json.events ?? []);
         setCycles(json.cycles ?? []);
+        setThresholds(json.thresholds ?? null);
         setError(null);
         setLoading(false);
       } catch {
@@ -199,6 +324,101 @@ export default function MachineDetailClient() {
       clearInterval(timer);
     };
   }, [machineId, t]);
+
+  async function parseWorkOrdersFile(file: File) {
+    const name = file.name.toLowerCase();
+    if (name.endsWith(".csv")) {
+      const text = await file.text();
+      return rowsToWorkOrders(parseCsvText(text));
+    }
+
+    if (name.endsWith(".xls") || name.endsWith(".xlsx")) {
+      const buffer = await file.arrayBuffer();
+      const xlsx = await import("xlsx");
+      const workbook = xlsx.read(buffer, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      if (!sheet) return [];
+      const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
+      return rowsToWorkOrders(rows as Array<Record<string, any>>);
+    }
+
+    return null;
+  }
+
+  async function handleWorkOrderUpload(event: any) {
+    const file = event?.target?.files?.[0] as File | undefined;
+    if (!file) return;
+
+    if (!machineId) {
+      setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadError") });
+      event.target.value = "";
+      return;
+    }
+
+    setUploadState({ status: "parsing", message: t("machine.detail.workOrders.uploadParsing") });
+
+    try {
+      const workOrders = await parseWorkOrdersFile(file);
+      if (!workOrders) {
+        setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadInvalid") });
+        event.target.value = "";
+        return;
+      }
+
+      if (!workOrders.length) {
+        setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadInvalid") });
+        event.target.value = "";
+        return;
+      }
+
+      setUploadState({ status: "uploading", message: t("machine.detail.workOrders.uploading") });
+
+      const res = await fetch("/api/work-orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ machineId, workOrders }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || json?.ok === false) {
+        if (res.status === 401 || res.status === 403) {
+          setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadUnauthorized") });
+        } else {
+          setUploadState({
+            status: "error",
+            message: json?.error ?? t("machine.detail.workOrders.uploadError"),
+          });
+        }
+        event.target.value = "";
+        return;
+      }
+
+      setUploadState({
+        status: "success",
+        message: t("machine.detail.workOrders.uploadSuccess", { count: workOrders.length }),
+        count: workOrders.length,
+      });
+      event.target.value = "";
+    } catch {
+      setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadError") });
+      event.target.value = "";
+    }
+  }
+
+  const uploadButtonLabel =
+    uploadState.status === "parsing"
+      ? t("machine.detail.workOrders.uploadParsing")
+      : uploadState.status === "uploading"
+        ? t("machine.detail.workOrders.uploading")
+        : t("machine.detail.workOrders.upload");
+  const uploadStatusClass =
+    uploadState.status === "success"
+      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/20"
+      : uploadState.status === "error"
+        ? "bg-red-500/15 text-red-300 border-red-500/20"
+        : "bg-white/10 text-zinc-200 border-white/10";
+  const isUploading = uploadState.status === "parsing" || uploadState.status === "uploading";
 
   function fmtPct(v?: number | null) {
     if (v === null || v === undefined || Number.isNaN(v)) return t("common.na");
@@ -474,6 +694,7 @@ export default function MachineDetailClient() {
 
   const cycleDerived = useMemo(() => {
     const rows = cycles ?? [];
+    const { micro, macro } = resolveMultipliers(thresholds);
 
     const mapped: CycleDerivedRow[] = rows.map((cycle) => {
       const ideal = cycle.ideal ?? null;
@@ -482,10 +703,7 @@ export default function MachineDetailClient() {
 
       let bucket: CycleDerivedRow["bucket"] = "unknown";
       if (ideal != null && actual != null) {
-        if (actual <= ideal * (1 + TOL)) bucket = "normal";
-        else if (extra != null && extra <= 1) bucket = "slow";
-        else if (extra != null && extra <= 10) bucket = "microstop";
-        else bucket = "macrostop";
+        bucket = classifyCycleDuration(actual, ideal, thresholds);
       }
 
       return { ...cycle, ideal, actual, extra, bucket };
@@ -505,7 +723,7 @@ export default function MachineDetailClient() {
     const avgDeltaPct = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
 
     return { mapped, counts, avgDeltaPct };
-  }, [cycles]);
+  }, [cycles, thresholds]);
 
   const deviationSeries = useMemo(() => {
     const last = cycleDerived.mapped.slice(-100);
@@ -557,7 +775,7 @@ export default function MachineDetailClient() {
 
   const timeline = useMemo(() => {
     const rows = cycles ?? [];
-    if (rows.length < 2) {
+    if (rows.length < 1) {
       return {
         windowSec: 10800,
         segments: [] as TimelineSeg[],
@@ -570,27 +788,24 @@ export default function MachineDetailClient() {
     const end = rows[rows.length - 1].t;
     const start = end - windowSec * 1000;
 
-    const idxFirst = Math.max(
-      0,
-      rows.findIndex((row) => row.t >= start) - 1
-    );
-    const sliced = rows.slice(idxFirst);
-
     const segs: TimelineSeg[] = [];
 
-    for (let i = 1; i < sliced.length; i++) {
-      const prev = sliced[i - 1];
-      const cur = sliced[i];
+    for (const cycle of rows) {
+      const ideal = (cycle.ideal ?? cycleTarget ?? 0) as number;
+      const actual = cycle.actual ?? 0;
+      if (!ideal || ideal <= 0 || !actual || actual <= 0) continue;
 
-      const segStart = Math.max(prev.t, start);
-      const segEnd = Math.min(cur.t, end);
+      const cycleEnd = cycle.t;
+      const cycleStart = cycleEnd - actual * 1000;
+      if (cycleEnd <= start || cycleStart >= end) continue;
+
+      const segStart = Math.max(cycleStart, start);
+      const segEnd = Math.min(cycleEnd, end);
       if (segEnd <= segStart) continue;
 
-      const dtSec = (cur.t - prev.t) / 1000;
-      const ideal = (cur.ideal ?? prev.ideal ?? cycleTarget ?? 0) as number;
-      if (!ideal || ideal <= 0) continue;
+      const state = classifyCycleDuration(actual, ideal, thresholds);
 
-      const state = classifyGap(dtSec, ideal);
+
 
       segs.push({
         start: segStart,
@@ -600,9 +815,8 @@ export default function MachineDetailClient() {
       });
     }
 
-    const segments = mergeAdjacent(segs);
-    return { windowSec, segments, start, end };
-  }, [cycles, cycleTarget]);
+    return { windowSec, segments: segs, start, end };
+  }, [cycles, cycleTarget, thresholds]);
 
   const cycleTargetLabel = cycleTarget ? `${cycleTarget}s` : t("common.na");
   const workOrderLabel = kpi?.workOrderId ?? t("common.na");
@@ -625,13 +839,38 @@ export default function MachineDetailClient() {
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <Link
-            href="/machines"
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
-          >
-            {t("machine.detail.back")}
-          </Link>
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              className="hidden"
+              onChange={handleWorkOrderUpload}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {uploadButtonLabel}
+            </button>
+            <Link
+              href="/machines"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+            >
+              {t("machine.detail.back")}
+            </Link>
+          </div>
+          <div className="text-right text-[11px] text-zinc-500">
+            {t("machine.detail.workOrders.uploadHint")}
+          </div>
+          {uploadState.status !== "idle" && uploadState.message && (
+            <div className={`rounded-full border px-3 py-1 text-xs ${uploadStatusClass}`}>
+              {uploadState.message}
+            </div>
+          )}
         </div>
       </div>
 

@@ -21,6 +21,7 @@ type SettingsPayload = {
   };
   thresholds: {
     stoppageMultiplier: number;
+    macroStoppageMultiplier: number;
     oeeAlertThresholdPct: number;
     performanceThresholdPct: number;
     qualitySpikeDeltaPct: number;
@@ -82,6 +83,7 @@ const DEFAULT_SETTINGS: SettingsPayload = {
   thresholds: {
     stoppageMultiplier: 1.5,
     oeeAlertThresholdPct: 90,
+    macroStoppageMultiplier: 5,
     performanceThresholdPct: 85,
     qualitySpikeDeltaPct: 5,
   },
@@ -150,6 +152,9 @@ function normalizeSettings(raw: any, fallbackName: (index: number) => string): S
     thresholds: {
       stoppageMultiplier: Number(
         raw.thresholds?.stoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.stoppageMultiplier
+      ),
+      macroStoppageMultiplier: Number(
+        raw.thresholds?.macroStoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.macroStoppageMultiplier
       ),
       oeeAlertThresholdPct: Number(
         raw.thresholds?.oeeAlertThresholdPct ?? DEFAULT_SETTINGS.thresholds.oeeAlertThresholdPct
@@ -351,6 +356,7 @@ export default function SettingsPage() {
     (
       key:
         | "stoppageMultiplier"
+        | "macroStoppageMultiplier"
         | "oeeAlertThresholdPct"
         | "performanceThresholdPct"
         | "qualitySpikeDeltaPct",
@@ -651,6 +657,20 @@ export default function SettingsPage() {
               />
             </label>
             <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+              {t("settings.thresholds.macroStoppage")}
+                <input
+                  type="number"
+                  min={1.1}
+                  max={20}
+                  step={0.1}
+                  value={draft.thresholds.macroStoppageMultiplier}
+                  onChange={(event) =>
+                    updateThreshold("macroStoppageMultiplier", Number(event.target.value))
+                  }
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
               {t("settings.thresholds.performance")} (%)
               <input
                 type="number"

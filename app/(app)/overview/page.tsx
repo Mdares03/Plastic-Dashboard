@@ -35,6 +35,11 @@ type MachineRow = {
   latestKpi?: Kpi | null;
 };
 
+type Thresholds = {
+  stoppageMultiplier: number;
+  macroStoppageMultiplier: number;
+};
+
 type EventRow = {
   id: string;
   ts: string;
@@ -60,7 +65,17 @@ type CycleRow = {
 const OFFLINE_MS = 30000;
 const EVENT_WINDOW_SEC = 1800;
 const MAX_EVENT_MACHINES = 6;
-const TOL = 0.10;
+const DEFAULT_MICRO_MULT = 1.5;
+const DEFAULT_MACRO_MULT = 5;
+
+function resolveMultipliers(thresholds?: Thresholds | null) {
+  const micro = Number(thresholds?.stoppageMultiplier ?? DEFAULT_MICRO_MULT);
+  const macro = Math.max(
+    micro,
+    Number(thresholds?.macroStoppageMultiplier ?? DEFAULT_MACRO_MULT)
+  );
+  return { micro, macro };
+}
 
 function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
   if (!ts) return fallback;
@@ -106,16 +121,17 @@ function sourceClass(src: EventRow["source"]) {
     : "bg-emerald-500/15 text-emerald-300";
 }
 
-function classifyDerivedEvent(c: CycleRow) {
+function classifyDerivedEvent(c: CycleRow, thresholds?: Thresholds | null) {
   if (c.ideal == null || c.ideal <= 0 || c.actual <= 0) return null;
-  if (c.actual <= c.ideal * (1 + TOL)) return null;
+  if (c.actual <= c.ideal) return null;
+  const { micro, macro } = resolveMultipliers(thresholds);
   const extra = c.actual - c.ideal;
   let eventType = "slow-cycle";
   let severity = "warning";
-  if (extra <= 1) {
+  if (c.actual < c.ideal * micro) {
     eventType = "slow-cycle";
-    severity = "info";
-  } else if (extra <= 10) {
+    severity = "warning";
+  } else if (c.actual < c.ideal * macro) {
     eventType = "microstop";
     severity = "warning";
   } else {
@@ -216,7 +232,7 @@ export default function OverviewPage() {
 
           const cycles: CycleRow[] = Array.isArray(payload?.cycles) ? payload.cycles : [];
           for (const c of cycles.slice(-120)) {
-            const derived = classifyDerivedEvent(c);
+            const derived = classifyDerivedEvent(c, payload?.thresholds);
             if (!derived) continue;
             combined.push({
               id: `derived-${machine.id}-${c.t}`,

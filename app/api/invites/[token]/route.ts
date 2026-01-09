@@ -3,6 +3,13 @@ import type { NextRequest } from "next/server";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
 import { buildSessionCookieOptions, COOKIE_NAME, SESSION_DAYS } from "@/lib/auth/sessionCookie";
+import { z } from "zod";
+
+const tokenSchema = z.string().regex(/^[a-f0-9]{48}$/i);
+const acceptSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  password: z.string().min(8).max(256),
+});
 
 async function loadInvite(token: string) {
   return prisma.orgInvite.findFirst({
@@ -23,6 +30,9 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  if (!tokenSchema.safeParse(token).success) {
+    return NextResponse.json({ ok: false, error: "Invalid invite token" }, { status: 400 });
+  }
   const invite = await loadInvite(token);
   if (!invite) {
     return NextResponse.json({ ok: false, error: "Invite not found" }, { status: 404 });
@@ -44,22 +54,25 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
+  if (!tokenSchema.safeParse(token).success) {
+    return NextResponse.json({ ok: false, error: "Invalid invite token" }, { status: 400 });
+  }
   const invite = await loadInvite(token);
   if (!invite) {
     return NextResponse.json({ ok: false, error: "Invite not found" }, { status: 404 });
   }
 
   const body = await req.json().catch(() => ({}));
-  const name = String(body.name || "").trim();
-  const password = String(body.password || "");
+  const parsed = acceptSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid invite payload" }, { status: 400 });
+  }
+  const name = String(parsed.data.name || "").trim();
+  const password = parsed.data.password;
 
   const existingUser = await prisma.user.findUnique({
     where: { email: invite.email },
   });
-
-  if (!password || password.length < 8) {
-    return NextResponse.json({ ok: false, error: "Password must be at least 8 characters" }, { status: 400 });
-  }
 
   if (!existingUser && !name) {
     return NextResponse.json({ ok: false, error: "Name is required" }, { status: 400 });

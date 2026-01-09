@@ -19,6 +19,7 @@ model Org {
   heartbeats      MachineHeartbeat[]
   kpiSnapshots    MachineKpiSnapshot[]
   events          MachineEvent[]
+  workOrders      MachineWorkOrder[]
   settings        OrgSettings?
   shifts          OrgShift[]
   machineSettings MachineSettings[]
@@ -119,6 +120,7 @@ model Machine {
   kpiSnapshots   MachineKpiSnapshot[]
   events         MachineEvent[]
   cycles         MachineCycle[]
+  workOrders     MachineWorkOrder[]
   settings       MachineSettings?
   settingsAudits SettingsAudit[]
 
@@ -239,6 +241,27 @@ model MachineCycle {
   @@index([orgId, machineId, cycleCount])
 }
 
+model MachineWorkOrder {
+  id          String   @id @default(uuid())
+  orgId       String
+  machineId   String
+  workOrderId String
+  sku         String?
+  targetQty   Int?
+  cycleTime   Float?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([machineId, workOrderId])
+  @@index([orgId, machineId])
+  @@index([orgId, workOrderId])
+  @@map("machine_work_orders")
+}
+
 model IngestLog {
   id            String    @id @default(uuid())
   orgId         String?
@@ -269,6 +292,7 @@ model OrgSettings {
   lunchBreakMin           Int      @default(30) @map("lunch_break_min")
   stoppageMultiplier      Float    @default(1.5) @map("stoppage_multiplier")
   oeeAlertThresholdPct    Float    @default(90) @map("oee_alert_threshold_pct")
+  macroStoppageMultiplier Float    @default(5) @map("macro_stoppage_multiplier")
   performanceThresholdPct Float    @default(85) @map("performance_threshold_pct")
   qualitySpikeDeltaPct    Float    @default(5) @map("quality_spike_delta_pct")
   alertsJson              Json?    @map("alerts_json")

@@ -3,10 +3,20 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { getBaseUrl } from "@/lib/appUrl";
 import { normalizePairingCode } from "@/lib/pairingCode";
+import { z } from "zod";
+
+const pairSchema = z.object({
+  code: z.string().trim().max(16).optional(),
+  pairingCode: z.string().trim().max(16).optional(),
+});
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const rawCode = String(body.code || body.pairingCode || "").trim();
+  const parsed = pairSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid pairing payload" }, { status: 400 });
+  }
+  const rawCode = String(parsed.data.code || parsed.data.pairingCode || "").trim();
   const code = normalizePairingCode(rawCode);
 
   if (!code || code.length !== 5) {

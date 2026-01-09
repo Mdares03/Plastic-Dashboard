@@ -15,10 +15,24 @@ import {
   validateShiftSchedule,
   validateThresholds,
 } from "@/lib/settings";
+import { publishSettingsUpdate } from "@/lib/mqtt";
+import { z } from "zod";
 
 function isPlainObject(value: any): value is Record<string, any> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
+
+function canManageSettings(role?: string | null) {
+  return role === "OWNER" || role === "ADMIN";
+}
+
+const machineIdSchema = z.string().uuid();
+const machineSettingsSchema = z
+  .object({
+    source: z.string().trim().max(40).optional(),
+    overrides: z.any().optional(),
+  })
+  .passthrough();
 
 function pickAllowedOverrides(raw: any) {
   if (!isPlainObject(raw)) return {};
@@ -29,7 +43,11 @@ function pickAllowedOverrides(raw: any) {
   return out;
 }
 
-async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, userId: string) {
+async function ensureOrgSettings(
+  tx: Prisma.TransactionClient,
+  orgId: string,
+  userId?: string | null
+) {
   let settings = await tx.orgSettings.findUnique({
     where: { orgId },
   });
@@ -65,12 +83,13 @@ async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, us
       shiftChangeCompMin: 10,
       lunchBreakMin: 30,
       stoppageMultiplier: 1.5,
+      macroStoppageMultiplier: 5,
       oeeAlertThresholdPct: 90,
       performanceThresholdPct: 85,
       qualitySpikeDeltaPct: 5,
       alertsJson: DEFAULT_ALERTS,
       defaultsJson: DEFAULT_DEFAULTS,
-      updatedBy: userId,
+      updatedBy: userId ?? null,
     },
   });
 
@@ -93,23 +112,40 @@ async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, us
 }
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ machineId: string }> }
 ) {
-  const session = await requireSession();
-  if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-
   const { machineId } = await params;
+  if (!machineIdSchema.safeParse(machineId).success) {
+    return NextResponse.json({ ok: false, error: "Invalid machine id" }, { status: 400 });
+  }
 
-  const machine = await prisma.machine.findFirst({
-    where: { id: machineId, orgId: session.orgId },
-    select: { id: true },
-  });
+  const session = await requireSession();
+  let orgId: string | null = null;
+  let userId: string | null = null;
+  let machine: { id: string; orgId: string } | null = null;
 
-  if (!machine) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  if (session) {
+    machine = await prisma.machine.findFirst({
+      where: { id: machineId, orgId: session.orgId },
+      select: { id: true, orgId: true },
+    });
+    if (!machine) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+    orgId = machine.orgId;
+    userId = session.userId;
+  } else {
+    const apiKey = req.headers.get("x-api-key");
+    if (!apiKey) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    machine = await prisma.machine.findFirst({
+      where: { id: machineId, apiKey },
+      select: { id: true, orgId: true },
+    });
+    if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    orgId = machine.orgId;
+  }
 
   const { settings, overrides } = await prisma.$transaction(async (tx) => {
-    const orgSettings = await ensureOrgSettings(tx, session.orgId, session.userId);
+    const orgSettings = await ensureOrgSettings(tx, orgId as string, userId);
     if (!orgSettings?.settings) throw new Error("SETTINGS_NOT_FOUND");
 
     const machineSettings = await tx.machineSettings.findUnique({
@@ -140,7 +176,18 @@ export async function PUT(
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
+  const membership = await prisma.orgUser.findUnique({
+    where: { orgId_userId: { orgId: session.orgId, userId: session.userId } },
+    select: { role: true },
+  });
+  if (!canManageSettings(membership?.role)) {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
   const { machineId } = await params;
+  if (!machineIdSchema.safeParse(machineId).success) {
+    return NextResponse.json({ ok: false, error: "Invalid machine id" }, { status: 400 });
+  }
 
   const machine = await prisma.machine.findFirst({
     where: { id: machineId, orgId: session.orgId },
@@ -150,9 +197,13 @@ export async function PUT(
   if (!machine) return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
 
   const body = await req.json().catch(() => ({}));
-  const source = String(body.source ?? "control_tower");
+  const parsed = machineSettingsSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid settings payload" }, { status: 400 });
+  }
+  const source = String(parsed.data.source ?? "control_tower");
 
-  let patch = body.overrides ?? body;
+  let patch = parsed.data.overrides ?? parsed.data;
   if (patch === null) {
     patch = null;
   }
@@ -238,16 +289,20 @@ export async function PUT(
   if (patch?.thresholds) {
     patch = {
       ...patch,
-      thresholds: {
-        ...patch.thresholds,
-        stoppageMultiplier:
-          patch.thresholds.stoppageMultiplier !== undefined
-            ? Number(patch.thresholds.stoppageMultiplier)
-            : patch.thresholds.stoppageMultiplier,
-        oeeAlertThresholdPct:
-          patch.thresholds.oeeAlertThresholdPct !== undefined
-            ? Number(patch.thresholds.oeeAlertThresholdPct)
-            : patch.thresholds.oeeAlertThresholdPct,
+        thresholds: {
+          ...patch.thresholds,
+          stoppageMultiplier:
+            patch.thresholds.stoppageMultiplier !== undefined
+              ? Number(patch.thresholds.stoppageMultiplier)
+              : patch.thresholds.stoppageMultiplier,
+          macroStoppageMultiplier:
+            patch.thresholds.macroStoppageMultiplier !== undefined
+              ? Number(patch.thresholds.macroStoppageMultiplier)
+              : patch.thresholds.macroStoppageMultiplier,
+          oeeAlertThresholdPct:
+            patch.thresholds.oeeAlertThresholdPct !== undefined
+              ? Number(patch.thresholds.oeeAlertThresholdPct)
+              : patch.thresholds.oeeAlertThresholdPct,
         performanceThresholdPct:
           patch.thresholds.performanceThresholdPct !== undefined
             ? Number(patch.thresholds.performanceThresholdPct)
@@ -318,8 +373,29 @@ export async function PUT(
     const overrides = pickAllowedOverrides(saved.overridesJson ?? {});
     const effective = deepMerge(orgPayload, overrides);
 
-    return { orgPayload, overrides, effective };
+    return {
+      orgPayload,
+      overrides,
+      effective,
+      overridesUpdatedAt: saved.updatedAt,
+    };
   });
+
+  const overridesUpdatedAt =
+    result.overridesUpdatedAt && result.overridesUpdatedAt instanceof Date
+      ? result.overridesUpdatedAt.toISOString()
+      : undefined;
+  try {
+    await publishSettingsUpdate({
+      orgId: session.orgId,
+      machineId,
+      version: Number(result.orgPayload.version ?? 0),
+      source,
+      overridesUpdatedAt,
+    });
+  } catch (err) {
+    console.warn("[settings machine PUT] MQTT publish failed", err);
+  }
 
   return NextResponse.json({
     ok: true,

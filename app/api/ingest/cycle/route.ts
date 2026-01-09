@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
 function unwrapEnvelope(raw: any) {
   if (!raw || typeof raw !== "object") return raw;
@@ -25,6 +26,39 @@ function unwrapEnvelope(raw: any) {
   };
 }
 
+const numberFromAny = z.preprocess((value) => {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "") return Number(value);
+  return value;
+}, z.number().finite());
+
+const intFromAny = z.preprocess((value) => {
+  if (typeof value === "number") return Math.trunc(value);
+  if (typeof value === "string" && value.trim() !== "") return Math.trunc(Number(value));
+  return value;
+}, z.number().int().finite());
+
+const cyclePayloadSchema = z
+  .object({
+    machineId: z.string().uuid(),
+    cycle: z
+      .object({
+        actual_cycle_time: numberFromAny,
+        theoretical_cycle_time: numberFromAny.optional(),
+        cycle_count: intFromAny.optional(),
+        work_order_id: z.string().trim().max(64).optional(),
+        sku: z.string().trim().max(64).optional(),
+        cavities: intFromAny.optional(),
+        good_delta: intFromAny.optional(),
+        scrap_delta: intFromAny.optional(),
+        timestamp: numberFromAny.optional(),
+        ts: numberFromAny.optional(),
+        event_timestamp: numberFromAny.optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
 export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
   if (!apiKey) return NextResponse.json({ ok: false, error: "Missing api key" }, { status: 401 });
@@ -32,24 +66,26 @@ export async function POST(req: Request) {
   let body = await req.json().catch(() => null);
   body = unwrapEnvelope(body);
 
-  if (!body?.machineId || !body?.cycle) {
+  const parsed = cyclePayloadSchema.safeParse(body);
+  if (!parsed.success) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
   const machine = await prisma.machine.findFirst({
-    where: { id: String(body.machineId), apiKey },
+    where: { id: parsed.data.machineId, apiKey },
     select: { id: true, orgId: true },
   });
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const c = body.cycle;
+  const c = parsed.data.cycle;
+  const raw = body as any;
 
   const tsMs =
     (typeof c.timestamp === "number" && c.timestamp) ||
     (typeof c.ts === "number" && c.ts) ||
     (typeof c.event_timestamp === "number" && c.event_timestamp) ||
-    (typeof body.tsMs === "number" && body.tsMs) ||
-    (typeof body.tsDevice === "number" && body.tsDevice) ||
+    (typeof raw?.tsMs === "number" && raw.tsMs) ||
+    (typeof raw?.tsDevice === "number" && raw.tsDevice) ||
     undefined;
 
   const ts = tsMs ? new Date(tsMs) : new Date();
@@ -60,8 +96,8 @@ export async function POST(req: Request) {
       machineId: machine.id,
       ts,
       cycleCount: typeof c.cycle_count === "number" ? c.cycle_count : null,
-      actualCycleTime: Number(c.actual_cycle_time),
-      theoreticalCycleTime: c.theoretical_cycle_time != null ? Number(c.theoretical_cycle_time) : null,
+      actualCycleTime: c.actual_cycle_time,
+      theoreticalCycleTime: typeof c.theoretical_cycle_time === "number" ? c.theoretical_cycle_time : null,
       workOrderId: c.work_order_id ? String(c.work_order_id) : null,
       sku: c.sku ? String(c.sku) : null,
       cavities: typeof c.cavities === "number" ? c.cavities : null,

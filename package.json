@@ -13,11 +13,13 @@
     "bcrypt": "^6.0.0",
     "i18n": "^0.15.3",
     "lucide-react": "^0.561.0",
+    "mqtt": "^5.10.0",
     "next": "16.0.10",
     "nodemailer": "^7.0.12",
     "react": "19.2.1",
     "react-dom": "19.2.1",
     "recharts": "^3.6.0",
+    "xlsx": "^0.20.2",
     "zod": "^4.2.1"
   },
   "devDependencies": {

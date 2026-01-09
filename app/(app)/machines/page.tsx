@@ -297,8 +297,21 @@ export default function MachinesPage() {
               </div>
 
               <div className="mt-4 text-sm text-zinc-400">{t("machines.status")}</div>
-              <div className="text-xl font-semibold text-white">
-                {offline ? t("machines.status.noHeartbeat") : (hb?.message ?? t("machines.status.ok"))}
+              <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-white">
+                {offline ? (
+                  <>
+                    <span className="inline-flex h-2.5 w-2.5 rounded-full bg-zinc-500" aria-hidden="true" />
+                    <span>{t("machines.status.noHeartbeat")}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
+                    </span>
+                    <span>{t("machines.status.ok")}</span>
+                  </>
+                )}
               </div>
             </Link>
           );
@@ -307,7 +320,6 @@ export default function MachinesPage() {
     </div>
   );
 }
-
 
 
 

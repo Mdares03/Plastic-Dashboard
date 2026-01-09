@@ -16,10 +16,28 @@ import {
   validateShiftSchedule,
   validateThresholds,
 } from "@/lib/settings";
+import { publishSettingsUpdate } from "@/lib/mqtt";
+import { z } from "zod";
 
 function isPlainObject(value: any): value is Record<string, any> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
+
+function canManageSettings(role?: string | null) {
+  return role === "OWNER" || role === "ADMIN";
+}
+
+const settingsPayloadSchema = z
+  .object({
+    source: z.string().trim().max(40).optional(),
+    timezone: z.string().trim().max(64).optional(),
+    shiftSchedule: z.any().optional(),
+    thresholds: z.any().optional(),
+    alerts: z.any().optional(),
+    defaults: z.any().optional(),
+    version: z.union([z.number(), z.string()]).optional(),
+  })
+  .passthrough();
 
 async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, userId: string) {
   let settings = await tx.orgSettings.findUnique({
@@ -57,6 +75,7 @@ async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, us
       shiftChangeCompMin: 10,
       lunchBreakMin: 30,
       stoppageMultiplier: 1.5,
+      macroStoppageMultiplier: 5,
       oeeAlertThresholdPct: 90,
       performanceThresholdPct: 85,
       qualitySpikeDeltaPct: 5,
@@ -108,15 +127,28 @@ export async function PUT(req: Request) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
+  const membership = await prisma.orgUser.findUnique({
+    where: { orgId_userId: { orgId: session.orgId, userId: session.userId } },
+    select: { role: true },
+  });
+  if (!canManageSettings(membership?.role)) {
+    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
   try {
     const body = await req.json().catch(() => ({}));
-    const source = String(body.source ?? "control_tower");
-    const timezone = body.timezone;
-    const shiftSchedule = body.shiftSchedule;
-    const thresholds = body.thresholds;
-    const alerts = body.alerts;
-    const defaults = body.defaults;
-    const expectedVersion = body.version;
+    const parsed = settingsPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Invalid settings payload" }, { status: 400 });
+    }
+
+    const source = String(parsed.data.source ?? "control_tower");
+    const timezone = parsed.data.timezone;
+    const shiftSchedule = parsed.data.shiftSchedule;
+    const thresholds = parsed.data.thresholds;
+    const alerts = parsed.data.alerts;
+    const defaults = parsed.data.defaults;
+    const expectedVersion = parsed.data.version;
 
     if (
       timezone === undefined &&
@@ -192,6 +224,10 @@ export async function PUT(req: Request) {
         shiftSchedule?.lunchBreakMin !== undefined ? Number(shiftSchedule.lunchBreakMin) : undefined,
       stoppageMultiplier:
         thresholds?.stoppageMultiplier !== undefined ? Number(thresholds.stoppageMultiplier) : undefined,
+      macroStoppageMultiplier:
+        thresholds?.macroStoppageMultiplier !== undefined
+          ? Number(thresholds.macroStoppageMultiplier)
+          : undefined,
       oeeAlertThresholdPct:
         thresholds?.oeeAlertThresholdPct !== undefined ? Number(thresholds.oeeAlertThresholdPct) : undefined,
       performanceThresholdPct:
@@ -267,6 +303,22 @@ export async function PUT(req: Request) {
     }
 
     const payload = buildSettingsPayload(updated.settings, updated.shifts ?? []);
+    const updatedAt =
+      typeof payload.updatedAt === "string"
+        ? payload.updatedAt
+        : payload.updatedAt
+        ? payload.updatedAt.toISOString()
+        : undefined;
+    try {
+      await publishSettingsUpdate({
+        orgId: session.orgId,
+        version: Number(payload.version ?? 0),
+        source,
+        updatedAt,
+      });
+    } catch (err) {
+      console.warn("[settings PUT] MQTT publish failed", err);
+    }
     return NextResponse.json({ ok: true, settings: payload });
   } catch (err) {
     console.error("[settings PUT] failed", err);

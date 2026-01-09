@@ -53,6 +53,7 @@ async function main() {
       lunchBreakMin: 30,
       stoppageMultiplier: 1.5,
       oeeAlertThresholdPct: 90,
+      macroStoppageMultiplier: 5,
       performanceThresholdPct: 85,
       qualitySpikeDeltaPct: 5,
       alertsJson: {

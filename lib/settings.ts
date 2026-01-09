@@ -54,6 +54,7 @@ export function buildSettingsPayload(settings: any, shifts: any[]) {
     },
     thresholds: {
       stoppageMultiplier: settings.stoppageMultiplier,
+      macroStoppageMultiplier: settings.macroStoppageMultiplier,
       oeeAlertThresholdPct: settings.oeeAlertThresholdPct,
       performanceThresholdPct: settings.performanceThresholdPct,
       qualitySpikeDeltaPct: settings.qualitySpikeDeltaPct,
@@ -156,6 +157,14 @@ export function validateThresholds(thresholds: any) {
     const v = Number(stoppage);
     if (!Number.isFinite(v) || v < 1.1 || v > 5.0) {
       return { ok: false, error: "stoppageMultiplier must be 1.1-5.0" };
+    }
+  }
+
+  const macroStoppage = thresholds.macroStoppageMultiplier;
+  if (macroStoppage != null) {
+    const v = Number(macroStoppage);
+    if (!Number.isFinite(v) || v < 1.1 || v > 20.0) {
+      return { ok: false, error: "macroStoppageMultiplier must be 1.1-20.0" };
     }
   }
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { z } from "zod";
 
 const normalizeType = (t: any) =>
   String(t ?? "")
@@ -33,9 +34,19 @@ const ALLOWED_TYPES = new Set([
   "predictive-oee-decline",
 ]);
 
-// thresholds for stop classification (tune later / move to machine config)
-const MICROSTOP_SEC = 60;
-const MACROSTOP_SEC = 300;
+const machineIdSchema = z.string().uuid();
+const MAX_EVENTS = 100;
+
+//when no cycle time is configed
+const DEFAULT_MACROSTOP_SEC = 300;
+
+
+function clampText(value: unknown, maxLen: number) {
+  if (value === null || value === undefined) return null;
+  const text = String(value).trim().replace(/[\u0000-\u001f\u007f]/g, "");
+  if (!text) return null;
+  return text.length > maxLen ? text.slice(0, maxLen) : text;
+}
 
 export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
@@ -68,14 +79,32 @@ export async function POST(req: Request) {
     );
   }
 
+  if (!machineIdSchema.safeParse(String(machineId)).success) {
+    return NextResponse.json({ ok: false, error: "Invalid machine id" }, { status: 400 });
+  }
+
   const machine = await prisma.machine.findFirst({
     where: { id: String(machineId), apiKey },
     select: { id: true, orgId: true },
   });
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const orgSettings = await prisma.orgSettings.findUnique({
+    where: { orgId: machine.orgId },
+    select: { stoppageMultiplier: true, macroStoppageMultiplier: true },
+  });
+
+  const defaultMicroMultiplier = Number(orgSettings?.stoppageMultiplier ?? 1.5);
+  const defaultMacroMultiplier = Math.max(
+    defaultMicroMultiplier,
+    Number(orgSettings?.macroStoppageMultiplier ?? 5)
+  );
+
 
   // ✅ normalize to array no matter what
   const events = Array.isArray(rawEvent) ? rawEvent : [rawEvent];
+  if (events.length > MAX_EVENTS) {
+    return NextResponse.json({ ok: false, error: "Too many events" }, { status: 400 });
+  }
 
   const created: { id: string; ts: Date; eventType: string }[] = [];
   const skipped: any[] = [];
@@ -112,7 +141,29 @@ export async function POST(req: Request) {
         null;
 
       if (stopSec != null) {
-        finalType = stopSec >= MACROSTOP_SEC ? "macrostop" : "microstop";
+        const theoretical =
+          Number(
+            (ev as any)?.data?.theoretical_cycle_time ??
+              (ev as any)?.data?.theoreticalCycleTime ??
+              0
+          ) || 0;
+
+        const microMultiplier = Number(
+          (ev as any)?.data?.micro_threshold_multiplier ??
+            (ev as any)?.data?.threshold_multiplier ??
+            defaultMicroMultiplier
+        );
+        const macroMultiplier = Math.max(
+          microMultiplier,
+          Number((ev as any)?.data?.macro_threshold_multiplier ?? defaultMacroMultiplier)
+        );
+
+        if (theoretical > 0) {
+          const macroThresholdSec = theoretical * macroMultiplier;
+          finalType = stopSec >= macroThresholdSec ? "macrostop" : "microstop";
+        } else {
+          finalType = stopSec >= DEFAULT_MACROSTOP_SEC ? "macrostop" : "microstop";
+        }
       } else {
         // missing duration -> conservative
         finalType = "microstop";
@@ -125,13 +176,13 @@ export async function POST(req: Request) {
     }
 
     const title =
-      String((ev as any).title ?? "").trim() ||
+      clampText((ev as any).title, 160) ||
       (finalType === "slow-cycle" ? "Slow Cycle Detected" :
        finalType === "macrostop" ? "Macrostop Detected" :
        finalType === "microstop" ? "Microstop Detected" :
        "Event");
 
-    const description = (ev as any).description ? String((ev as any).description) : null;
+    const description = clampText((ev as any).description, 1000);
 
     // store full blob, ensure object
     const rawData = (ev as any).data ?? ev;
@@ -144,7 +195,7 @@ export async function POST(req: Request) {
         orgId: machine.orgId,
         machineId: machine.id,
         ts,
-        topic: String((ev as any).topic ?? finalType),
+        topic: clampText((ev as any).topic ?? finalType, 64) ?? finalType,
         eventType: finalType,
         severity: sev,
         requiresAck: !!(ev as any).requires_ack,
@@ -152,13 +203,13 @@ export async function POST(req: Request) {
         description,
         data: dataObj,
         workOrderId:
-          (ev as any)?.work_order_id ? String((ev as any).work_order_id)
-          : (ev as any)?.data?.work_order_id ? String((ev as any).data.work_order_id)
-          : null,
+          clampText((ev as any)?.work_order_id, 64) ??
+          clampText((ev as any)?.data?.work_order_id, 64) ??
+          null,
         sku:
-          (ev as any)?.sku ? String((ev as any).sku)
-          : (ev as any)?.data?.sku ? String((ev as any).data.sku)
-          : null,
+          clampText((ev as any)?.sku, 64) ??
+          clampText((ev as any)?.data?.sku, 64) ??
+          null,
       },
     });
 

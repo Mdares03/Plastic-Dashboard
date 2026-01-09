@@ -2,10 +2,13 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { z } from "zod";
 
 function canManageMembers(role?: string | null) {
   return role === "OWNER" || role === "ADMIN";
 }
+
+const inviteIdSchema = z.string().uuid();
 
 export async function DELETE(
   _req: NextRequest,
@@ -17,6 +20,9 @@ export async function DELETE(
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
     const { inviteId } = await params;
+    if (!inviteIdSchema.safeParse(inviteId).success) {
+      return NextResponse.json({ ok: false, error: "Invalid invite id" }, { status: 400 });
+    }
 
     const membership = await prisma.orgUser.findUnique({
       where: {

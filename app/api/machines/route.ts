@@ -3,8 +3,15 @@ import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { generatePairingCode } from "@/lib/pairingCode";
+import { z } from "zod";
 
 const COOKIE_NAME = "mis_session";
+
+const createMachineSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  code: z.string().trim().max(40).optional(),
+  location: z.string().trim().max(80).optional(),
+});
 
 async function requireSession() {
   const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
@@ -79,13 +86,14 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json().catch(() => ({}));
-  const name = String(body.name || "").trim();
-  const codeRaw = String(body.code || "").trim();
-  const locationRaw = String(body.location || "").trim();
-
-  if (!name) {
-    return NextResponse.json({ ok: false, error: "Machine name is required" }, { status: 400 });
+  const parsed = createMachineSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid machine payload" }, { status: 400 });
   }
+
+  const name = parsed.data.name;
+  const codeRaw = parsed.data.code ?? "";
+  const locationRaw = parsed.data.location ?? "";
 
   const existing = await prisma.machine.findFirst({
     where: { orgId: session.orgId, name },

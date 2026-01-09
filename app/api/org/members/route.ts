@@ -4,16 +4,17 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { buildInviteEmail, sendEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/appUrl";
+import { z } from "zod";
 
 const INVITE_DAYS = 7;
 const ROLES = new Set(["OWNER", "ADMIN", "MEMBER"]);
+const inviteSchema = z.object({
+  email: z.string().trim().min(1).max(254).email(),
+  role: z.string().trim().toUpperCase().optional(),
+});
 
 function canManageMembers(role?: string | null) {
   return role === "OWNER" || role === "ADMIN";
-}
-
-function isValidEmail(email: string) {
-  return email.includes("@") && email.includes(".");
 }
 
 export async function GET() {
@@ -97,12 +98,12 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const email = String(body.email || "").trim().toLowerCase();
-    const role = String(body.role || "MEMBER").toUpperCase();
-
-    if (!email || !isValidEmail(email)) {
-      return NextResponse.json({ ok: false, error: "Invalid email" }, { status: 400 });
+    const parsed = inviteSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: "Invalid invite payload" }, { status: 400 });
     }
+    const email = parsed.data.email.toLowerCase();
+    const role = String(parsed.data.role || "MEMBER").toUpperCase();
 
     if (!ROLES.has(role)) {
       return NextResponse.json({ ok: false, error: "Invalid role" }, { status: 400 });

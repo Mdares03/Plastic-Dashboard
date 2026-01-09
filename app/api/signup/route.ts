@@ -6,7 +6,14 @@ import { DEFAULT_ALERTS, DEFAULT_DEFAULTS, DEFAULT_SHIFT } from "@/lib/settings"
 import { buildVerifyEmail, sendEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/appUrl";
 import { logLine } from "@/lib/logger";
+import { z } from "zod";
 
+const signupSchema = z.object({
+  orgName: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(80),
+  email: z.string().trim().min(1).max(254).email(),
+  password: z.string().min(8).max(256),
+});
 
 function slugify(input: string) {
   const trimmed = input.trim().toLowerCase();
@@ -16,28 +23,16 @@ function slugify(input: string) {
   return slug || "org";
 }
 
-function isValidEmail(email: string) {
-  return email.includes("@") && email.includes(".");
-}
-
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const orgName = String(body.orgName || "").trim();
-  const name = String(body.name || "").trim();
-  const email = String(body.email || "").trim().toLowerCase();
-  const password = String(body.password || "");
-
-  if (!orgName || !name || !email || !password) {
-    return NextResponse.json({ ok: false, error: "Missing required fields" }, { status: 400 });
+  const parsed = signupSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: "Invalid signup payload" }, { status: 400 });
   }
-
-  if (!isValidEmail(email)) {
-    return NextResponse.json({ ok: false, error: "Invalid email" }, { status: 400 });
-  }
-
-  if (password.length < 8) {
-    return NextResponse.json({ ok: false, error: "Password must be at least 8 characters" }, { status: 400 });
-  }
+  const orgName = parsed.data.orgName;
+  const name = parsed.data.name;
+  const email = parsed.data.email.toLowerCase();
+  const password = parsed.data.password;
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) {
@@ -86,6 +81,7 @@ export async function POST(req: Request) {
         shiftChangeCompMin: 10,
         lunchBreakMin: 30,
         stoppageMultiplier: 1.5,
+        macroStoppageMultiplier: 5,
         oeeAlertThresholdPct: 90,
         performanceThresholdPct: 85,
         qualitySpikeDeltaPct: 5,
