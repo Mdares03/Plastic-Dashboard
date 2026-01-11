@@ -312,6 +312,34 @@ const rawCycles = await prisma.machineCycle.findMany({
     sku: true,
   },
 });
+const latestCycle = rawCycles[0] ?? null;
+
+let activeStoppage: {
+  state: "microstop" | "macrostop";
+  startedAt: string;
+  durationSec: number;
+  theoreticalCycleTime: number;
+} | null = null;
+
+if (latestCycle?.ts && effectiveCycleTime && effectiveCycleTime > 0) {
+  const elapsedSec = (Date.now() - latestCycle.ts.getTime()) / 1000;
+  const microThresholdSec = effectiveCycleTime * microMultiplier;
+  const macroThresholdSec = effectiveCycleTime * macroMultiplier;
+
+  if (elapsedSec >= microThresholdSec) {
+    const isMacro = elapsedSec >= macroThresholdSec;
+    const state = isMacro ? "macrostop" : "microstop";
+    const thresholdSec = isMacro ? macroThresholdSec : microThresholdSec;
+    const startedAtMs = latestCycle.ts.getTime() + thresholdSec * 1000;
+
+    activeStoppage = {
+      state,
+      startedAt: new Date(startedAtMs).toISOString(),
+      durationSec: Math.max(0, Math.floor(elapsedSec - thresholdSec)),
+      theoreticalCycleTime: effectiveCycleTime,
+    };
+  }
+}
 
 // chart-friendly: oldest -> newest + numeric timestamps
 const cycles = rawCycles
@@ -331,23 +359,23 @@ const cycles = rawCycles
 
 
   return NextResponse.json({
-    ok: true,
-    machine: {
-      id: machine.id,
-      name: machine.name,
-      code: machine.code,
-      location: machine.location,
-      latestHeartbeat: machine.heartbeats[0] ?? null,
-      latestKpi: machine.kpiSnapshots[0] ?? null,
-      effectiveCycleTime,
-      
-    },
-    thresholds: {
-      stoppageMultiplier: microMultiplier,
-      macroStoppageMultiplier: macroMultiplier,
-    },
-    events,
-    cycles
-  });
+  ok: true,
+  machine: {
+    id: machine.id,
+    name: machine.name,
+    code: machine.code,
+    location: machine.location,
+    latestHeartbeat: machine.heartbeats[0] ?? null,
+    latestKpi: machine.kpiSnapshots[0] ?? null,
+    effectiveCycleTime,
+  },
+  thresholds: {
+    stoppageMultiplier: microMultiplier,
+    macroStoppageMultiplier: macroMultiplier,
+  },
+  activeStoppage,
+  events,
+  cycles,
+});
   
 }

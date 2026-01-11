@@ -90,6 +90,13 @@ type TimelineSeg = {
   state: TimelineState;
 };
 
+type ActiveStoppage = {
+  state: "microstop" | "macrostop";
+  startedAt: string;
+  durationSec: number;
+  theoreticalCycleTime: number;
+};
+
 type UploadState = {
   status: "idle" | "parsing" | "uploading" | "success" | "error";
   message?: string;
@@ -246,9 +253,12 @@ export default function MachineDetailClient() {
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<CycleRow[]>([]);
   const [thresholds, setThresholds] = useState<Thresholds | null>(null);
+  const [activeStoppage, setActiveStoppage] = useState<ActiveStoppage | null>(null);
   const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
 
   const BUCKET = {
     normal: {
@@ -308,6 +318,7 @@ export default function MachineDetailClient() {
         setEvents(json.events ?? []);
         setCycles(json.cycles ?? []);
         setThresholds(json.thresholds ?? null);
+        setActiveStoppage(json.activeStoppage ?? null);
         setError(null);
         setLoading(false);
       } catch {
@@ -324,6 +335,11 @@ export default function MachineDetailClient() {
       clearInterval(timer);
     };
   }, [machineId, t]);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   async function parseWorkOrdersFile(file: File) {
     const name = file.name.toLowerCase();
@@ -429,6 +445,20 @@ export default function MachineDetailClient() {
     if (v === null || v === undefined || Number.isNaN(v)) return t("common.na");
     return `${v}`;
   }
+
+  function formatDurationShort(totalSec?: number | null) {
+    if (totalSec === null || totalSec === undefined || Number.isNaN(totalSec)) {
+      return t("common.na");
+    }
+    const sec = Math.max(0, Math.floor(totalSec));
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
 
   function timeAgo(ts?: string) {
     if (!ts) return t("common.never");
@@ -814,6 +844,8 @@ export default function MachineDetailClient() {
         state,
       });
     }
+
+
 
     return { windowSec, segments: segs, start, end };
   }, [cycles, cycleTarget, thresholds]);
