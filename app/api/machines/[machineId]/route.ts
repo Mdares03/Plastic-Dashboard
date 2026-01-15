@@ -275,7 +275,7 @@ const events = normalized
 
 // ---- cycles window ----
 const url = new URL(_req.url);
-const windowSec = Number(url.searchParams.get("windowSec") ?? "10800"); // default 3h
+const windowSec = Number(url.searchParams.get("windowSec") ?? "3600"); // default 1h
 
 const latestKpi = machine.kpiSnapshots[0] ?? null;
 
@@ -297,7 +297,7 @@ const estCycleSec = Math.max(1, Number(effectiveCycleTime ?? 14));
 const needed = Math.ceil(windowSec / estCycleSec) + 50;
 
 // Safety cap to avoid crazy payloads
-const takeCycles = Math.min(5000, Math.max(200, needed));
+const takeCycles = Math.min(1000, Math.max(200, needed));
 
 const rawCycles = await prisma.machineCycle.findMany({
   where: { orgId: session.orgId, machineId },

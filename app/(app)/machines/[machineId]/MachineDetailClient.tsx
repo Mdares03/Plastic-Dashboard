@@ -329,7 +329,7 @@ export default function MachineDetailClient() {
     }
 
     load();
-    const timer = setInterval(load, 5000);
+    const timer = setInterval(load, 15000);
     return () => {
       alive = false;
       clearInterval(timer);
@@ -605,7 +605,7 @@ export default function MachineDetailClient() {
         <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
           <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
             <span>0s</span>
-            <span>3h</span>
+            <span>1h</span>
           </div>
 
           <div className="flex h-14 w-full overflow-hidden rounded-2xl">

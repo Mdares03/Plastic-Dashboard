@@ -81,7 +81,7 @@ export default function MachinesPage() {
     }
 
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 15000);
 
     return () => {
       alive = false;
@@ -320,6 +320,5 @@ export default function MachinesPage() {
     </div>
   );
 }
-
 
 

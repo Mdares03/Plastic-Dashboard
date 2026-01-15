@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getMachineAuth } from "@/lib/machineAuthCache";
 import { normalizeHeartbeatV1 } from "@/lib/contracts/v1";
 
 function getClientIp(req: Request) {
@@ -59,10 +60,7 @@ export async function POST(req: Request) {
     tsDeviceDate = new Date(body.tsDevice);
 
     // 4) Authorize machineId + apiKey
-    const machine = await prisma.machine.findFirst({
-      where: { id: machineId, apiKey },
-      select: { id: true, orgId: true },
-    });
+    const machine = await getMachineAuth(machineId, apiKey);
 
     if (!machine) {
       await prisma.ingestLog.create({
@@ -114,23 +112,6 @@ export async function POST(req: Request) {
         seq,
         tsDevice: tsDeviceDate,
         tsServer: new Date(),
-      },
-    });
-
-    // 6) Ingest log success
-    await prisma.ingestLog.create({
-      data: {
-        orgId,
-        machineId: machine.id,
-        endpoint,
-        ok: true,
-        status: 200,
-        schemaVersion,
-        seq,
-        tsDevice: tsDeviceDate,
-        body: rawBody,
-        ip,
-        userAgent,
       },
     });
 

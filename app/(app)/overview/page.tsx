@@ -176,7 +176,7 @@ export default function OverviewPage() {
     }
 
     load();
-    const t = setInterval(load, 15000);
+    const t = setInterval(load, 30000);
     return () => {
       alive = false;
       clearInterval(t);

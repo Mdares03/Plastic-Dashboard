@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { getMachineAuth } from "@/lib/machineAuthCache";
 import { z } from "zod";
 
 const normalizeType = (t: any) =>
@@ -83,10 +84,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid machine id" }, { status: 400 });
   }
 
-  const machine = await prisma.machine.findFirst({
-    where: { id: String(machineId), apiKey },
-    select: { id: true, orgId: true },
-  });
+  const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const orgSettings = await prisma.orgSettings.findUnique({
     where: { orgId: machine.orgId },
