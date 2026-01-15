@@ -44,9 +44,9 @@ export async function GET() {
       createdAt: true,
       updatedAt: true,
       heartbeats: {
-        orderBy: { ts: "desc" },
+        orderBy: { tsServer: "desc" },
         take: 1,
-        select: { ts: true, status: true, message: true, ip: true, fwVersion: true },
+        select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true },
       },
       kpiSnapshots: {
         orderBy: { ts: "desc" },

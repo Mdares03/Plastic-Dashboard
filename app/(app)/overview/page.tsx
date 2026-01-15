@@ -6,6 +6,7 @@ import { useI18n } from "@/lib/i18n/useI18n";
 
 type Heartbeat = {
   ts: string;
+  tsServer?: string | null;
   status: string;
   message?: string | null;
   ip?: string | null;
@@ -35,11 +36,6 @@ type MachineRow = {
   latestKpi?: Kpi | null;
 };
 
-type Thresholds = {
-  stoppageMultiplier: number;
-  macroStoppageMultiplier: number;
-};
-
 type EventRow = {
   id: string;
   ts: string;
@@ -51,31 +47,11 @@ type EventRow = {
   requiresAck: boolean;
   machineId?: string;
   machineName?: string;
-  source: "ingested" | "derived";
-};
-
-type CycleRow = {
-  ts: string;
-  t: number;
-  cycleCount: number | null;
-  actual: number;
-  ideal: number | null;
+  source: "ingested";
 };
 
 const OFFLINE_MS = 30000;
-const EVENT_WINDOW_SEC = 1800;
 const MAX_EVENT_MACHINES = 6;
-const DEFAULT_MICRO_MULT = 1.5;
-const DEFAULT_MACRO_MULT = 5;
-
-function resolveMultipliers(thresholds?: Thresholds | null) {
-  const micro = Number(thresholds?.stoppageMultiplier ?? DEFAULT_MICRO_MULT);
-  const macro = Math.max(
-    micro,
-    Number(thresholds?.macroStoppageMultiplier ?? DEFAULT_MACRO_MULT)
-  );
-  return { micro, macro };
-}
 
 function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
   if (!ts) return fallback;
@@ -97,6 +73,10 @@ function normalizeStatus(status?: string) {
   return s;
 }
 
+function heartbeatTime(hb?: Heartbeat | null) {
+  return hb?.tsServer ?? hb?.ts;
+}
+
 function fmtPct(v?: number | null) {
   if (v === null || v === undefined || Number.isNaN(v)) return "--";
   return `${v.toFixed(1)}%`;
@@ -115,41 +95,8 @@ function severityClass(sev?: string) {
   return "bg-white/10 text-zinc-200";
 }
 
-function sourceClass(src: EventRow["source"]) {
-  return src === "ingested"
-    ? "bg-white/10 text-zinc-200"
-    : "bg-emerald-500/15 text-emerald-300";
-}
-
-function classifyDerivedEvent(c: CycleRow, thresholds?: Thresholds | null) {
-  if (c.ideal == null || c.ideal <= 0 || c.actual <= 0) return null;
-  if (c.actual <= c.ideal) return null;
-  const { micro, macro } = resolveMultipliers(thresholds);
-  const extra = c.actual - c.ideal;
-  let eventType = "slow-cycle";
-  let severity = "warning";
-  if (c.actual < c.ideal * micro) {
-    eventType = "slow-cycle";
-    severity = "warning";
-  } else if (c.actual < c.ideal * macro) {
-    eventType = "microstop";
-    severity = "warning";
-  } else {
-    eventType = "macrostop";
-    severity = "critical";
-  }
-
-  return {
-    eventType,
-    severity,
-    title:
-      eventType === "macrostop"
-        ? "Macrostop Detected"
-        : eventType === "microstop"
-        ? "Microstop Detected"
-        : "Slow Cycle Detected",
-    description: `Cycle ${c.actual.toFixed(2)}s (ideal ${c.ideal.toFixed(2)}s)`,
-  };
+function sourceClass(_src: EventRow["source"]) {
+  return "bg-white/10 text-zinc-200";
 }
 
 export default function OverviewPage() {
@@ -196,9 +143,11 @@ export default function OverviewPage() {
       setEventsLoading(true);
 
       const sorted = [...machines].sort((a, b) => {
-        const at = a.latestHeartbeat?.ts ? new Date(a.latestHeartbeat.ts).getTime() : 0;
-        const bt = b.latestHeartbeat?.ts ? new Date(b.latestHeartbeat.ts).getTime() : 0;
-        return bt - at;
+        const at = heartbeatTime(a.latestHeartbeat);
+        const bt = heartbeatTime(b.latestHeartbeat);
+        const atMs = at ? new Date(at).getTime() : 0;
+        const btMs = bt ? new Date(bt).getTime() : 0;
+        return btMs - atMs;
       });
 
       const targets = sorted.slice(0, MAX_EVENT_MACHINES);
@@ -206,7 +155,7 @@ export default function OverviewPage() {
       try {
         const results = await Promise.all(
           targets.map(async (m) => {
-            const res = await fetch(`/api/machines/${m.id}?windowSec=${EVENT_WINDOW_SEC}`, {
+            const res = await fetch(`/api/machines/${m.id}?events=critical&eventsOnly=1`, {
               cache: "no-store",
               signal: controller.signal,
             });
@@ -230,24 +179,6 @@ export default function OverviewPage() {
             });
           }
 
-          const cycles: CycleRow[] = Array.isArray(payload?.cycles) ? payload.cycles : [];
-          for (const c of cycles.slice(-120)) {
-            const derived = classifyDerivedEvent(c, payload?.thresholds);
-            if (!derived) continue;
-            combined.push({
-              id: `derived-${machine.id}-${c.t}`,
-              ts: c.ts,
-              topic: derived.eventType,
-              eventType: derived.eventType,
-              severity: derived.severity,
-              title: derived.title,
-              description: derived.description,
-              requiresAck: false,
-              machineId: machine.id,
-              machineName: machine.name,
-              source: "derived",
-            });
-          }
         }
 
         const seen = new Set<string>();
@@ -295,7 +226,7 @@ export default function OverviewPage() {
 
     for (const m of machines) {
       const hb = m.latestHeartbeat;
-      const offline = isOffline(hb?.ts);
+      const offline = isOffline(heartbeatTime(hb));
       if (!offline) online += 1;
 
       const status = normalizeStatus(hb?.status);
@@ -348,7 +279,7 @@ export default function OverviewPage() {
     const list = machines
       .map((m) => {
         const hb = m.latestHeartbeat;
-        const offline = isOffline(hb?.ts);
+        const offline = isOffline(heartbeatTime(hb));
         const k = m.latestKpi;
         const oee = k?.oee ?? null;
         let score = 0;
@@ -512,7 +443,7 @@ export default function OverviewPage() {
                       </div>
                     </div>
                     <div className="text-xs text-zinc-400">
-                      {secondsAgo(machine.latestHeartbeat?.ts, locale, t("common.never"))}
+                      {secondsAgo(heartbeatTime(machine.latestHeartbeat), locale, t("common.never"))}
                     </div>
                   </div>
                   <div className="mt-2 flex items-center gap-2 text-xs">

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BarChart3, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
+import { BarChart3, Bell, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 const items = [
   { href: "/overview", labelKey: "nav.overview", icon: LayoutGrid },
   { href: "/machines", labelKey: "nav.machines", icon: Wrench },
   { href: "/reports", labelKey: "nav.reports", icon: BarChart3 },
+  { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
   { href: "/settings", labelKey: "nav.settings", icon: Settings },
 ] as const;
 

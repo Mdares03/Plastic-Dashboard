@@ -21,6 +21,7 @@ import { useI18n } from "@/lib/i18n/useI18n";
 
 type Heartbeat = {
   ts: string;
+  tsServer?: string | null;
   status: string;
   message?: string | null;
   ip?: string | null;
@@ -250,6 +251,9 @@ export default function MachineDetailClient() {
   const [loading, setLoading] = useState(true);
   const [machine, setMachine] = useState<MachineDetail | null>(null);
   const [events, setEvents] = useState<EventRow[]>([]);
+  const [detectedEvents, setDetectedEvents] = useState<EventRow[]>([]);
+  const [eventsCountAll, setEventsCountAll] = useState<number | null>(null);
+  const [detectedEventsLoading, setDetectedEventsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<CycleRow[]>([]);
   const [thresholds, setThresholds] = useState<Thresholds | null>(null);
@@ -300,7 +304,7 @@ export default function MachineDetailClient() {
 
     async function load() {
       try {
-        const res = await fetch(`/api/machines/${machineId}?windowSec=10800`, {
+        const res = await fetch(`/api/machines/${machineId}?windowSec=3600&events=critical`, {
           cache: "no-store",
           credentials: "include",
         });
@@ -316,6 +320,7 @@ export default function MachineDetailClient() {
 
         setMachine(json.machine ?? null);
         setEvents(json.events ?? []);
+        setEventsCountAll(typeof json.eventsCountAll === "number" ? json.eventsCountAll : null);
         setCycles(json.cycles ?? []);
         setThresholds(json.thresholds ?? null);
         setActiveStoppage(json.activeStoppage ?? null);
@@ -340,6 +345,32 @@ export default function MachineDetailClient() {
     const timer = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (open !== "events" || !machineId) return;
+
+    let alive = true;
+    setDetectedEventsLoading(true);
+
+    fetch(`/api/machines/${machineId}?events=all&eventsOnly=1&eventsWindowSec=21600`, {
+      cache: "no-store",
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((json) => {
+        if (!alive) return;
+        setDetectedEvents(json.events ?? []);
+        setEventsCountAll(typeof json.eventsCountAll === "number" ? json.eventsCountAll : eventsCountAll);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (alive) setDetectedEventsLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [machineId, open, eventsCountAll]);
 
   async function parseWorkOrdersFile(file: File) {
     const name = file.name.toLowerCase();
@@ -512,7 +543,8 @@ export default function MachineDetailClient() {
 
   const hb = machine?.latestHeartbeat ?? null;
   const kpi = machine?.latestKpi ?? null;
-  const offline = useMemo(() => isOffline(hb?.ts), [hb?.ts]);
+  const hbTs = hb?.tsServer ?? hb?.ts;
+  const offline = useMemo(() => isOffline(hbTs), [hbTs]);
   const normalizedStatus = normalizeStatus(hb?.status);
   const statusLabel = offline
     ? t("machine.detail.status.offline")
@@ -526,7 +558,7 @@ export default function MachineDetailClient() {
   const machineCode = machine?.code ?? t("common.na");
   const machineLocation = machine?.location ?? t("common.na");
   const lastSeenLabel = t("machine.detail.lastSeen", {
-    time: hb?.ts ? timeAgo(hb.ts) : t("common.never"),
+    time: hbTs ? timeAgo(hbTs) : t("common.never"),
   });
 
   const ActiveRing = (props: any) => {
@@ -814,7 +846,7 @@ export default function MachineDetailClient() {
       };
     }
 
-    const windowSec = 10800;
+    const windowSec = 3600;
     const end = rows[rows.length - 1].t;
     const start = end - windowSec * 1000;
 
@@ -1027,7 +1059,7 @@ export default function MachineDetailClient() {
             <MiniCard
               title={t("machine.detail.mini.events")}
               subtitle={t("machine.detail.mini.events.subtitle")}
-              value={`${cycleDerived.counts.slow + cycleDerived.counts.microstop + cycleDerived.counts.macrostop}`}
+              value={`${eventsCountAll ?? detectedEvents.length ?? events.length}`}
               onClick={() => setOpen("events")}
             />
             <MiniCard
@@ -1046,16 +1078,25 @@ export default function MachineDetailClient() {
 
           <Modal open={open === "events"} onClose={() => setOpen(null)} title={t("machine.detail.modal.events")}>
             <div className="max-h-[60vh] space-y-2 overflow-y-auto no-scrollbar">
-              {cycleDerived.mapped
-                .filter((row) => row.bucket !== "normal" && row.bucket !== "unknown")
-                .slice()
-                .reverse()
-                .map((row, idx) => {
-                  const meta = BUCKET[row.bucket as keyof typeof BUCKET];
+              {detectedEventsLoading ? (
+                <div className="text-sm text-zinc-400">{t("machine.detail.loading")}</div>
+              ) : detectedEvents.length === 0 ? (
+                <div className="text-sm text-zinc-400">{t("machine.detail.noEvents")}</div>
+              ) : (
+                detectedEvents.map((event) => {
+                  const bucket =
+                    event.eventType === "macrostop"
+                      ? "macrostop"
+                      : event.eventType === "microstop"
+                      ? "microstop"
+                      : event.eventType === "slow-cycle"
+                      ? "slow"
+                      : "unknown";
+                  const meta = BUCKET[bucket as keyof typeof BUCKET] ?? BUCKET.unknown;
 
                   return (
                     <div
-                      key={row.t ?? row.ts ?? idx}
+                      key={event.id}
                       className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3"
                     >
                       <div className="flex min-w-0 items-center gap-3">
@@ -1066,20 +1107,20 @@ export default function MachineDetailClient() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
                             <span className={`rounded-full border px-2 py-0.5 text-xs ${meta.chip}`}>
-                              {t(meta.labelKey)}
+                              {formatEventType(event.eventType)}
                             </span>
-                            <span className="truncate text-sm text-white">
-                              {row.actual?.toFixed(2)}s
-                              {row.ideal != null ? ` (${t("machine.detail.modal.standardCycle")} ${row.ideal.toFixed(2)}s)` : ""}
-                            </span>
+                            <span className="truncate text-sm text-white">{event.title}</span>
                           </div>
+                          {event.description ? (
+                            <div className="mt-1 text-xs text-zinc-300">{event.description}</div>
+                          ) : null}
                         </div>
                       </div>
-
-                      <div className="shrink-0 text-xs text-zinc-400">{timeAgo(row.ts)}</div>
+                      <div className="shrink-0 text-xs text-zinc-400">{timeAgo(event.ts)}</div>
                     </div>
                   );
-                })}
+                })
+              )}
             </div>
           </Modal>
 

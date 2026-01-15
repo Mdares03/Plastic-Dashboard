@@ -86,6 +86,7 @@ export async function POST(req: Request) {
 
     // 5) Store heartbeat
     // Keep your legacy fields, but store meta fields too.
+    const tsServerNow = new Date();
     const hb = await prisma.machineHeartbeat.create({
       data: {
         orgId,
@@ -95,6 +96,7 @@ export async function POST(req: Request) {
         schemaVersion,
         seq,
         ts: tsDeviceDate,
+        tsServer: tsServerNow,
 
         // Legacy payload compatibility
         status: body.status ? String(body.status) : (body.online ? "RUN" : "STOP"),
@@ -111,7 +113,7 @@ export async function POST(req: Request) {
         schemaVersion,
         seq,
         tsDevice: tsDeviceDate,
-        tsServer: new Date(),
+        tsServer: tsServerNow,
       },
     });
 

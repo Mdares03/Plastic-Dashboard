@@ -183,6 +183,12 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
+  const url = new URL(_req.url);
+  const eventsMode = url.searchParams.get("events") ?? "all";
+  const eventsOnly = url.searchParams.get("eventsOnly") === "1";
+  const eventsWindowSec = Number(url.searchParams.get("eventsWindowSec") ?? "21600"); // default 6h
+  const eventsWindowStart = new Date(Date.now() - Math.max(0, eventsWindowSec) * 1000);
+
   const { machineId } = await params;
 
   const machine = await prisma.machine.findFirst({
@@ -193,9 +199,9 @@ export async function GET(
       code: true,
       location: true,
       heartbeats: {
-        orderBy: { ts: "desc" },
+        orderBy: { tsServer: "desc" },
         take: 1,
-        select: { ts: true, status: true, message: true, ip: true, fwVersion: true },
+        select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true },
       },
       kpiSnapshots: {
         orderBy: { ts: "desc" },
@@ -236,6 +242,7 @@ export async function GET(
     where: {
       orgId: session.orgId,
       machineId,
+      ts: { gte: eventsWindowStart },
     },
     orderBy: { ts: "desc" },
     take: 100, // pull more, we'll filter after normalization
@@ -257,24 +264,43 @@ export async function GET(
     normalizeEvent(row, { microMultiplier, macroMultiplier })
   );
 
-const ALLOWED_TYPES = new Set([
-  "slow-cycle",
-  "microstop",
-  "macrostop",
-  "oee-drop",
-  "quality-spike",
-  "performance-degradation",
-  "predictive-oee-decline",
-]);
+  const ALLOWED_TYPES = new Set([
+    "slow-cycle",
+    "microstop",
+    "macrostop",
+    "offline",
+    "error",
+    "oee-drop",
+    "quality-spike",
+    "performance-degradation",
+    "predictive-oee-decline",
+    "alert-delivery-failed",
+  ]);
 
-const events = normalized
-  .filter((e) => ALLOWED_TYPES.has(e.eventType))
-  // drop severity gating so recent info events appear
-  .slice(0, 30);
+  const allEvents = normalized.filter((e) => ALLOWED_TYPES.has(e.eventType));
+
+  const isCritical = (event: (typeof allEvents)[number]) => {
+    const severity = String(event.severity ?? "").toLowerCase();
+    return (
+      event.eventType === "macrostop" ||
+      event.requiresAck === true ||
+      severity === "critical" ||
+      severity === "error" ||
+      severity === "high"
+    );
+  };
+
+  const eventsFiltered = eventsMode === "critical" ? allEvents.filter(isCritical) : allEvents;
+  const events = eventsFiltered.slice(0, 30);
+  const eventsCountAll = allEvents.length;
+  const eventsCountCritical = allEvents.filter(isCritical).length;
+
+  if (eventsOnly) {
+    return NextResponse.json({ ok: true, events, eventsCountAll, eventsCountCritical });
+  }
 
 
 // ---- cycles window ----
-const url = new URL(_req.url);
 const windowSec = Number(url.searchParams.get("windowSec") ?? "3600"); // default 1h
 
 const latestKpi = machine.kpiSnapshots[0] ?? null;
@@ -375,6 +401,8 @@ const cycles = rawCycles
   },
   activeStoppage,
   events,
+  eventsCountAll,
+  eventsCountCritical,
   cycles,
 });
   

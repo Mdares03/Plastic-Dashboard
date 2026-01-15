@@ -11,6 +11,7 @@ type MachineRow = {
   location?: string | null;
   latestHeartbeat: null | {
     ts: string;
+    tsServer?: string | null;
     status: string;
     message?: string | null;
     ip?: string | null;
@@ -267,10 +268,11 @@ export default function MachinesPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {(!loading ? machines : []).map((m) => {
           const hb = m.latestHeartbeat;
-          const offline = isOffline(hb?.ts);
+          const hbTs = hb?.tsServer ?? hb?.ts;
+          const offline = isOffline(hbTs);
           const normalizedStatus = normalizeStatus(hb?.status);
           const statusLabel = offline ? t("machines.status.offline") : (normalizedStatus || t("machines.status.unknown"));
-          const lastSeen = secondsAgo(hb?.ts, locale, t("common.never"));
+          const lastSeen = secondsAgo(hbTs, locale, t("common.never"));
 
           return (
             <Link
@@ -320,5 +322,3 @@ export default function MachinesPage() {
     </div>
   );
 }
-
-

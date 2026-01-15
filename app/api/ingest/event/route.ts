@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { z } from "zod";
+import { evaluateAlertsForEvent } from "@/lib/alerts/engine";
 
 const normalizeType = (t: any) =>
   String(t ?? "")
@@ -29,6 +30,8 @@ const ALLOWED_TYPES = new Set([
   "slow-cycle",
   "microstop",
   "macrostop",
+  "offline",
+  "error",
   "oee-drop",
   "quality-spike",
   "performance-degradation",
@@ -212,6 +215,12 @@ export async function POST(req: Request) {
     });
 
     created.push({ id: row.id, ts: row.ts, eventType: row.eventType });
+
+    try {
+      await evaluateAlertsForEvent(row.id);
+    } catch (err) {
+      console.error("[alerts] evaluation failed", err);
+    }
   }
 
   return NextResponse.json({ ok: true, createdCount: created.length, created, skippedCount: skipped.length, skipped });
