@@ -51,8 +51,9 @@ export default function InviteAcceptForm({
           throw new Error(data.error || t("invite.error.notFound"));
         }
         if (alive) setInvite(data.invite);
-      } catch (err: any) {
-        if (alive) setError(err?.message || t("invite.error.notFound"));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : null;
+        if (alive) setError(message || t("invite.error.notFound"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -62,7 +63,7 @@ export default function InviteAcceptForm({
     return () => {
       alive = false;
     };
-  }, [cleanedToken, initialInvite, initialError]);
+  }, [cleanedToken, initialInvite, initialError, t]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -80,8 +81,9 @@ export default function InviteAcceptForm({
       }
       router.push("/machines");
       router.refresh();
-    } catch (err: any) {
-      setError(err?.message || t("invite.error.acceptFailed"));
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : null;
+      setError(message || t("invite.error.acceptFailed"));
     } finally {
       setSubmitting(false);
     }

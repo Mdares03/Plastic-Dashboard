@@ -10,11 +10,17 @@ export const SCHEMA_VERSION = "1.0";
 // KPI scale is frozen as 0..100 (you confirmed)
 const KPI_0_100 = z.number().min(0).max(100);
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 function unwrapCanonicalEnvelope(raw: unknown) {
   if (!raw || typeof raw !== "object") return raw;
-  const obj: any = raw;
-  const payload = obj.payload;
-  if (!payload || typeof payload !== "object") return raw;
+  const obj = asRecord(raw);
+  if (!obj) return raw;
+  const payload = asRecord(obj.payload);
+  if (!payload) return raw;
 
   const hasMeta =
     obj.schemaVersion !== undefined ||
@@ -47,7 +53,8 @@ function unwrapCanonicalEnvelope(raw: unknown) {
 
 function normalizeTsDevice(raw: unknown) {
   if (!raw || typeof raw !== "object") return raw;
-  const obj: any = raw;
+  const obj = asRecord(raw);
+  if (!obj) return raw;
   if (typeof obj.tsDevice === "number") return obj;
   if (typeof obj.tsMs === "number") return { ...obj, tsDevice: obj.tsMs };
   return obj;
@@ -149,87 +156,89 @@ export function normalizeSnapshotV1(raw: unknown): { ok: true; value: SnapshotV1
   if (!recheck.success) return { ok: false, error: recheck.error.message };
   return { ok: true, value: recheck.data };
   */
-    const b: any = legacy.data;
+  const b = asRecord(legacy.data) ?? {};
+  const activeWorkOrder = asRecord(b.activeWorkOrder);
+  const kpis = asRecord(b.kpis);
+  const kpiSnapshot = asRecord(b.kpi_snapshot);
 
-    const legacyCycleTime =
-      b.cycleTime ??
-      b.cycle_time ??
-      b.theoretical_cycle_time ??
-      b.theoreticalCycleTime ??
-      b.standard_cycle_time ??
-      b.kpi_snapshot?.cycleTime ??
-      b.kpi_snapshot?.cycle_time ??
-      undefined;
+  const legacyCycleTime =
+    b.cycleTime ??
+    b.cycle_time ??
+    b.theoretical_cycle_time ??
+    b.theoreticalCycleTime ??
+    b.standard_cycle_time ??
+    kpiSnapshot?.cycleTime ??
+    kpiSnapshot?.cycle_time ??
+    undefined;
 
-    const legacyActualCycleTime =
-      b.actualCycleTime ??
-      b.actual_cycle_time ??
-      b.actualCycleSeconds ??
-      b.kpi_snapshot?.actualCycleTime ??
-      b.kpi_snapshot?.actual_cycle_time ??
-      undefined;
+  const legacyActualCycleTime =
+    b.actualCycleTime ??
+    b.actual_cycle_time ??
+    b.actualCycleSeconds ??
+    kpiSnapshot?.actualCycleTime ??
+    kpiSnapshot?.actual_cycle_time ??
+    undefined;
 
-    const legacyWorkOrderId =
-      b.activeWorkOrder?.id ??
-      b.work_order_id ??
-      b.workOrderId ??
-      b.kpis?.workOrderId ??
-      b.kpi_snapshot?.work_order_id ??
-      undefined;
+  const legacyWorkOrderId =
+    activeWorkOrder?.id ??
+    b.work_order_id ??
+    b.workOrderId ??
+    kpis?.workOrderId ??
+    kpiSnapshot?.work_order_id ??
+    undefined;
 
-    const legacySku =
-      b.activeWorkOrder?.sku ??
-      b.sku ??
-      b.kpis?.sku ??
-      b.kpi_snapshot?.sku ??
-      undefined;
+  const legacySku =
+    activeWorkOrder?.sku ??
+    b.sku ??
+    kpis?.sku ??
+    kpiSnapshot?.sku ??
+    undefined;
 
-    const legacyTarget =
-      b.activeWorkOrder?.target ??
-      b.target ??
-      b.kpis?.target ??
-      b.kpi_snapshot?.target ??
-      undefined;
+  const legacyTarget =
+    activeWorkOrder?.target ??
+    b.target ??
+    kpis?.target ??
+    kpiSnapshot?.target ??
+    undefined;
 
-    const legacyGood =
-      b.activeWorkOrder?.good ??
-      b.good_parts ??
-      b.good ??
-      b.kpis?.good ??
-      b.kpi_snapshot?.good_parts ??
-      undefined;
+  const legacyGood =
+    activeWorkOrder?.good ??
+    b.good_parts ??
+    b.good ??
+    kpis?.good ??
+    kpiSnapshot?.good_parts ??
+    undefined;
 
-    const legacyScrap =
-      b.activeWorkOrder?.scrap ??
-      b.scrap_parts ??
-      b.scrap ??
-      b.kpis?.scrap ??
-      b.kpi_snapshot?.scrap_parts ??
-      undefined;
+  const legacyScrap =
+    activeWorkOrder?.scrap ??
+    b.scrap_parts ??
+    b.scrap ??
+    kpis?.scrap ??
+    kpiSnapshot?.scrap_parts ??
+    undefined;
 
-    const migrated: any = {
-      schemaVersion: SCHEMA_VERSION,
-      machineId: String(b.machineId),
-      tsDevice: typeof b.tsDevice === "number" ? b.tsDevice : Date.now(),
-      seq: typeof b.seq === "number" || typeof b.seq === "string" ? b.seq : "0",
+  const migrated: Record<string, unknown> = {
+    schemaVersion: SCHEMA_VERSION,
+    machineId: String(b.machineId),
+    tsDevice: typeof b.tsDevice === "number" ? b.tsDevice : Date.now(),
+    seq: typeof b.seq === "number" || typeof b.seq === "string" ? b.seq : "0",
 
-      // canonical fields (force them)
-      cycleTime: legacyCycleTime != null ? Number(legacyCycleTime) : undefined,
-      actualCycleTime: legacyActualCycleTime != null ? Number(legacyActualCycleTime) : undefined,
+    // canonical fields (force them)
+    cycleTime: legacyCycleTime != null ? Number(legacyCycleTime) : undefined,
+    actualCycleTime: legacyActualCycleTime != null ? Number(legacyActualCycleTime) : undefined,
 
-      activeWorkOrder: legacyWorkOrderId
-        ? {
-            id: String(legacyWorkOrderId),
-            sku: legacySku != null ? String(legacySku) : undefined,
-            target: legacyTarget != null ? Number(legacyTarget) : undefined,
-            good: legacyGood != null ? Number(legacyGood) : undefined,
-            scrap: legacyScrap != null ? Number(legacyScrap) : undefined,
-          }
-        : b.activeWorkOrder,
+    activeWorkOrder: legacyWorkOrderId
+      ? {
+          id: String(legacyWorkOrderId),
+          sku: legacySku != null ? String(legacySku) : undefined,
+          target: legacyTarget != null ? Number(legacyTarget) : undefined,
+          good: legacyGood != null ? Number(legacyGood) : undefined,
+          scrap: legacyScrap != null ? Number(legacyScrap) : undefined,
+        }
+      : activeWorkOrder,
 
-      // keep everything else
-      ...b,
-      
+    // keep everything else
+    ...b,
   };
   const recheck = SnapshotV1.safeParse(migrated);
   if (!recheck.success) return { ok: false, error: recheck.error.message };
@@ -262,8 +271,8 @@ export function normalizeHeartbeatV1(raw: unknown) {
   const legacy = z.object({ machineId: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
-  const b: any = legacy.data;
-  const migrated: any = {
+  const b = asRecord(legacy.data) ?? {};
+  const migrated: Record<string, unknown> = {
     schemaVersion: SCHEMA_VERSION,
     machineId: String(b.machineId),
     tsDevice: typeof b.tsDevice === "number" ? b.tsDevice : Date.now(),
@@ -304,11 +313,22 @@ export function normalizeCycleV1(raw: unknown) {
   const legacy = z.object({ machineId: z.any(), cycle: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
-  const b: any = legacy.data;
-  const tsDevice = typeof b.tsDevice === "number" ? b.tsDevice : (b.cycle?.timestamp ?? Date.now());
-  const seq = typeof b.seq === "number" || typeof b.seq === "string" ? b.seq : (b.cycle?.cycle_count ?? "0");
+  const b = asRecord(legacy.data) ?? {};
+  const cycle = asRecord(b.cycle);
+  const tsDevice =
+    typeof b.tsDevice === "number" ? b.tsDevice : (cycle?.timestamp as number | undefined) ?? Date.now();
+  const seq =
+    typeof b.seq === "number" || typeof b.seq === "string"
+      ? b.seq
+      : (cycle?.cycle_count as number | string | undefined) ?? "0";
 
-  const migrated: any = { schemaVersion: SCHEMA_VERSION, machineId: String(b.machineId), tsDevice, seq, ...b };
+  const migrated: Record<string, unknown> = {
+    schemaVersion: SCHEMA_VERSION,
+    machineId: String(b.machineId),
+    tsDevice,
+    seq,
+    ...b,
+  };
   const recheck = CycleV1.safeParse(migrated);
   if (!recheck.success) return { ok: false as const, error: recheck.error.message };
   return { ok: true as const, value: recheck.data };
@@ -343,9 +363,11 @@ export function normalizeEventV1(raw: unknown) {
   const legacy = z.object({ machineId: z.any(), event: z.any() }).passthrough().safeParse(candidate);
   if (!legacy.success) return { ok: false as const, error: strict.error.message };
 
-  const b: any = legacy.data;
-  const tsDevice = typeof b.tsDevice === "number" ? b.tsDevice : (b.event?.timestamp ?? Date.now());
-  const migrated: any = {
+  const b = asRecord(legacy.data) ?? {};
+  const event = asRecord(b.event);
+  const tsDevice =
+    typeof b.tsDevice === "number" ? b.tsDevice : (event?.timestamp as number | undefined) ?? Date.now();
+  const migrated: Record<string, unknown> = {
     schemaVersion: SCHEMA_VERSION,
     machineId: String(b.machineId),
     tsDevice,

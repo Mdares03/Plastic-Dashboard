@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { normalizeSnapshotV1 } from "@/lib/contracts/v1";
+import { toJsonValue } from "@/lib/prismaJson";
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
   const userAgent = req.headers.get("user-agent");
 
-  let rawBody: any = null;
+  let rawBody: unknown = null;
   let orgId: string | null = null;
   let machineId: string | null = null;
   let seq: bigint | null = null;
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
           status: 400,
           errorCode: "INVALID_PAYLOAD",
           errorMsg: normalized.error,
-          body: rawBody,
+          body: toJsonValue(rawBody),
           ip,
           userAgent,
         },
@@ -86,7 +87,7 @@ export async function POST(req: Request) {
           status: 401,
           errorCode: "UNAUTHORIZED",
           errorMsg: "Unauthorized (machineId/apiKey mismatch)",
-          body: rawBody,
+          body: toJsonValue(rawBody),
           machineId,
           schemaVersion,
           seq,
@@ -100,19 +101,37 @@ export async function POST(req: Request) {
 
     orgId = machine.orgId;
 
-    const wo = body.activeWorkOrder ?? {};
-    const good = typeof wo.good === "number" ? wo.good : (typeof wo.goodParts === "number" ? wo.goodParts : null);
-    const scrap = typeof wo.scrap === "number" ? wo.scrap : (typeof wo.scrapParts === "number" ? wo.scrapParts : null)
+    const woRecord = (body.activeWorkOrder ?? {}) as Record<string, unknown>;
+    const good =
+      typeof woRecord.good === "number"
+        ? woRecord.good
+        : typeof woRecord.goodParts === "number"
+          ? woRecord.goodParts
+          : typeof woRecord.good_parts === "number"
+            ? woRecord.good_parts
+            : null;
+    const scrap =
+      typeof woRecord.scrap === "number"
+        ? woRecord.scrap
+        : typeof woRecord.scrapParts === "number"
+          ? woRecord.scrapParts
+          : typeof woRecord.scrap_parts === "number"
+            ? woRecord.scrap_parts
+            : null;
     const k = body.kpis ?? {};
     const safeCycleTime =
-    typeof body.cycleTime === "number" && body.cycleTime > 0
-      ? body.cycleTime
-      : (typeof (wo as any).cycleTime === "number" && (wo as any).cycleTime > 0 ? (wo as any).cycleTime : null);
+      typeof body.cycleTime === "number" && body.cycleTime > 0
+        ? body.cycleTime
+        : typeof woRecord.cycleTime === "number" && woRecord.cycleTime > 0
+          ? woRecord.cycleTime
+          : null;
 
-  const safeCavities =
-    typeof body.cavities === "number" && body.cavities > 0
-      ? body.cavities
-      : (typeof (wo as any).cavities === "number" && (wo as any).cavities > 0 ? (wo as any).cavities : null);
+    const safeCavities =
+      typeof body.cavities === "number" && body.cavities > 0
+        ? body.cavities
+        : typeof woRecord.cavities === "number" && woRecord.cavities > 0
+          ? woRecord.cavities
+          : null;
     // Write snapshot (ts = tsDevice; tsServer auto)
     const row = await prisma.machineKpiSnapshot.create({
       data: {
@@ -125,9 +144,9 @@ export async function POST(req: Request) {
         ts: tsDeviceDate, // store device-time in ts; server-time goes to ts_server
 
         // Work order fields
-        workOrderId: wo.id ? String(wo.id) : null,
-        sku: wo.sku ? String(wo.sku) : null,
-        target: typeof wo.target === "number" ? Math.trunc(wo.target) : null,
+        workOrderId: woRecord.id != null ? String(woRecord.id) : null,
+        sku: woRecord.sku != null ? String(woRecord.sku) : null,
+        target: typeof woRecord.target === "number" ? Math.trunc(woRecord.target) : null,
         good: good != null ? Math.trunc(good) : null,
         scrap: scrap != null ? Math.trunc(scrap) : null,
 
@@ -169,8 +188,8 @@ export async function POST(req: Request) {
       tsDevice: row.ts,
       tsServer: row.tsServer,
     });
-  } catch (err: any) {
-    const msg = err?.message ? String(err.message) : "Unknown error";
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
 
     // Never fail the request because logging failed
     try {
@@ -186,7 +205,7 @@ export async function POST(req: Request) {
           schemaVersion,
           seq,
           tsDevice: tsDeviceDate ?? undefined,
-          body: rawBody,
+          body: toJsonValue(rawBody),
           ip,
           userAgent,
         },

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { normalizeHeartbeatV1 } from "@/lib/contracts/v1";
+import { toJsonValue } from "@/lib/prismaJson";
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
@@ -24,7 +25,7 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
   const userAgent = req.headers.get("user-agent");
 
-  let rawBody: any = null;
+  let rawBody: unknown = null;
   let orgId: string | null = null;
   let machineId: string | null = null;
   let seq: bigint | null = null;
@@ -48,7 +49,16 @@ export async function POST(req: Request) {
     const normalized = normalizeHeartbeatV1(rawBody);
     if (!normalized.ok) {
       await prisma.ingestLog.create({
-        data: { endpoint, ok: false, status: 400, errorCode: "INVALID_PAYLOAD", errorMsg: normalized.error, body: rawBody, ip, userAgent },
+        data: {
+          endpoint,
+          ok: false,
+          status: 400,
+          errorCode: "INVALID_PAYLOAD",
+          errorMsg: normalized.error,
+          body: toJsonValue(rawBody),
+          ip,
+          userAgent,
+        },
       });
       return NextResponse.json({ ok: false, error: "Invalid payload", detail: normalized.error }, { status: 400 });
     }
@@ -70,7 +80,7 @@ export async function POST(req: Request) {
           status: 401,
           errorCode: "UNAUTHORIZED",
           errorMsg: "Unauthorized (machineId/apiKey mismatch)",
-          body: rawBody,
+          body: toJsonValue(rawBody),
           machineId,
           schemaVersion,
           seq,
@@ -123,8 +133,8 @@ export async function POST(req: Request) {
       tsDevice: hb.ts,
       tsServer: hb.tsServer,
     });
-  } catch (err: any) {
-    const msg = err?.message ? String(err.message) : "Unknown error";
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
 
     try {
       await prisma.ingestLog.create({
@@ -139,7 +149,7 @@ export async function POST(req: Request) {
           schemaVersion,
           seq,
           tsDevice: tsDeviceDate ?? undefined,
-          body: rawBody,
+          body: toJsonValue(rawBody),
           ip,
           userAgent,
         },

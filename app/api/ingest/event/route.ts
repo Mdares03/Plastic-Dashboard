@@ -3,12 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { z } from "zod";
 import { evaluateAlertsForEvent } from "@/lib/alerts/engine";
+import { toJsonValue } from "@/lib/prismaJson";
 
-const normalizeType = (t: any) =>
+const normalizeType = (t: unknown) =>
   String(t ?? "")
     .trim()
     .toLowerCase()
     .replace(/_/g, "-");
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 
 const CANON_TYPE: Record<string, string> = {
   // Node-RED
@@ -56,29 +62,35 @@ export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
   if (!apiKey) return NextResponse.json({ ok: false, error: "Missing api key" }, { status: 401 });
 
-  let body: any = await req.json().catch(() => null);
+  let body: unknown = await req.json().catch(() => null);
 
   // ✅ if Node-RED sent an array as the whole body, unwrap it
   if (Array.isArray(body)) body = body[0];
+  const bodyRecord = asRecord(body) ?? {};
+  const payloadRecord = asRecord(bodyRecord.payload) ?? {};
 
   // ✅ accept multiple common keys
-  const machineId = body?.machineId ?? body?.machine_id ?? body?.machine?.id;
+  const machineId =
+    bodyRecord.machineId ??
+    bodyRecord.machine_id ??
+    (asRecord(bodyRecord.machine)?.id ?? null);
   let rawEvent =
-    body?.event ??
-    body?.events ??
-    body?.anomalies ??
-    body?.payload?.event ??
-    body?.payload?.events ??
-    body?.payload?.anomalies ??
-    body?.payload ??
-    body?.data;           // sometimes "data"
+    bodyRecord.event ??
+    bodyRecord.events ??
+    bodyRecord.anomalies ??
+    payloadRecord.event ??
+    payloadRecord.events ??
+    payloadRecord.anomalies ??
+    payloadRecord ??
+    bodyRecord.data; // sometimes "data"
 
-    if (rawEvent?.event && typeof rawEvent.event === "object") rawEvent = rawEvent.event;
-    if (Array.isArray(rawEvent?.events)) rawEvent = rawEvent.events;
+  const rawEventRecord = asRecord(rawEvent);
+  if (rawEventRecord?.event && typeof rawEventRecord.event === "object") rawEvent = rawEventRecord.event;
+  if (Array.isArray(rawEventRecord?.events)) rawEvent = rawEventRecord.events;
 
   if (!machineId || !rawEvent) {
     return NextResponse.json(
-      { ok: false, error: "Invalid payload", got: { hasMachineId: !!machineId, keys: Object.keys(body ?? {}) } },
+      { ok: false, error: "Invalid payload", got: { hasMachineId: !!machineId, keys: Object.keys(bodyRecord) } },
       { status: 400 }
     );
   }
@@ -108,55 +120,50 @@ export async function POST(req: Request) {
   }
 
   const created: { id: string; ts: Date; eventType: string }[] = [];
-  const skipped: any[] = [];
+  const skipped: Array<Record<string, unknown>> = [];
 
   for (const ev of events) {
-    if (!ev || typeof ev !== "object") {
+    const evRecord = asRecord(ev);
+    if (!evRecord) {
       skipped.push({ reason: "invalid_event_object" });
       continue;
     }
+    const evData = asRecord(evRecord.data) ?? {};
 
-    const rawType = (ev as any).eventType ?? (ev as any).anomaly_type ?? (ev as any).topic ?? body.topic ?? "";
+    const rawType = evRecord.eventType ?? evRecord.anomaly_type ?? evRecord.topic ?? bodyRecord.topic ?? "";
     const typ0 = normalizeType(rawType);
     const typ = CANON_TYPE[typ0] ?? typ0;
 
     // Determine timestamp
     const tsMs =
-      (typeof (ev as any)?.timestamp === "number" && (ev as any).timestamp) ||
-      (typeof (ev as any)?.data?.timestamp === "number" && (ev as any).data.timestamp) ||
-      (typeof (ev as any)?.data?.event_timestamp === "number" && (ev as any).data.event_timestamp) ||
+      (typeof evRecord.timestamp === "number" && evRecord.timestamp) ||
+      (typeof evData.timestamp === "number" && evData.timestamp) ||
+      (typeof evData.event_timestamp === "number" && evData.event_timestamp) ||
       null;
 
     const ts = tsMs ? new Date(tsMs) : new Date();
 
     // Severity defaulting (do not skip on severity — store for audit)
-    let sev = String((ev as any).severity ?? "").trim().toLowerCase();
+    let sev = String(evRecord.severity ?? "").trim().toLowerCase();
     if (!sev) sev = "warning";
 
     // Stop classification -> microstop/macrostop
     let finalType = typ;
     if (typ === "stop") {
       const stopSec =
-        (typeof (ev as any)?.data?.stoppage_duration_seconds === "number" && (ev as any).data.stoppage_duration_seconds) ||
-        (typeof (ev as any)?.data?.stop_duration_seconds === "number" && (ev as any).data.stop_duration_seconds) ||
+        (typeof evData.stoppage_duration_seconds === "number" && evData.stoppage_duration_seconds) ||
+        (typeof evData.stop_duration_seconds === "number" && evData.stop_duration_seconds) ||
         null;
 
       if (stopSec != null) {
-        const theoretical =
-          Number(
-            (ev as any)?.data?.theoretical_cycle_time ??
-              (ev as any)?.data?.theoreticalCycleTime ??
-              0
-          ) || 0;
+        const theoretical = Number(evData.theoretical_cycle_time ?? evData.theoreticalCycleTime ?? 0) || 0;
 
         const microMultiplier = Number(
-          (ev as any)?.data?.micro_threshold_multiplier ??
-            (ev as any)?.data?.threshold_multiplier ??
-            defaultMicroMultiplier
+          evData.micro_threshold_multiplier ?? evData.threshold_multiplier ?? defaultMicroMultiplier
         );
         const macroMultiplier = Math.max(
           microMultiplier,
-          Number((ev as any)?.data?.macro_threshold_multiplier ?? defaultMacroMultiplier)
+          Number(evData.macro_threshold_multiplier ?? defaultMacroMultiplier)
         );
 
         if (theoretical > 0) {
@@ -177,39 +184,60 @@ export async function POST(req: Request) {
     }
 
     const title =
-      clampText((ev as any).title, 160) ||
+      clampText(evRecord.title, 160) ||
       (finalType === "slow-cycle" ? "Slow Cycle Detected" :
        finalType === "macrostop" ? "Macrostop Detected" :
        finalType === "microstop" ? "Microstop Detected" :
        "Event");
 
-    const description = clampText((ev as any).description, 1000);
+    const description = clampText(evRecord.description, 1000);
 
     // store full blob, ensure object
-    const rawData = (ev as any).data ?? ev;
-    const dataObj = typeof rawData === "string" ? (() => {
-      try { return JSON.parse(rawData); } catch { return { raw: rawData }; }
-    })() : rawData;
+    const rawData = evRecord.data ?? evRecord;
+    const parsedData = typeof rawData === "string"
+      ? (() => {
+          try {
+            return JSON.parse(rawData);
+          } catch {
+            return { raw: rawData };
+          }
+        })()
+      : rawData;
+    const dataObj: Record<string, unknown> =
+      parsedData && typeof parsedData === "object" && !Array.isArray(parsedData)
+        ? { ...(parsedData as Record<string, unknown>) }
+        : { raw: parsedData };
+    if (evRecord.status != null && dataObj.status == null) dataObj.status = evRecord.status;
+    if (evRecord.alert_id != null && dataObj.alert_id == null) dataObj.alert_id = evRecord.alert_id;
+    if (evRecord.is_update != null && dataObj.is_update == null) dataObj.is_update = evRecord.is_update;
+    if (evRecord.is_auto_ack != null && dataObj.is_auto_ack == null) dataObj.is_auto_ack = evRecord.is_auto_ack;
+
+    const activeWorkOrder = asRecord(evRecord.activeWorkOrder);
+    const dataActiveWorkOrder = asRecord(evData.activeWorkOrder);
 
     const row = await prisma.machineEvent.create({
       data: {
         orgId: machine.orgId,
         machineId: machine.id,
         ts,
-        topic: clampText((ev as any).topic ?? finalType, 64) ?? finalType,
+        topic: clampText(evRecord.topic ?? finalType, 64) ?? finalType,
         eventType: finalType,
         severity: sev,
-        requiresAck: !!(ev as any).requires_ack,
+        requiresAck: !!evRecord.requires_ack,
         title,
         description,
-        data: dataObj,
+        data: toJsonValue(dataObj),
         workOrderId:
-          clampText((ev as any)?.work_order_id, 64) ??
-          clampText((ev as any)?.data?.work_order_id, 64) ??
+          clampText(evRecord.work_order_id, 64) ??
+          clampText(evData.work_order_id, 64) ??
+          clampText(activeWorkOrder?.id, 64) ??
+          clampText(dataActiveWorkOrder?.id, 64) ??
           null,
         sku:
-          clampText((ev as any)?.sku, 64) ??
-          clampText((ev as any)?.data?.sku, 64) ??
+          clampText(evRecord.sku, 64) ??
+          clampText(evData.sku, 64) ??
+          clampText(activeWorkOrder?.sku, 64) ??
+          clampText(dataActiveWorkOrder?.sku, 64) ??
           null,
       },
     });

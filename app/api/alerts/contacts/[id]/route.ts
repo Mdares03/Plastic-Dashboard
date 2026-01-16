@@ -50,6 +50,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
   }
 
   const { userId: _userId, eventTypes, ...updateData } = parsed.data;
+  void _userId;
   const normalizedEventTypes =
     eventTypes === null ? Prisma.DbNull : eventTypes ?? undefined;
   const data = normalizedEventTypes === undefined

@@ -53,19 +53,25 @@ type WorkOrderInput = {
   cycleTime?: number | null;
 };
 
-function normalizeWorkOrders(raw: any[]) {
+function normalizeWorkOrders(raw: unknown[]) {
   const seen = new Set<string>();
   const cleaned: WorkOrderInput[] = [];
 
   for (const item of raw) {
-    const idRaw = cleanText(item?.workOrderId ?? item?.id ?? item?.work_order_id, MAX_WORK_ORDER_ID_LENGTH);
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const idRaw = cleanText(
+      record.workOrderId ?? record.id ?? record.work_order_id,
+      MAX_WORK_ORDER_ID_LENGTH
+    );
     if (!idRaw || !WORK_ORDER_ID_RE.test(idRaw) || seen.has(idRaw)) continue;
     seen.add(idRaw);
 
-    const sku = cleanText(item?.sku ?? item?.SKU ?? null, MAX_SKU_LENGTH);
-    const targetQtyRaw = toIntOrNull(item?.targetQty ?? item?.target_qty ?? item?.target ?? item?.targetQuantity);
+    const sku = cleanText(record.sku ?? record.SKU ?? null, MAX_SKU_LENGTH);
+    const targetQtyRaw = toIntOrNull(
+      record.targetQty ?? record.target_qty ?? record.target ?? record.targetQuantity
+    );
     const cycleTimeRaw = toFloatOrNull(
-      item?.cycleTime ?? item?.theoreticalCycleTime ?? item?.theoretical_cycle_time ?? item?.cycle_time
+      record.cycleTime ?? record.theoreticalCycleTime ?? record.theoretical_cycle_time ?? record.cycle_time
     );
     const targetQty =
       targetQtyRaw == null ? null : Math.min(Math.max(targetQtyRaw, 0), MAX_TARGET_QTY);

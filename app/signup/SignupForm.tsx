@@ -34,8 +34,9 @@ export default function SignupForm() {
 
       setVerificationSent(true);
       setEmailSent(data.emailSent !== false);
-    } catch (e: any) {
-      setErr(e?.message || t("signup.error.network"));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : null;
+      setErr(message || t("signup.error.network"));
     } finally {
       setLoading(false);
     }

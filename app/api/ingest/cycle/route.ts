@@ -3,27 +3,33 @@ import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { z } from "zod";
 
-function unwrapEnvelope(raw: any) {
-  if (!raw || typeof raw !== "object") return raw;
-  const payload = raw.payload;
-  if (!payload || typeof payload !== "object") return raw;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function unwrapEnvelope(raw: unknown) {
+  const record = asRecord(raw);
+  if (!record) return raw;
+  const payload = asRecord(record.payload);
+  if (!payload) return raw;
 
   const hasMeta =
-    raw.schemaVersion !== undefined ||
-    raw.machineId !== undefined ||
-    raw.tsMs !== undefined ||
-    raw.tsDevice !== undefined ||
-    raw.seq !== undefined ||
-    raw.type !== undefined;
+    record.schemaVersion !== undefined ||
+    record.machineId !== undefined ||
+    record.tsMs !== undefined ||
+    record.tsDevice !== undefined ||
+    record.seq !== undefined ||
+    record.type !== undefined;
   if (!hasMeta) return raw;
 
   return {
     ...payload,
-    machineId: raw.machineId ?? payload.machineId,
-    tsMs: raw.tsMs ?? payload.tsMs,
-    tsDevice: raw.tsDevice ?? payload.tsDevice,
-    schemaVersion: raw.schemaVersion ?? payload.schemaVersion,
-    seq: raw.seq ?? payload.seq,
+    machineId: record.machineId ?? payload.machineId,
+    tsMs: record.tsMs ?? payload.tsMs,
+    tsDevice: record.tsDevice ?? payload.tsDevice,
+    schemaVersion: record.schemaVersion ?? payload.schemaVersion,
+    seq: record.seq ?? payload.seq,
   };
 }
 
@@ -61,10 +67,14 @@ export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
   if (!apiKey) return NextResponse.json({ ok: false, error: "Missing api key" }, { status: 401 });
 
-  let body = await req.json().catch(() => null);
+  let body: unknown = await req.json().catch(() => null);
   body = unwrapEnvelope(body);
+  const bodyRecord = asRecord(body) ?? {};
 
-  const machineId = body?.machineId ?? body?.machine_id ?? body?.machine?.id;
+  const machineId =
+    bodyRecord.machineId ??
+    bodyRecord.machine_id ??
+    (asRecord(bodyRecord.machine)?.id ?? null);
   if (!machineId || !machineIdSchema.safeParse(String(machineId)).success) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
@@ -72,8 +82,7 @@ export async function POST(req: Request) {
   const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const raw = body as any;
-  const cyclesRaw = raw?.cycles ?? raw?.cycle;
+  const cyclesRaw = bodyRecord.cycles ?? bodyRecord.cycle;
   if (!cyclesRaw) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
@@ -85,8 +94,8 @@ export async function POST(req: Request) {
   }
 
   const fallbackTsMs =
-    (typeof raw?.tsMs === "number" && raw.tsMs) ||
-    (typeof raw?.tsDevice === "number" && raw.tsDevice) ||
+    (typeof bodyRecord.tsMs === "number" && bodyRecord.tsMs) ||
+    (typeof bodyRecord.tsDevice === "number" && bodyRecord.tsDevice) ||
     undefined;
 
   const rows = parsedCycles.data.map((data) => {

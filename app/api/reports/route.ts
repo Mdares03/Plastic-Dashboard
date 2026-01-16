@@ -165,7 +165,7 @@ export async function GET(req: NextRequest) {
 
   for (const e of events) {
     const type = String(e.eventType ?? "").toLowerCase();
-    let blob: any = e.data;
+    let blob: unknown = e.data;
 
     if (typeof blob === "string") {
       try {
@@ -175,7 +175,12 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const inner = blob?.data ?? blob ?? {};
+    const blobRecord = typeof blob === "object" && blob !== null ? (blob as Record<string, unknown>) : null;
+    const innerCandidate = blobRecord?.data ?? blobRecord ?? {};
+    const inner =
+      typeof innerCandidate === "object" && innerCandidate !== null
+        ? (innerCandidate as Record<string, unknown>)
+        : {};
     const stopSec =
       (typeof inner?.stoppage_duration_seconds === "number" && inner.stoppage_duration_seconds) ||
       (typeof inner?.stop_duration_seconds === "number" && inner.stop_duration_seconds) ||

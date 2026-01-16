@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { toJsonValue } from "@/lib/prismaJson";
 import {
   DEFAULT_ALERTS,
   DEFAULT_DEFAULTS,
@@ -18,7 +19,7 @@ import {
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
-function isPlainObject(value: any): value is Record<string, any> {
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -34,9 +35,9 @@ const machineSettingsSchema = z
   })
   .passthrough();
 
-function pickAllowedOverrides(raw: any) {
+function pickAllowedOverrides(raw: unknown) {
   if (!isPlainObject(raw)) return {};
-  const out: Record<string, any> = {};
+  const out: Record<string, unknown> = {};
   for (const key of ["shiftSchedule", "thresholds", "alerts", "defaults"]) {
     if (raw[key] !== undefined) out[key] = raw[key];
   }
@@ -337,24 +338,26 @@ export async function PUT(
       select: { overridesJson: true },
     });
 
-    let nextOverrides: any = null;
+    let nextOverrides: Record<string, unknown> | null = null;
     if (patch === null) {
       nextOverrides = null;
     } else {
       const merged = applyOverridePatch(existing?.overridesJson ?? {}, patch);
       nextOverrides = Object.keys(merged).length ? merged : null;
     }
+    const nextOverridesJson =
+      nextOverrides === null ? Prisma.DbNull : toJsonValue(nextOverrides);
 
     const saved = await tx.machineSettings.upsert({
       where: { machineId },
       update: {
-        overridesJson: nextOverrides,
+        overridesJson: nextOverridesJson,
         updatedBy: session.userId,
       },
       create: {
         machineId,
         orgId: session.orgId,
-        overridesJson: nextOverrides,
+        overridesJson: nextOverridesJson,
         updatedBy: session.userId,
       },
     });

@@ -2,6 +2,8 @@
 
 :root {
   color-scheme: dark;
+  --font-geist-sans: "Segoe UI", system-ui, sans-serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --app-bg: #0b0f14;
   --app-surface: rgba(255, 255, 255, 0.05);
   --app-surface-2: rgba(255, 255, 255, 0.08);

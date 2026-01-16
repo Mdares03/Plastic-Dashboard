@@ -28,6 +28,10 @@ model Org {
   alertPolicies   AlertPolicy[]
   alertContacts   AlertContact[]
   alertNotifications AlertNotification[]
+  financialProfile OrgFinancialProfile?
+  locationFinancialOverrides LocationFinancialOverride[]
+  machineFinancialOverrides MachineFinancialOverride[]
+  productCostOverrides ProductCostOverride[]
 }
 
 model User {
@@ -130,6 +134,7 @@ model Machine {
   settings       MachineSettings?
   settingsAudits SettingsAudit[]
   alertNotifications AlertNotification[]
+  financialOverrides MachineFinancialOverride[]
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -311,6 +316,95 @@ model OrgSettings {
   org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_settings")
+}
+
+model OrgFinancialProfile {
+  orgId                   String   @id @map("org_id")
+  defaultCurrency         String   @default("USD") @map("default_currency")
+  machineCostPerMin       Float?   @map("machine_cost_per_min")
+  operatorCostPerMin      Float?   @map("operator_cost_per_min")
+  ratedRunningKw          Float?   @map("rated_running_kw")
+  idleKw                  Float?   @map("idle_kw")
+  kwhRate                 Float?   @map("kwh_rate")
+  energyMultiplier        Float    @default(1.0) @map("energy_multiplier")
+  energyCostPerMin        Float?   @map("energy_cost_per_min")
+  scrapCostPerUnit        Float?   @map("scrap_cost_per_unit")
+  rawMaterialCostPerUnit  Float?   @map("raw_material_cost_per_unit")
+  createdAt               DateTime @default(now()) @map("created_at")
+  updatedAt               DateTime @updatedAt @map("updated_at")
+  updatedBy               String?  @map("updated_by")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("org_financial_profiles")
+}
+
+model LocationFinancialOverride {
+  id                     String   @id @default(uuid())
+  orgId                  String   @map("org_id")
+  location               String
+  currency               String?
+  machineCostPerMin      Float?   @map("machine_cost_per_min")
+  operatorCostPerMin     Float?   @map("operator_cost_per_min")
+  ratedRunningKw         Float?   @map("rated_running_kw")
+  idleKw                 Float?   @map("idle_kw")
+  kwhRate                Float?   @map("kwh_rate")
+  energyMultiplier       Float?   @map("energy_multiplier")
+  energyCostPerMin       Float?   @map("energy_cost_per_min")
+  scrapCostPerUnit       Float?   @map("scrap_cost_per_unit")
+  rawMaterialCostPerUnit Float?   @map("raw_material_cost_per_unit")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  updatedBy              String?  @map("updated_by")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, location])
+  @@index([orgId])
+  @@map("location_financial_overrides")
+}
+
+model MachineFinancialOverride {
+  id                     String   @id @default(uuid())
+  orgId                  String   @map("org_id")
+  machineId              String   @map("machine_id")
+  currency               String?
+  machineCostPerMin      Float?   @map("machine_cost_per_min")
+  operatorCostPerMin     Float?   @map("operator_cost_per_min")
+  ratedRunningKw         Float?   @map("rated_running_kw")
+  idleKw                 Float?   @map("idle_kw")
+  kwhRate                Float?   @map("kwh_rate")
+  energyMultiplier       Float?   @map("energy_multiplier")
+  energyCostPerMin       Float?   @map("energy_cost_per_min")
+  scrapCostPerUnit       Float?   @map("scrap_cost_per_unit")
+  rawMaterialCostPerUnit Float?   @map("raw_material_cost_per_unit")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  updatedBy              String?  @map("updated_by")
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, machineId])
+  @@index([orgId])
+  @@map("machine_financial_overrides")
+}
+
+model ProductCostOverride {
+  id                    String   @id @default(uuid())
+  orgId                 String   @map("org_id")
+  sku                   String
+  currency              String?
+  rawMaterialCostPerUnit Float?  @map("raw_material_cost_per_unit")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  updatedBy             String?  @map("updated_by")
+
+  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, sku])
+  @@index([orgId])
+  @@map("product_cost_overrides")
 }
 
 model AlertPolicy {

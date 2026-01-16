@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertsConfig } from "@/components/settings/AlertsConfig";
+import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 type Shift = {
@@ -101,28 +103,95 @@ const DEFAULT_SETTINGS: SettingsPayload = {
   updatedBy: "",
 };
 
-async function readResponse(response: Response) {
+const SETTINGS_TABS = [
+  { id: "general", labelKey: "settings.tabs.general" },
+  { id: "shifts", labelKey: "settings.tabs.shifts" },
+  { id: "thresholds", labelKey: "settings.tabs.thresholds" },
+  { id: "alerts", labelKey: "settings.tabs.alerts" },
+  { id: "financial", labelKey: "settings.tabs.financial" },
+  { id: "team", labelKey: "settings.tabs.team" },
+] as const;
+
+type ReadResponse<T> = { data: T | null; text: string };
+type ApiEnvelope = { ok: boolean; error?: string; message?: string };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function unwrapApiResponse(data: unknown): { ok: boolean; error: string | null; record: Record<string, unknown> | null } {
+  const record = asRecord(data);
+  const ok = typeof record?.ok === "boolean" ? record.ok : false;
+  const error =
+    typeof record?.error === "string"
+      ? record.error
+      : typeof record?.message === "string"
+        ? record.message
+        : null;
+  return { ok, error, record };
+}
+
+function isOrgInfo(value: unknown): value is OrgInfo {
+  const record = asRecord(value);
+  return (
+    !!record &&
+    typeof record.id === "string" &&
+    typeof record.name === "string" &&
+    typeof record.slug === "string"
+  );
+}
+
+function isMemberRow(value: unknown): value is MemberRow {
+  const record = asRecord(value);
+  return (
+    !!record &&
+    typeof record.id === "string" &&
+    typeof record.membershipId === "string" &&
+    typeof record.email === "string" &&
+    typeof record.role === "string" &&
+    typeof record.isActive === "boolean" &&
+    typeof record.joinedAt === "string"
+  );
+}
+
+function isInviteRow(value: unknown): value is InviteRow {
+  const record = asRecord(value);
+  return (
+    !!record &&
+    typeof record.id === "string" &&
+    typeof record.email === "string" &&
+    typeof record.role === "string" &&
+    typeof record.token === "string" &&
+    typeof record.createdAt === "string" &&
+    typeof record.expiresAt === "string"
+  );
+}
+
+async function readResponse<T>(response: Response): Promise<ReadResponse<T>> {
   const text = await response.text();
   if (!text) {
-    return { data: null as any, text: "" };
+    return { data: null, text: "" };
   }
   try {
-    return { data: JSON.parse(text), text };
+    return { data: JSON.parse(text) as T, text };
   } catch {
-    return { data: null as any, text };
+    return { data: null, text };
   }
 }
 
-function normalizeShift(raw: any, index: number, fallbackName: string): Shift {
-  const name = String(raw?.name || fallbackName);
-  const start = String(raw?.start || raw?.startTime || DEFAULT_SHIFT.start);
-  const end = String(raw?.end || raw?.endTime || DEFAULT_SHIFT.end);
-  const enabled = raw?.enabled !== false;
+function normalizeShift(raw: unknown, fallbackName: string): Shift {
+  const record = asRecord(raw);
+  const name = String(record?.name ?? fallbackName);
+  const start = String(record?.start ?? record?.startTime ?? DEFAULT_SHIFT.start);
+  const end = String(record?.end ?? record?.endTime ?? DEFAULT_SHIFT.end);
+  const enabled = record?.enabled !== false;
   return { name, start, end, enabled };
 }
 
-function normalizeSettings(raw: any, fallbackName: (index: number) => string): SettingsPayload {
-  if (!raw || typeof raw !== "object") {
+function normalizeSettings(raw: unknown, fallbackName: (index: number) => string): SettingsPayload {
+  const record = asRecord(raw);
+  if (!record) {
     return {
       ...DEFAULT_SETTINGS,
       shiftSchedule: {
@@ -132,16 +201,19 @@ function normalizeSettings(raw: any, fallbackName: (index: number) => string): S
     };
   }
 
-  const shiftSchedule = raw.shiftSchedule || {};
+  const shiftSchedule = asRecord(record.shiftSchedule) ?? {};
   const shiftsRaw = Array.isArray(shiftSchedule.shifts) ? shiftSchedule.shifts : [];
   const shifts = shiftsRaw.length
-    ? shiftsRaw.map((s: any, idx: number) => normalizeShift(s, idx, fallbackName(idx + 1)))
+    ? shiftsRaw.map((s, idx) => normalizeShift(s, fallbackName(idx + 1)))
     : [{ name: fallbackName(1), ...DEFAULT_SHIFT }];
+  const thresholds = asRecord(record.thresholds) ?? {};
+  const alerts = asRecord(record.alerts) ?? {};
+  const defaults = asRecord(record.defaults) ?? {};
 
   return {
-    orgId: String(raw.orgId || ""),
-    version: Number(raw.version || 0),
-    timezone: String(raw.timezone || DEFAULT_SETTINGS.timezone),
+    orgId: String(record.orgId ?? ""),
+    version: Number(record.version ?? 0),
+    timezone: String(record.timezone ?? DEFAULT_SETTINGS.timezone),
     shiftSchedule: {
       shifts,
       shiftChangeCompensationMin: Number(
@@ -151,35 +223,38 @@ function normalizeSettings(raw: any, fallbackName: (index: number) => string): S
     },
     thresholds: {
       stoppageMultiplier: Number(
-        raw.thresholds?.stoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.stoppageMultiplier
+        thresholds.stoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.stoppageMultiplier
       ),
       macroStoppageMultiplier: Number(
-        raw.thresholds?.macroStoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.macroStoppageMultiplier
+        thresholds.macroStoppageMultiplier ?? DEFAULT_SETTINGS.thresholds.macroStoppageMultiplier
       ),
       oeeAlertThresholdPct: Number(
-        raw.thresholds?.oeeAlertThresholdPct ?? DEFAULT_SETTINGS.thresholds.oeeAlertThresholdPct
+        thresholds.oeeAlertThresholdPct ?? DEFAULT_SETTINGS.thresholds.oeeAlertThresholdPct
       ),
       performanceThresholdPct: Number(
-        raw.thresholds?.performanceThresholdPct ?? DEFAULT_SETTINGS.thresholds.performanceThresholdPct
+        thresholds.performanceThresholdPct ?? DEFAULT_SETTINGS.thresholds.performanceThresholdPct
       ),
       qualitySpikeDeltaPct: Number(
-        raw.thresholds?.qualitySpikeDeltaPct ?? DEFAULT_SETTINGS.thresholds.qualitySpikeDeltaPct
+        thresholds.qualitySpikeDeltaPct ?? DEFAULT_SETTINGS.thresholds.qualitySpikeDeltaPct
       ),
     },
     alerts: {
-      oeeDropEnabled: raw.alerts?.oeeDropEnabled ?? DEFAULT_SETTINGS.alerts.oeeDropEnabled,
+      oeeDropEnabled: (alerts.oeeDropEnabled as boolean | undefined) ?? DEFAULT_SETTINGS.alerts.oeeDropEnabled,
       performanceDegradationEnabled:
-        raw.alerts?.performanceDegradationEnabled ?? DEFAULT_SETTINGS.alerts.performanceDegradationEnabled,
-      qualitySpikeEnabled: raw.alerts?.qualitySpikeEnabled ?? DEFAULT_SETTINGS.alerts.qualitySpikeEnabled,
+        (alerts.performanceDegradationEnabled as boolean | undefined) ??
+        DEFAULT_SETTINGS.alerts.performanceDegradationEnabled,
+      qualitySpikeEnabled:
+        (alerts.qualitySpikeEnabled as boolean | undefined) ?? DEFAULT_SETTINGS.alerts.qualitySpikeEnabled,
       predictiveOeeDeclineEnabled:
-        raw.alerts?.predictiveOeeDeclineEnabled ?? DEFAULT_SETTINGS.alerts.predictiveOeeDeclineEnabled,
+        (alerts.predictiveOeeDeclineEnabled as boolean | undefined) ??
+        DEFAULT_SETTINGS.alerts.predictiveOeeDeclineEnabled,
     },
     defaults: {
-      moldTotal: Number(raw.defaults?.moldTotal ?? DEFAULT_SETTINGS.defaults.moldTotal),
-      moldActive: Number(raw.defaults?.moldActive ?? DEFAULT_SETTINGS.defaults.moldActive),
+      moldTotal: Number(defaults.moldTotal ?? DEFAULT_SETTINGS.defaults.moldTotal),
+      moldActive: Number(defaults.moldActive ?? DEFAULT_SETTINGS.defaults.moldActive),
     },
-    updatedAt: raw.updatedAt ? String(raw.updatedAt) : "",
-    updatedBy: raw.updatedBy ? String(raw.updatedBy) : "",
+    updatedAt: record.updatedAt ? String(record.updatedAt) : "",
+    updatedBy: record.updatedBy ? String(record.updatedBy) : "",
   };
 }
 
@@ -235,6 +310,7 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState<(typeof SETTINGS_TABS)[number]["id"]>("general");
   const defaultShiftName = useCallback(
     (index: number) => t("settings.shift.defaultName", { index }),
     [t]
@@ -246,11 +322,12 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/settings", { cache: "no-store" });
       const { data, text } = await readResponse(response);
-      if (!response.ok || !data?.ok) {
-        const message = data?.error || data?.message || text || t("settings.failedLoad");
+      const api = unwrapApiResponse(data);
+      if (!response.ok || !api.ok) {
+        const message = api.error || text || t("settings.failedLoad");
         throw new Error(message);
       }
-      const next = normalizeSettings(data.settings, defaultShiftName);
+      const next = normalizeSettings(api.record?.settings, defaultShiftName);
       setDraft(next);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settings.failedLoad"));
@@ -270,13 +347,16 @@ export default function SettingsPage() {
     try {
       const response = await fetch("/api/org/members", { cache: "no-store" });
       const { data, text } = await readResponse(response);
-      if (!response.ok || !data?.ok) {
-        const message = data?.error || data?.message || text || t("settings.failedTeam");
+      const api = unwrapApiResponse(data);
+      if (!response.ok || !api.ok) {
+        const message = api.error || text || t("settings.failedTeam");
         throw new Error(message);
       }
-      setOrgInfo(data.org ?? null);
-      setMembers(Array.isArray(data.members) ? data.members : []);
-      setInvites(Array.isArray(data.invites) ? data.invites : []);
+      setOrgInfo(isOrgInfo(api.record?.org) ? api.record?.org : null);
+      const membersRaw = Array.isArray(api.record?.members) ? api.record?.members : [];
+      const invitesRaw = Array.isArray(api.record?.invites) ? api.record?.invites : [];
+      setMembers(membersRaw.filter(isMemberRow));
+      setInvites(invitesRaw.filter(isInviteRow));
     } catch (err) {
       setTeamError(err instanceof Error ? err.message : t("settings.failedTeam"));
     } finally {
@@ -434,8 +514,9 @@ export default function SettingsPage() {
     try {
       const response = await fetch(`/api/org/invites/${inviteId}`, { method: "DELETE" });
       const { data, text } = await readResponse(response);
-      if (!response.ok || !data?.ok) {
-        const message = data?.error || data?.message || text || t("settings.inviteStatus.failed");
+      const api = unwrapApiResponse(data);
+      if (!response.ok || !api.ok) {
+        const message = api.error || text || t("settings.inviteStatus.failed");
         throw new Error(message);
       }
       setInvites((prev) => prev.filter((invite) => invite.id !== inviteId));
@@ -458,15 +539,16 @@ export default function SettingsPage() {
         body: JSON.stringify({ email: inviteEmail, role: inviteRole }),
       });
       const { data, text } = await readResponse(response);
-      if (!response.ok || !data?.ok) {
-        const message = data?.error || data?.message || text || t("settings.inviteStatus.createFailed");
+      const api = unwrapApiResponse(data);
+      if (!response.ok || !api.ok) {
+        const message = api.error || text || t("settings.inviteStatus.createFailed");
         throw new Error(message);
       }
-      const nextInvite = data.invite;
-      if (nextInvite) {
+      const nextInvite = api.record?.invite;
+      if (isInviteRow(nextInvite)) {
         setInvites((prev) => [nextInvite, ...prev.filter((invite) => invite.id !== nextInvite.id)]);
         const inviteUrl = buildInviteUrl(nextInvite.token);
-        if (data.emailSent === false) {
+        if (api.record?.emailSent === false) {
           setInviteStatus(t("settings.inviteStatus.emailFailed", { url: inviteUrl }));
         } else {
           setInviteStatus(t("settings.inviteStatus.sent"));
@@ -501,14 +583,15 @@ export default function SettingsPage() {
         }),
       });
       const { data, text } = await readResponse(response);
-      if (!response.ok || !data?.ok) {
+      const api = unwrapApiResponse(data);
+      if (!response.ok || !api.ok) {
         if (response.status === 409) {
           throw new Error(t("settings.conflict"));
         }
-        const message = data?.error || data?.message || text || t("settings.failedSave");
+        const message = api.error || text || t("settings.failedSave");
         throw new Error(message);
       }
-      const next = normalizeSettings(data.settings, defaultShiftName);
+      const next = normalizeSettings(api.record?.settings, defaultShiftName);
       setDraft(next);
       setSaveStatus("saved");
     } catch (err) {
@@ -537,7 +620,7 @@ export default function SettingsPage() {
 
   if (loading && !draft) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-zinc-300">
           {t("settings.loading")}
         </div>
@@ -547,7 +630,7 @@ export default function SettingsPage() {
 
   if (!draft) {
     return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-6 text-sm text-red-200">
         {error || t("settings.unavailable")}
       </div>
@@ -556,23 +639,23 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+    <div className="p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">{t("settings.title")}</h1>
           <p className="text-sm text-zinc-400">{t("settings.subtitle")}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <button
             onClick={loadSettings}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-white hover:bg-white/10 sm:w-auto"
           >
             {t("settings.refresh")}
           </button>
           <button
             onClick={saveSettings}
             disabled={saving}
-            className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-center text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
           >
             {t("settings.save")}
           </button>
@@ -585,79 +668,143 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-1">
-          <div className="text-sm font-semibold text-white">{t("settings.org.title")}</div>
-          <div className="mt-4 space-y-3">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">{t("settings.org.plantName")}</div>
-              <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || t("common.loading")}</div>
-              {orgInfo?.slug ? (
-                <div className="mt-1 text-[11px] text-zinc-500">
-                  {t("settings.org.slug")}: {orgInfo.slug}
-                </div>
-              ) : null}
+      <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-white/10 bg-white/5 p-2">
+        {SETTINGS_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id)}
+            className={
+              tab.id === activeTab
+                ? "rounded-xl bg-emerald-500/20 px-4 py-2 text-sm text-emerald-200"
+                : "rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
+            }
+          >
+            {t(tab.labelKey)}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "general" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.org.title")}</div>
+            <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                <div className="text-xs text-zinc-400">{t("settings.org.plantName")}</div>
+                <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || t("common.loading")}</div>
+                {orgInfo?.slug ? (
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    {t("settings.org.slug")}: {orgInfo.slug}
+                  </div>
+                ) : null}
+              </div>
+              <label className="block rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.org.timeZone")}
+                <input
+                  value={draft.timezone || ""}
+                  onChange={(event) =>
+                    setDraft((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            timezone: event.target.value,
+                          }
+                        : prev
+                    )
+                  }
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <div className="text-xs text-zinc-500">
+                {t("settings.updated")}:{" "}
+                {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString(locale) : t("common.na")}
+              </div>
             </div>
-            <label className="block rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.org.timeZone")}
-              <input
-                value={draft.timezone || ""}
-                onChange={(event) =>
-                  setDraft((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          timezone: event.target.value,
-                        }
-                      : prev
-                  )
-                }
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <div className="text-xs text-zinc-500">
-              {t("settings.updated")}:{" "}
-              {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString(locale) : t("common.na")}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="mb-3 text-sm font-semibold text-white">{t("settings.defaults")}</div>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                  {t("settings.defaults.moldTotal")}
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.defaults.moldTotal}
+                    onChange={(event) => updateDefaults("moldTotal", Number(event.target.value))}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                  {t("settings.defaults.moldActive")}
+                  <input
+                    type="number"
+                    min={0}
+                    value={draft.defaults.moldActive}
+                    onChange={(event) => updateDefaults("moldActive", Number(event.target.value))}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="mb-3 text-sm font-semibold text-white">{t("settings.integrations")}</div>
+              <div className="space-y-3 text-sm text-zinc-300">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <div className="text-xs text-zinc-400">{t("settings.integrations.webhook")}</div>
+                  <div className="mt-1 text-sm text-white">https://hooks.example.com/iiot</div>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <div className="text-xs text-zinc-400">{t("settings.integrations.erp")}</div>
+                  <div className="mt-1 text-sm text-zinc-300">{t("settings.integrations.erpNotConfigured")}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-white">{t("settings.thresholds")}</div>
-            <div className="text-xs text-zinc-400">{t("settings.thresholds.appliesAll")}</div>
-          </div>
+      {activeTab === "thresholds" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <div className="text-sm font-semibold text-white">{t("settings.thresholds")}</div>
+              <div className="text-xs text-zinc-400">{t("settings.thresholds.appliesAll")}</div>
+            </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.thresholds.oee")} (%)
-              <input
-                type="number"
-                min={50}
-                max={100}
-                value={draft.thresholds.oeeAlertThresholdPct}
-                onChange={(event) =>
-                  updateThreshold("oeeAlertThresholdPct", Number(event.target.value))
-                }
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.thresholds.stoppage")}
-              <input
-                type="number"
-                min={1.1}
-                max={5}
-                step={0.1}
-                value={draft.thresholds.stoppageMultiplier}
-                onChange={(event) =>
-                  updateThreshold("stoppageMultiplier", Number(event.target.value))
-                }
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.thresholds.macroStoppage")}
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.thresholds.oee")} (%)
+                <input
+                  type="number"
+                  min={50}
+                  max={100}
+                  value={draft.thresholds.oeeAlertThresholdPct}
+                  onChange={(event) =>
+                    updateThreshold("oeeAlertThresholdPct", Number(event.target.value))
+                  }
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.thresholds.stoppage")}
+                <input
+                  type="number"
+                  min={1.1}
+                  max={5}
+                  step={0.1}
+                  value={draft.thresholds.stoppageMultiplier}
+                  onChange={(event) =>
+                    updateThreshold("stoppageMultiplier", Number(event.target.value))
+                  }
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.thresholds.macroStoppage")}
                 <input
                   type="number"
                   min={1.1}
@@ -671,331 +818,306 @@ export default function SettingsPage() {
                 />
               </label>
               <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.thresholds.performance")} (%)
-              <input
-                type="number"
-                min={50}
-                max={100}
-                value={draft.thresholds.performanceThresholdPct}
-                onChange={(event) =>
-                  updateThreshold("performanceThresholdPct", Number(event.target.value))
-                }
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.thresholds.qualitySpike")} (%)
-              <input
-                type="number"
-                min={0}
-                max={100}
-                value={draft.thresholds.qualitySpikeDeltaPct}
-                onChange={(event) =>
-                  updateThreshold("qualitySpikeDeltaPct", Number(event.target.value))
-                }
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <div className="text-sm font-semibold text-white">{t("settings.shiftSchedule")}</div>
-            <div className="text-xs text-zinc-400">{t("settings.shiftHint")}</div>
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            {draft.shiftSchedule.shifts.map((shift, index) => (
-              <div key={`${shift.name}-${index}`} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                <div className="flex items-center justify-between">
-                  <input
-                    value={shift.name}
-                    onChange={(event) => updateShift(index, { name: event.target.value })}
-                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeShift(index)}
-                    disabled={draft.shiftSchedule.shifts.length <= 1}
-                    className="ml-3 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white disabled:opacity-40"
-                  >
-                    {t("settings.shiftRemove")}
-                  </button>
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={shift.start}
-                    onChange={(event) => updateShift(index, { start: event.target.value })}
-                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
-                  />
-                  <span className="text-xs text-zinc-400">{t("settings.shiftTo")}</span>
-                  <input
-                    type="time"
-                    value={shift.end}
-                    onChange={(event) => updateShift(index, { end: event.target.value })}
-                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
-                  />
-                </div>
-                <div className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
-                  <input
-                    type="checkbox"
-                    checked={shift.enabled}
-                    onChange={(event) => updateShift(index, { enabled: event.target.checked })}
-                    className="h-4 w-4 rounded border border-white/20 bg-black/20"
-                  />
-                  {t("settings.shiftEnabled")}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={addShift}
-              disabled={draft.shiftSchedule.shifts.length >= 3}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white disabled:opacity-40"
-            >
-              {t("settings.shiftAdd")}
-            </button>
-            <div className="flex flex-1 flex-wrap gap-3">
-              <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-                {t("settings.shiftCompLabel")}
+                {t("settings.thresholds.performance")} (%)
                 <input
                   type="number"
-                  min={0}
-                  max={480}
-                  value={draft.shiftSchedule.shiftChangeCompensationMin}
+                  min={50}
+                  max={100}
+                  value={draft.thresholds.performanceThresholdPct}
                   onChange={(event) =>
-                    updateShiftField("shiftChangeCompensationMin", Number(event.target.value))
+                    updateThreshold("performanceThresholdPct", Number(event.target.value))
                   }
                   className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                 />
               </label>
-              <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-                {t("settings.lunchBreakLabel")}
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.thresholds.qualitySpike")} (%)
                 <input
                   type="number"
                   min={0}
-                  max={480}
-                  value={draft.shiftSchedule.lunchBreakMin}
-                  onChange={(event) => updateShiftField("lunchBreakMin", Number(event.target.value))}
+                  max={100}
+                  value={draft.thresholds.qualitySpikeDeltaPct}
+                  onChange={(event) =>
+                    updateThreshold("qualitySpikeDeltaPct", Number(event.target.value))
+                  }
                   className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                 />
               </label>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-sm font-semibold text-white">{t("settings.alerts")}</div>
-          <div className="mt-4 space-y-3">
-            <Toggle
-              label={t("settings.alerts.oeeDrop")}
-              helper={t("settings.alerts.oeeDropHelper")}
-              enabled={draft.alerts.oeeDropEnabled}
-              onChange={(next) => updateAlerts("oeeDropEnabled", next)}
-            />
-            <Toggle
-              label={t("settings.alerts.performanceDegradation")}
-              helper={t("settings.alerts.performanceDegradationHelper")}
-              enabled={draft.alerts.performanceDegradationEnabled}
-              onChange={(next) => updateAlerts("performanceDegradationEnabled", next)}
-            />
-            <Toggle
-              label={t("settings.alerts.qualitySpike")}
-              helper={t("settings.alerts.qualitySpikeHelper")}
-              enabled={draft.alerts.qualitySpikeEnabled}
-              onChange={(next) => updateAlerts("qualitySpikeEnabled", next)}
-            />
-            <Toggle
-              label={t("settings.alerts.predictive")}
-              helper={t("settings.alerts.predictiveHelper")}
-              enabled={draft.alerts.predictiveOeeDeclineEnabled}
-              onChange={(next) => updateAlerts("predictiveOeeDeclineEnabled", next)}
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">{t("settings.defaults")}</div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.defaults.moldTotal")}
-              <input
-                type="number"
-                min={0}
-                value={draft.defaults.moldTotal}
-                onChange={(event) => updateDefaults("moldTotal", Number(event.target.value))}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.defaults.moldActive")}
-              <input
-                type="number"
-                min={0}
-                value={draft.defaults.moldActive}
-                onChange={(event) => updateDefaults("moldActive", Number(event.target.value))}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">{t("settings.integrations")}</div>
-          <div className="space-y-3 text-sm text-zinc-300">
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">{t("settings.integrations.webhook")}</div>
-              <div className="mt-1 text-sm text-white">https://hooks.example.com/iiot</div>
+      {activeTab === "shifts" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 flex items-center justify-between gap-4">
+              <div className="text-sm font-semibold text-white">{t("settings.shiftSchedule")}</div>
+              <div className="text-xs text-zinc-400">{t("settings.shiftHint")}</div>
             </div>
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-xs text-zinc-400">{t("settings.integrations.erp")}</div>
-              <div className="mt-1 text-sm text-zinc-300">{t("settings.integrations.erpNotConfigured")}</div>
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">{t("settings.team")}</div>
-            <div className="text-xs text-zinc-400">{t("settings.teamTotal", { count: members.length })}</div>
-          </div>
-
-          {teamLoading && <div className="text-sm text-zinc-400">{t("settings.loadingTeam")}</div>}
-          {teamError && (
-            <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
-              {teamError}
-            </div>
-          )}
-
-          {!teamLoading && !teamError && members.length === 0 && (
-            <div className="text-sm text-zinc-400">{t("settings.teamNone")}</div>
-          )}
-
-          {!teamLoading && !teamError && members.length > 0 && (
-            <div className="space-y-2">
-              {members.map((member) => (
-                <div
-                  key={member.membershipId}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3"
-                >
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white">
-                      {member.name || member.email}
-                    </div>
-                    <div className="truncate text-xs text-zinc-400">{member.email}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {draft.shiftSchedule.shifts.map((shift, index) => (
+                <div key={`${shift.name}-${index}`} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between">
+                    <input
+                      value={shift.name}
+                      onChange={(event) => updateShift(index, { name: event.target.value })}
+                      className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeShift(index)}
+                      disabled={draft.shiftSchedule.shifts.length <= 1}
+                      className="ml-3 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white disabled:opacity-40"
+                    >
+                      {t("settings.shiftRemove")}
+                    </button>
                   </div>
-                  <div className="flex flex-col items-end gap-1 text-xs text-zinc-400">
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-white">
-                      {formatRole(member.role)}
-                    </span>
-                    {!member.isActive ? (
-                      <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-200">
-                        {t("settings.role.inactive")}
-                      </span>
-                    ) : null}
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="time"
+                      value={shift.start}
+                      onChange={(event) => updateShift(index, { start: event.target.value })}
+                      className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
+                    />
+                    <span className="text-xs text-zinc-400">{t("settings.shiftTo")}</span>
+                    <input
+                      type="time"
+                      value={shift.end}
+                      onChange={(event) => updateShift(index, { end: event.target.value })}
+                      className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-sm text-white"
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 text-xs text-zinc-400">
+                    <input
+                      type="checkbox"
+                      checked={shift.enabled}
+                      onChange={(event) => updateShift(index, { enabled: event.target.checked })}
+                      className="h-4 w-4 rounded border border-white/20 bg-black/20"
+                    />
+                    {t("settings.shiftEnabled")}
                   </div>
                 </div>
               ))}
             </div>
-          )}
-        </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="mb-3 text-sm font-semibold text-white">{t("settings.invites")}</div>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.inviteEmail")}
-              <input
-                value={inviteEmail}
-                onChange={(event) => setInviteEmail(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
-              />
-            </label>
-            <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
-              {t("settings.inviteRole")}
-              <select
-                value={inviteRole}
-                onChange={(event) => setInviteRole(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={addShift}
+                disabled={draft.shiftSchedule.shifts.length >= 3}
+                className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white disabled:opacity-40"
               >
-                <option value="MEMBER">{t("settings.inviteRole.member")}</option>
-                <option value="ADMIN">{t("settings.inviteRole.admin")}</option>
-                <option value="OWNER">{t("settings.inviteRole.owner")}</option>
-              </select>
-            </label>
+                {t("settings.shiftAdd")}
+              </button>
+              <div className="flex flex-1 flex-wrap gap-3">
+                <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                  {t("settings.shiftCompLabel")}
+                  <input
+                    type="number"
+                    min={0}
+                    max={480}
+                    value={draft.shiftSchedule.shiftChangeCompensationMin}
+                    onChange={(event) =>
+                      updateShiftField("shiftChangeCompensationMin", Number(event.target.value))
+                    }
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+                <label className="flex-1 rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                  {t("settings.lunchBreakLabel")}
+                  <input
+                    type="number"
+                    min={0}
+                    max={480}
+                    value={draft.shiftSchedule.lunchBreakMin}
+                    onChange={(event) => updateShiftField("lunchBreakMin", Number(event.target.value))}
+                    className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === "alerts" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.alerts")}</div>
+            <div className="mt-4 space-y-3">
+              <Toggle
+                label={t("settings.alerts.oeeDrop")}
+                helper={t("settings.alerts.oeeDropHelper")}
+                enabled={draft.alerts.oeeDropEnabled}
+                onChange={(next) => updateAlerts("oeeDropEnabled", next)}
+              />
+              <Toggle
+                label={t("settings.alerts.performanceDegradation")}
+                helper={t("settings.alerts.performanceDegradationHelper")}
+                enabled={draft.alerts.performanceDegradationEnabled}
+                onChange={(next) => updateAlerts("performanceDegradationEnabled", next)}
+              />
+              <Toggle
+                label={t("settings.alerts.qualitySpike")}
+                helper={t("settings.alerts.qualitySpikeHelper")}
+                enabled={draft.alerts.qualitySpikeEnabled}
+                onChange={(next) => updateAlerts("qualitySpikeEnabled", next)}
+              />
+              <Toggle
+                label={t("settings.alerts.predictive")}
+                helper={t("settings.alerts.predictiveHelper")}
+                enabled={draft.alerts.predictiveOeeDeclineEnabled}
+                onChange={(next) => updateAlerts("predictiveOeeDeclineEnabled", next)}
+              />
+            </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={createInvite}
-              disabled={inviteSubmitting}
-              className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
-            >
-              {inviteSubmitting ? t("settings.inviteSending") : t("settings.inviteSend")}
-            </button>
-            <button
-              type="button"
-              onClick={loadTeam}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
-            >
-              {t("settings.refresh")}
-            </button>
-            {inviteStatus && <div className="text-xs text-zinc-400">{inviteStatus}</div>}
-          </div>
+          <AlertsConfig />
+        </div>
+      )}
 
-          <div className="mt-4 space-y-3">
-            {invites.length === 0 && (
-              <div className="text-sm text-zinc-400">{t("settings.inviteNone")}</div>
+      {activeTab === "financial" && (
+        <div className="space-y-6">
+          <FinancialCostConfig />
+        </div>
+      )}
+
+      {activeTab === "team" && (
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold text-white">{t("settings.team")}</div>
+              <div className="text-xs text-zinc-400">{t("settings.teamTotal", { count: members.length })}</div>
+            </div>
+
+            {teamLoading && <div className="text-sm text-zinc-400">{t("settings.loadingTeam")}</div>}
+            {teamError && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+                {teamError}
+              </div>
             )}
-            {invites.map((invite) => (
-              <div key={invite.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-white">{invite.email}</div>
-                    <div className="text-xs text-zinc-400">
-                      {formatRole(invite.role)} -{" "}
-                      {t("settings.inviteExpires", {
-                        date: new Date(invite.expiresAt).toLocaleDateString(locale),
-                      })}
+
+            {!teamLoading && !teamError && members.length === 0 && (
+              <div className="text-sm text-zinc-400">{t("settings.teamNone")}</div>
+            )}
+
+            {!teamLoading && !teamError && members.length > 0 && (
+              <div className="space-y-2">
+                {members.map((member) => (
+                  <div
+                    key={member.membershipId}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">
+                        {member.name || member.email}
+                      </div>
+                      <div className="truncate text-xs text-zinc-400">{member.email}</div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 text-xs text-zinc-400">
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-white">
+                        {formatRole(member.role)}
+                      </span>
+                      {!member.isActive ? (
+                        <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-red-200">
+                          {t("settings.role.inactive")}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => copyInviteLink(invite.token)}
-                      className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
-                    >
-                      {t("settings.inviteCopy")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => revokeInvite(invite.id)}
-                      className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 hover:bg-red-500/20"
-                    >
-                      {t("settings.inviteRevoke")}
-                    </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 text-sm font-semibold text-white">{t("settings.invites")}</div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.inviteEmail")}
+                <input
+                  value={inviteEmail}
+                  onChange={(event) => setInviteEmail(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="rounded-xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-400">
+                {t("settings.inviteRole")}
+                <select
+                  value={inviteRole}
+                  onChange={(event) => setInviteRole(event.target.value)}
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
+                >
+                  <option value="MEMBER">{t("settings.inviteRole.member")}</option>
+                  <option value="ADMIN">{t("settings.inviteRole.admin")}</option>
+                  <option value="OWNER">{t("settings.inviteRole.owner")}</option>
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={createInvite}
+                disabled={inviteSubmitting}
+                className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
+              >
+                {inviteSubmitting ? t("settings.inviteSending") : t("settings.inviteSend")}
+              </button>
+              <button
+                type="button"
+                onClick={loadTeam}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
+              >
+                {t("settings.refresh")}
+              </button>
+              {inviteStatus && <div className="text-xs text-zinc-400">{inviteStatus}</div>}
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {invites.length === 0 && (
+                <div className="text-sm text-zinc-400">{t("settings.inviteNone")}</div>
+              )}
+              {invites.map((invite) => (
+                <div key={invite.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-white">{invite.email}</div>
+                      <div className="text-xs text-zinc-400">
+                        {formatRole(invite.role)} -{" "}
+                        {t("settings.inviteExpires", {
+                          date: new Date(invite.expiresAt).toLocaleDateString(locale),
+                        })}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => copyInviteLink(invite.token)}
+                        className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
+                      >
+                        {t("settings.inviteCopy")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revokeInvite(invite.id)}
+                        className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs text-red-200 hover:bg-red-500/20"
+                      >
+                        {t("settings.inviteRevoke")}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-zinc-400">
+                    {buildInviteUrl(invite.token)}
                   </div>
                 </div>
-                <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-zinc-400">
-                  {buildInviteUrl(invite.token)}
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

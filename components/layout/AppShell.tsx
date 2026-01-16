@@ -2,19 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
-import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { UtilityControls } from "@/components/layout/UtilityControls";
 import { useI18n } from "@/lib/i18n/useI18n";
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function AppShell({
+  children,
+  initialTheme,
+}: {
+  children: React.ReactNode;
+  initialTheme?: "dark" | "light";
+}) {
   const { t } = useI18n();
-  const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  useEffect(() => {
-    setDrawerOpen(false);
-  }, [pathname]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -34,7 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="flex min-h-screen">
         <Sidebar />
         <div className="flex min-h-screen flex-1 flex-col">
-          <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-white/10 bg-black/20 px-4 backdrop-blur">
+          <header className="sticky top-0 z-30 flex min-h-[3.5rem] flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 backdrop-blur">
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 {t("sidebar.productTitle")}
               </div>
             </div>
-            <UtilityControls />
+            <UtilityControls initialTheme={initialTheme} />
           </header>
           <main className="flex-1">{children}</main>
         </div>

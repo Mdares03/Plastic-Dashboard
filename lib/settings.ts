@@ -18,23 +18,48 @@ export const DEFAULT_SHIFT = {
   end: "15:00",
 };
 
-type AnyRecord = Record<string, any>;
+type AnyRecord = Record<string, unknown>;
 
-function isPlainObject(value: any): value is AnyRecord {
+function isPlainObject(value: unknown): value is AnyRecord {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-export function normalizeAlerts(raw: any) {
+export function normalizeAlerts(raw: unknown) {
   if (!isPlainObject(raw)) return { ...DEFAULT_ALERTS };
   return { ...DEFAULT_ALERTS, ...raw };
 }
 
-export function normalizeDefaults(raw: any) {
+export function normalizeDefaults(raw: unknown) {
   if (!isPlainObject(raw)) return { ...DEFAULT_DEFAULTS };
   return { ...DEFAULT_DEFAULTS, ...raw };
 }
 
-export function buildSettingsPayload(settings: any, shifts: any[]) {
+type SettingsRow = {
+  orgId: string;
+  version: number;
+  timezone: string;
+  shiftChangeCompMin?: number | null;
+  lunchBreakMin?: number | null;
+  stoppageMultiplier?: number | null;
+  macroStoppageMultiplier?: number | null;
+  oeeAlertThresholdPct?: number | null;
+  performanceThresholdPct?: number | null;
+  qualitySpikeDeltaPct?: number | null;
+  alertsJson?: unknown;
+  defaultsJson?: unknown;
+  updatedAt?: Date | string | null;
+  updatedBy?: string | null;
+};
+
+type ShiftRow = {
+  name?: string | null;
+  startTime?: string | null;
+  endTime?: string | null;
+  enabled?: boolean | null;
+  sortOrder?: number | null;
+};
+
+export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) {
   const ordered = [...(shifts ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const mappedShifts = ordered.map((s, idx) => ({
     name: s.name || `Shift ${idx + 1}`,
@@ -66,7 +91,7 @@ export function buildSettingsPayload(settings: any, shifts: any[]) {
   };
 }
 
-export function deepMerge(base: any, override: any): any {
+export function deepMerge(base: unknown, override: unknown): unknown {
   if (!isPlainObject(base) || !isPlainObject(override)) return override;
   const out: AnyRecord = { ...base };
   for (const [key, value] of Object.entries(override)) {
@@ -80,7 +105,7 @@ export function deepMerge(base: any, override: any): any {
   return out;
 }
 
-export function applyOverridePatch(existing: any, patch: any) {
+export function applyOverridePatch(existing: unknown, patch: unknown) {
   const base: AnyRecord = isPlainObject(existing) ? { ...existing } : {};
   if (!isPlainObject(patch)) return base;
 
@@ -106,18 +131,29 @@ export function applyOverridePatch(existing: any, patch: any) {
   return base;
 }
 
-export function validateShiftSchedule(shifts: any[]) {
+type NormalizedShift = {
+  name: string;
+  startTime: string;
+  endTime: string;
+  sortOrder: number;
+  enabled: boolean;
+};
+
+type ShiftValidationResult = NormalizedShift | { error: string };
+
+export function validateShiftSchedule(shifts: unknown) {
   if (!Array.isArray(shifts)) return { ok: false, error: "shifts must be an array" };
   if (shifts.length > 3) return { ok: false, error: "shifts max is 3" };
 
-  const normalized = shifts.map((raw, idx) => {
-    const start = String(raw?.start ?? "").trim();
-    const end = String(raw?.end ?? "").trim();
+  const normalized: ShiftValidationResult[] = shifts.map((raw, idx) => {
+    const record = isPlainObject(raw) ? raw : {};
+    const start = String(record.start ?? "").trim();
+    const end = String(record.end ?? "").trim();
     if (!TIME_RE.test(start) || !TIME_RE.test(end)) {
       return { error: `shift ${idx + 1} start/end must be HH:mm` };
     }
-    const name = String(raw?.name ?? `Shift ${idx + 1}`).trim() || `Shift ${idx + 1}`;
-    const enabled = raw?.enabled !== false;
+    const name = String(record.name ?? `Shift ${idx + 1}`).trim() || `Shift ${idx + 1}`;
+    const enabled = record.enabled !== false;
     return {
       name,
       startTime: start,
@@ -127,13 +163,13 @@ export function validateShiftSchedule(shifts: any[]) {
     };
   });
 
-  const firstError = normalized.find((s: any) => s?.error);
+  const firstError = normalized.find((s): s is { error: string } => "error" in s);
   if (firstError) return { ok: false, error: firstError.error };
 
-  return { ok: true, shifts: normalized as any[] };
+  return { ok: true, shifts: normalized as NormalizedShift[] };
 }
 
-export function validateShiftFields(shiftChangeCompensationMin?: any, lunchBreakMin?: any) {
+export function validateShiftFields(shiftChangeCompensationMin?: unknown, lunchBreakMin?: unknown) {
   if (shiftChangeCompensationMin != null) {
     const v = Number(shiftChangeCompensationMin);
     if (!Number.isFinite(v) || v < 0 || v > 480) {
@@ -149,7 +185,7 @@ export function validateShiftFields(shiftChangeCompensationMin?: any, lunchBreak
   return { ok: true };
 }
 
-export function validateThresholds(thresholds: any) {
+export function validateThresholds(thresholds: unknown) {
   if (!isPlainObject(thresholds)) return { ok: true };
 
   const stoppage = thresholds.stoppageMultiplier;
@@ -195,7 +231,7 @@ export function validateThresholds(thresholds: any) {
   return { ok: true };
 }
 
-export function validateDefaults(defaults: any) {
+export function validateDefaults(defaults: unknown) {
   if (!isPlainObject(defaults)) return { ok: true };
 
   const moldTotal = defaults.moldTotal != null ? Number(defaults.moldTotal) : null;
@@ -216,7 +252,7 @@ export function validateDefaults(defaults: any) {
   return { ok: true };
 }
 
-export function pickUpdateValue(input: any) {
+export function pickUpdateValue(input: unknown) {
   return input === undefined ? undefined : input;
 }
 

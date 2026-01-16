@@ -139,10 +139,9 @@ export async function POST(req: Request) {
         },
       });
       break;
-    } catch (err: any) {
-      if (err?.code !== "P2002") {
-        throw err;
-      }
+    } catch (err: unknown) {
+      const code = typeof err === "object" && err !== null ? (err as { code?: string }).code : undefined;
+      if (code !== "P2002") throw err;
     }
   }
 

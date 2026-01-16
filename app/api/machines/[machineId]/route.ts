@@ -1,177 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
-
-function normalizeEvent(
-  row: any,
-  thresholds: { microMultiplier: number; macroMultiplier: number }
-) {
-  // -----------------------------
-  // 1) Parse row.data safely
-  // data may be:
-  //   - object
-  //   - array of objects
-  //   - JSON string of either
-  // -----------------------------
-  const raw = row.data;
-
-  let parsed: any = raw;
-  if (typeof raw === "string") {
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      parsed = raw; // keep as string if not JSON
-    }
-  }
-
-  // data can be object OR [object]
-  const blob = Array.isArray(parsed) ? parsed[0] : parsed;
-
-  // some payloads nest details under blob.data
-  const inner = blob?.data ?? blob ?? {};
-
-  const normalizeType = (t: any) =>
-    String(t ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/_/g, "-");
-
-  // -----------------------------
-  // 2) Alias mapping (canonical types)
-  // -----------------------------
-  const ALIAS: Record<string, string> = {
-    // Spanish / synonyms
-    macroparo: "macrostop",
-    "macro-stop": "macrostop",
-    macro_stop: "macrostop",
-
-    microparo: "microstop",
-    "micro-paro": "microstop",
-    micro_stop: "microstop",
-
-    // Node-RED types
-    "production-stopped": "stop", // we'll classify to micro/macro below
-
-    // legacy / generic
-    down: "stop",
-  };
-
-  // -----------------------------
-  // 3) Determine event type from DB or blob
-  // -----------------------------
-  const fromDbType =
-    row.eventType && row.eventType !== "unknown" ? row.eventType : null;
-
-  const fromBlobType =
-    blob?.anomaly_type ??
-    blob?.eventType ??
-    blob?.topic ??
-    inner?.anomaly_type ??
-    inner?.eventType ??
-    null;
-
-  // infer slow-cycle if signature exists
-  const inferredType =
-    fromDbType ??
-    fromBlobType ??
-    ((inner?.actual_cycle_time && inner?.theoretical_cycle_time) ||
-    (blob?.actual_cycle_time && blob?.theoretical_cycle_time)
-      ? "slow-cycle"
-      : "unknown");
-
-  const eventTypeRaw = normalizeType(inferredType);
-  let eventType = ALIAS[eventTypeRaw] ?? eventTypeRaw;
-
-  // -----------------------------
-  // 4) Optional: classify "stop" into micro/macro based on duration if present
-  // (keeps old rows usable even if they stored production-stopped)
-  // -----------------------------
-  if (eventType === "stop") {
-    const stopSec =
-      (typeof inner?.stoppage_duration_seconds === "number" && inner.stoppage_duration_seconds) ||
-      (typeof blob?.stoppage_duration_seconds === "number" && blob.stoppage_duration_seconds) ||
-      (typeof inner?.stop_duration_seconds === "number" && inner.stop_duration_seconds) ||
-      null;
-
-    const microMultiplier = Number(thresholds?.microMultiplier ?? 1.5);
-    const macroMultiplier = Math.max(
-      microMultiplier,
-      Number(thresholds?.macroMultiplier ?? 5)
-    );
-
-    const theoreticalCycle =
-      Number(inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time) || 0;
-
-    if (stopSec != null) {
-      if (theoreticalCycle > 0) {
-        const macroThresholdSec = theoreticalCycle * macroMultiplier;
-        eventType = stopSec >= macroThresholdSec ? "macrostop" : "microstop";
-      } else {
-        const fallbackMacroSec = 300;
-        eventType = stopSec >= fallbackMacroSec ? "macrostop" : "microstop";
-      }
-    }
-  }
-
-  // -----------------------------
-  // 5) Severity, title, description, timestamp
-  // -----------------------------
-  const severity =
-    String(
-      (row.severity && row.severity !== "info" ? row.severity : null) ??
-        blob?.severity ??
-        inner?.severity ??
-        "info"
-    )
-      .trim()
-      .toLowerCase();
-
-  const title =
-    String(
-      (row.title && row.title !== "Event" ? row.title : null) ??
-        blob?.title ??
-        inner?.title ??
-        (eventType === "slow-cycle" ? "Slow Cycle Detected" : "Event")
-    ).trim();
-
-  const description =
-    row.description ??
-    blob?.description ??
-    inner?.description ??
-    (eventType === "slow-cycle" &&
-    (inner?.actual_cycle_time ?? blob?.actual_cycle_time) &&
-    (inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time) &&
-    (inner?.delta_percent ?? blob?.delta_percent) != null
-      ? `Cycle took ${Number(inner?.actual_cycle_time ?? blob?.actual_cycle_time).toFixed(1)}s (+${Number(inner?.delta_percent ?? blob?.delta_percent)}% vs ${Number(inner?.theoretical_cycle_time ?? blob?.theoretical_cycle_time).toFixed(1)}s objetivo)`
-      : null);
-
-  const ts =
-    row.ts ??
-    (typeof blob?.timestamp === "number" ? new Date(blob.timestamp) : null) ??
-    (typeof inner?.timestamp === "number" ? new Date(inner.timestamp) : null) ??
-    null;
-
-  const workOrderId =
-    row.workOrderId ??
-    blob?.work_order_id ??
-    inner?.work_order_id ??
-    null;
-
-  return {
-    id: row.id,
-    ts,
-    topic: String(row.topic ?? blob?.topic ?? eventType),
-    eventType,
-    severity,
-    title,
-    description,
-    requiresAck: !!row.requiresAck,
-    workOrderId,
-  };
-}
-
-
+import { normalizeEvent } from "@/lib/events/normalizeEvent";
 
 
 export async function GET(
@@ -188,8 +20,88 @@ export async function GET(
   const eventsOnly = url.searchParams.get("eventsOnly") === "1";
   const eventsWindowSec = Number(url.searchParams.get("eventsWindowSec") ?? "21600"); // default 6h
   const eventsWindowStart = new Date(Date.now() - Math.max(0, eventsWindowSec) * 1000);
+  const windowSec = Number(url.searchParams.get("windowSec") ?? "3600"); // default 1h
 
   const { machineId } = await params;
+
+  const machineBase = await prisma.machine.findFirst({
+    where: { id: machineId, orgId: session.orgId },
+    select: { id: true, updatedAt: true },
+  });
+
+  if (!machineBase) {
+    return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
+  }
+
+  const [heartbeatAgg, kpiAgg, eventAgg, cycleAgg, orgSettingsAgg] = await Promise.all([
+    prisma.machineHeartbeat.aggregate({
+      where: { orgId: session.orgId, machineId },
+      _max: { tsServer: true },
+    }),
+    prisma.machineKpiSnapshot.aggregate({
+      where: { orgId: session.orgId, machineId },
+      _max: { tsServer: true },
+    }),
+    prisma.machineEvent.aggregate({
+      where: { orgId: session.orgId, machineId, ts: { gte: eventsWindowStart } },
+      _max: { tsServer: true },
+    }),
+    prisma.machineCycle.aggregate({
+      where: { orgId: session.orgId, machineId },
+      _max: { ts: true },
+    }),
+    prisma.orgSettings.findUnique({
+      where: { orgId: session.orgId },
+      select: { updatedAt: true, stoppageMultiplier: true, macroStoppageMultiplier: true },
+    }),
+  ]);
+
+  const toMs = (value?: Date | null) => (value ? value.getTime() : 0);
+  const lastModifiedMs = Math.max(
+    toMs(machineBase.updatedAt),
+    toMs(heartbeatAgg._max.tsServer),
+    toMs(kpiAgg._max.tsServer),
+    toMs(eventAgg._max.tsServer),
+    toMs(cycleAgg._max.ts),
+    toMs(orgSettingsAgg?.updatedAt)
+  );
+
+  const versionParts = [
+    session.orgId,
+    machineId,
+    eventsMode,
+    eventsOnly ? "1" : "0",
+    eventsWindowSec,
+    windowSec,
+    toMs(machineBase.updatedAt),
+    toMs(heartbeatAgg._max.tsServer),
+    toMs(kpiAgg._max.tsServer),
+    toMs(eventAgg._max.tsServer),
+    toMs(cycleAgg._max.ts),
+    toMs(orgSettingsAgg?.updatedAt),
+  ];
+
+  const etag = `W/"${createHash("sha1").update(versionParts.join("|")).digest("hex")}"`;
+  const lastModified = new Date(lastModifiedMs || 0).toUTCString();
+  const responseHeaders = new Headers({
+    "Cache-Control": "private, no-cache, max-age=0, must-revalidate",
+    ETag: etag,
+    "Last-Modified": lastModified,
+    Vary: "Cookie",
+  });
+
+  const ifNoneMatch = _req.headers.get("if-none-match");
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new NextResponse(null, { status: 304, headers: responseHeaders });
+  }
+
+  const ifModifiedSince = _req.headers.get("if-modified-since");
+  if (!ifNoneMatch && ifModifiedSince) {
+    const since = Date.parse(ifModifiedSince);
+    if (!Number.isNaN(since) && lastModifiedMs <= since) {
+      return new NextResponse(null, { status: 304, headers: responseHeaders });
+    }
+  }
 
   const machine = await prisma.machine.findFirst({
     where: { id: machineId, orgId: session.orgId },
@@ -227,15 +139,10 @@ export async function GET(
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
 
-  const orgSettings = await prisma.orgSettings.findUnique({
-    where: { orgId: session.orgId },
-    select: { stoppageMultiplier: true, macroStoppageMultiplier: true },
-  });
-
-  const microMultiplier = Number(orgSettings?.stoppageMultiplier ?? 1.5);
+  const microMultiplier = Number(orgSettingsAgg?.stoppageMultiplier ?? 1.5);
   const macroMultiplier = Math.max(
     microMultiplier,
-    Number(orgSettings?.macroStoppageMultiplier ?? 5)
+    Number(orgSettingsAgg?.macroStoppageMultiplier ?? 5)
   );
 
   const rawEvents = await prisma.machineEvent.findMany({
@@ -296,12 +203,14 @@ export async function GET(
   const eventsCountCritical = allEvents.filter(isCritical).length;
 
   if (eventsOnly) {
-    return NextResponse.json({ ok: true, events, eventsCountAll, eventsCountCritical });
+    return NextResponse.json(
+      { ok: true, events, eventsCountAll, eventsCountCritical },
+      { headers: responseHeaders }
+    );
   }
 
 
 // ---- cycles window ----
-const windowSec = Number(url.searchParams.get("windowSec") ?? "3600"); // default 1h
 
 const latestKpi = machine.kpiSnapshots[0] ?? null;
 
@@ -380,30 +289,28 @@ const cycles = rawCycles
     workOrderId: c.workOrderId ?? null,
     sku: c.sku ?? null,
   }));
-
-
-
-
-  return NextResponse.json({
-  ok: true,
-  machine: {
-    id: machine.id,
-    name: machine.name,
-    code: machine.code,
-    location: machine.location,
-    latestHeartbeat: machine.heartbeats[0] ?? null,
-    latestKpi: machine.kpiSnapshots[0] ?? null,
-    effectiveCycleTime,
-  },
-  thresholds: {
-    stoppageMultiplier: microMultiplier,
-    macroStoppageMultiplier: macroMultiplier,
-  },
-  activeStoppage,
-  events,
-  eventsCountAll,
-  eventsCountCritical,
-  cycles,
-});
-  
+  return NextResponse.json(
+    {
+      ok: true,
+      machine: {
+        id: machine.id,
+        name: machine.name,
+        code: machine.code,
+        location: machine.location,
+        latestHeartbeat: machine.heartbeats[0] ?? null,
+        latestKpi: machine.kpiSnapshots[0] ?? null,
+        effectiveCycleTime,
+      },
+      thresholds: {
+        stoppageMultiplier: microMultiplier,
+        macroStoppageMultiplier: macroMultiplier,
+      },
+      activeStoppage,
+      events,
+      eventsCountAll,
+      eventsCountCritical,
+      cycles,
+    },
+    { headers: responseHeaders }
+  );
 }

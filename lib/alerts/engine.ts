@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
-import { AlertPolicySchema, DEFAULT_POLICY, normalizeAlertPolicy } from "@/lib/alerts/policy";
+import { AlertPolicySchema, DEFAULT_POLICY } from "@/lib/alerts/policy";
 
 type Recipient = {
   userId?: string;
@@ -13,12 +13,43 @@ type Recipient = {
 };
 
 function normalizeEventType(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (!raw) return raw;
+  const cleaned = raw.replace(/[_\s]+/g, "-").replace(/-+/g, "-");
+  if (cleaned === "micro-stop") return "microstop";
+  if (cleaned === "macro-stop") return "macrostop";
+  if (cleaned === "slowcycle") return "slow-cycle";
+  return cleaned;
 }
 
-function extractDurationSec(raw: any): number | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw.data ?? raw;
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function unwrapEventData(raw: unknown) {
+  const payload = asRecord(raw);
+  const inner = asRecord(payload?.data) ?? payload;
+  return { payload, inner };
+}
+
+function readString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function readNumber(value: unknown) {
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function readBool(value: unknown) {
+  return value === true;
+}
+
+function extractDurationSec(raw: unknown): number | null {
+  const payload = asRecord(raw);
+  if (!payload) return null;
+  const data = asRecord(payload.data) ?? payload;
   const candidates = [
     data?.duration_seconds,
     data?.duration_sec,
@@ -67,6 +98,7 @@ async function ensurePolicy(orgId: string) {
 
 async function loadRecipients(orgId: string, role: string, eventType: string): Promise<Recipient[]> {
   const roleUpper = role.toUpperCase();
+  const normalizedEventType = normalizeEventType(eventType);
   const [members, external] = await Promise.all([
     prisma.orgUser.findMany({
       where: { orgId, role: roleUpper },
@@ -105,7 +137,7 @@ async function loadRecipients(orgId: string, role: string, eventType: string): P
     .filter((c) => {
       const types = Array.isArray(c.eventTypes) ? c.eventTypes : null;
       if (!types || !types.length) return true;
-      return types.includes(eventType);
+      return types.some((type) => normalizeEventType(type) === normalizedEventType);
     })
     .map((c) => ({
       contactId: c.id,
@@ -143,7 +175,7 @@ function buildAlertMessage(params: {
 }
 
 async function shouldSendNotification(params: {
-  eventId: string;
+  eventIds: string[];
   ruleId: string;
   role: string;
   channel: string;
@@ -153,7 +185,7 @@ async function shouldSendNotification(params: {
 }) {
   const existing = await prisma.alertNotification.findFirst({
     where: {
-      eventId: params.eventId,
+      eventId: { in: params.eventIds },
       ruleId: params.ruleId,
       role: params.role,
       channel: params.channel,
@@ -169,6 +201,22 @@ async function shouldSendNotification(params: {
   if (!repeatMin || repeatMin <= 0) return false;
   const elapsed = Date.now() - new Date(existing.sentAt).getTime();
   return elapsed >= repeatMin * 60 * 1000;
+}
+
+async function resolveAlertEventIds(orgId: string, alertId: string, fallbackId: string) {
+  const events = await prisma.machineEvent.findMany({
+    where: {
+      orgId,
+      data: {
+        path: ["alert_id"],
+        equals: alertId,
+      },
+    },
+    select: { id: true },
+  });
+  const ids = events.map((row) => row.id);
+  if (!ids.includes(fallbackId)) ids.push(fallbackId);
+  return ids;
 }
 
 async function recordNotification(params: {
@@ -250,6 +298,18 @@ export async function evaluateAlertsForEvent(eventId: string) {
   const rule = policy.rules.find((r) => normalizeEventType(r.eventType) === eventType);
   if (!rule) return;
 
+  const { payload, inner } = unwrapEventData(event.data);
+  const alertId = readString(payload?.alert_id ?? inner?.alert_id);
+  const isUpdate = readBool(payload?.is_update ?? inner?.is_update);
+  const isAutoAck = readBool(payload?.is_auto_ack ?? inner?.is_auto_ack);
+  const lastCycleTs = readNumber(payload?.last_cycle_timestamp ?? inner?.last_cycle_timestamp);
+  const theoreticalSec = readNumber(payload?.theoretical_cycle_time ?? inner?.theoretical_cycle_time);
+  if (isAutoAck) return;
+  if (isUpdate && !(rule.repeatMinutes && rule.repeatMinutes > 0)) return;
+  if ((eventType === "microstop" || eventType === "macrostop") && theoreticalSec && lastCycleTs == null) {
+    return;
+  }
+
   const durationSec = extractDurationSec(event.data);
   const durationMin = durationSec != null ? durationSec / 60 : 0;
   const machine = await prisma.machine.findUnique({
@@ -257,6 +317,9 @@ export async function evaluateAlertsForEvent(eventId: string) {
     select: { name: true, code: true },
   });
   const delivered = new Set<string>();
+  const notificationEventIds = alertId
+    ? await resolveAlertEventIds(event.orgId, alertId, event.id)
+    : [event.id];
 
   for (const [roleName, roleRule] of Object.entries(rule.roles)) {
     if (!roleRule?.enabled) continue;
@@ -283,7 +346,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
         if (delivered.has(key)) continue;
 
         const allowed = await shouldSendNotification({
-          eventId: event.id,
+          eventIds: notificationEventIds,
           ruleId: rule.id,
           role: roleName,
           channel,
@@ -321,8 +384,8 @@ export async function evaluateAlertsForEvent(eventId: string) {
             status: "sent",
           });
           delivered.add(key);
-        } catch (err: any) {
-          const msg = err?.message ? String(err.message) : "notification_failed";
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "notification_failed";
           await recordNotification({
             orgId: event.orgId,
             machineId: event.machineId,

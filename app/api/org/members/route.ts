@@ -154,8 +154,9 @@ export async function POST(req: Request) {
           },
         });
         break;
-      } catch (err: any) {
-        if (err?.code !== "P2002") throw err;
+      } catch (err: unknown) {
+        const code = typeof err === "object" && err !== null ? (err as { code?: string }).code : undefined;
+        if (code !== "P2002") throw err;
       }
     }
 
@@ -184,9 +185,9 @@ export async function POST(req: Request) {
         text: content.text,
         html: content.html,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       emailSent = false;
-      emailError = err?.message || "Failed to send invite email";
+      emailError = err instanceof Error ? err.message : "Failed to send invite email";
     }
 
     return NextResponse.json({ ok: true, invite, emailSent, emailError });

@@ -35,8 +35,9 @@ export default function LoginForm() {
 
       router.push(next);
       router.refresh();
-    } catch (e: any) {
-      setErr(e?.message || t("login.error.network"));
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : null;
+      setErr(message || t("login.error.network"));
     } finally {
       setLoading(false);
     }

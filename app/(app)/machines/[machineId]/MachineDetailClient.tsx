@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -73,6 +73,7 @@ type MachineDetail = {
   name: string;
   code?: string | null;
   location?: string | null;
+  effectiveCycleTime?: number | null;
   latestHeartbeat: Heartbeat | null;
   latestKpi: Kpi | null;
 };
@@ -111,10 +112,53 @@ type WorkOrderUpload = {
   cycleTime?: number;
 };
 
+type WorkOrderRow = Record<string, string | number | boolean>;
+type TooltipPayload<T> = { payload?: T; name?: string; value?: number | string };
+type SimpleTooltipProps<T> = {
+  active?: boolean;
+  payload?: Array<TooltipPayload<T>>;
+  label?: string | number;
+};
+type ActiveRingProps = { cx?: number; cy?: number; fill?: string };
+type ScatterPointProps = { cx?: number; cy?: number; payload?: { bucket?: string } };
+
 const TOL = 0.10;
 const DEFAULT_MICRO_MULT = 1.5;
 const DEFAULT_MACRO_MULT = 5;
 const NORMAL_TOL_SEC = 0.1;
+
+const BUCKET = {
+  normal: {
+    labelKey: "machine.detail.bucket.normal",
+    dot: "#12D18E",
+    glow: "rgba(18,209,142,.35)",
+    chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
+  },
+  slow: {
+    labelKey: "machine.detail.bucket.slow",
+    dot: "#F7B500",
+    glow: "rgba(247,181,0,.35)",
+    chip: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",
+  },
+  microstop: {
+    labelKey: "machine.detail.bucket.microstop",
+    dot: "#FF7A00",
+    glow: "rgba(255,122,0,.35)",
+    chip: "bg-orange-500/15 text-orange-300 border-orange-500/20",
+  },
+  macrostop: {
+    labelKey: "machine.detail.bucket.macrostop",
+    dot: "#FF3B5C",
+    glow: "rgba(255,59,92,.35)",
+    chip: "bg-rose-500/15 text-rose-300 border-rose-500/20",
+  },
+  unknown: {
+    labelKey: "machine.detail.bucket.unknown",
+    dot: "#A1A1AA",
+    glow: "rgba(161,161,170,.25)",
+    chip: "bg-white/10 text-zinc-200 border-white/10",
+  },
+} as const;
 
 
 function resolveMultipliers(thresholds?: Thresholds | null) {
@@ -213,14 +257,14 @@ function parseCsvText(text: string) {
   });
 }
 
-function pickRowValue(row: Record<string, any>, keys: Set<string>) {
+function pickRowValue(row: WorkOrderRow, keys: Set<string>) {
   for (const [key, value] of Object.entries(row)) {
     if (keys.has(normalizeKey(key))) return value;
   }
   return undefined;
 }
 
-function rowsToWorkOrders(rows: Array<Record<string, any>>): WorkOrderUpload[] {
+function rowsToWorkOrders(rows: WorkOrderRow[]): WorkOrderUpload[] {
   const seen = new Set<string>();
   const out: WorkOrderUpload[] = [];
 
@@ -261,41 +305,7 @@ export default function MachineDetailClient() {
   const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
-  const [nowMs, setNowMs] = useState(() => Date.now());
 
-
-  const BUCKET = {
-    normal: {
-      labelKey: "machine.detail.bucket.normal",
-      dot: "#12D18E",
-      glow: "rgba(18,209,142,.35)",
-      chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
-    },
-    slow: {
-      labelKey: "machine.detail.bucket.slow",
-      dot: "#F7B500",
-      glow: "rgba(247,181,0,.35)",
-      chip: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",
-    },
-    microstop: {
-      labelKey: "machine.detail.bucket.microstop",
-      dot: "#FF7A00",
-      glow: "rgba(255,122,0,.35)",
-      chip: "bg-orange-500/15 text-orange-300 border-orange-500/20",
-    },
-    macrostop: {
-      labelKey: "machine.detail.bucket.macrostop",
-      dot: "#FF3B5C",
-      glow: "rgba(255,59,92,.35)",
-      chip: "bg-rose-500/15 text-rose-300 border-rose-500/20",
-    },
-    unknown: {
-      labelKey: "machine.detail.bucket.unknown",
-      dot: "#A1A1AA",
-      glow: "rgba(161,161,170,.25)",
-      chip: "bg-white/10 text-zinc-200 border-white/10",
-    },
-  } as const;
 
   useEffect(() => {
     if (!machineId) return;
@@ -305,9 +315,16 @@ export default function MachineDetailClient() {
     async function load() {
       try {
         const res = await fetch(`/api/machines/${machineId}?windowSec=3600&events=critical`, {
-          cache: "no-store",
+          cache: "no-cache",
           credentials: "include",
         });
+
+        if (res.status === 304) {
+          if (!alive) return;
+          setLoading(false);
+          return;
+        }
+
         const json = await res.json().catch(() => ({}));
 
         if (!alive) return;
@@ -342,30 +359,29 @@ export default function MachineDetailClient() {
   }, [machineId, t]);
 
   useEffect(() => {
-    const timer = setInterval(() => setNowMs(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
     if (open !== "events" || !machineId) return;
 
     let alive = true;
     setDetectedEventsLoading(true);
 
-    fetch(`/api/machines/${machineId}?events=all&eventsOnly=1&eventsWindowSec=21600`, {
-      cache: "no-store",
-      credentials: "include",
-    })
-      .then((res) => res.json())
-      .then((json) => {
+    async function loadDetected() {
+      try {
+        const res = await fetch(`/api/machines/${machineId}?events=all&eventsOnly=1&eventsWindowSec=21600`, {
+          cache: "no-cache",
+          credentials: "include",
+        });
+        if (res.status === 304) return;
+        const json = await res.json().catch(() => ({}));
         if (!alive) return;
         setDetectedEvents(json.events ?? []);
         setEventsCountAll(typeof json.eventsCountAll === "number" ? json.eventsCountAll : eventsCountAll);
-      })
-      .catch(() => {})
-      .finally(() => {
+      } catch {
+      } finally {
         if (alive) setDetectedEventsLoading(false);
-      });
+      }
+    }
+
+    loadDetected();
 
     return () => {
       alive = false;
@@ -385,15 +401,15 @@ export default function MachineDetailClient() {
       const workbook = xlsx.read(buffer, { type: "array" });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       if (!sheet) return [];
-      const rows = xlsx.utils.sheet_to_json(sheet, { defval: "" });
-      return rowsToWorkOrders(rows as Array<Record<string, any>>);
+      const rows = xlsx.utils.sheet_to_json<WorkOrderRow>(sheet, { defval: "" });
+      return rowsToWorkOrders(rows);
     }
 
     return null;
   }
 
-  async function handleWorkOrderUpload(event: any) {
-    const file = event?.target?.files?.[0] as File | undefined;
+  async function handleWorkOrderUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
     if (!file) return;
 
     if (!machineId) {
@@ -477,19 +493,6 @@ export default function MachineDetailClient() {
     return `${v}`;
   }
 
-  function formatDurationShort(totalSec?: number | null) {
-    if (totalSec === null || totalSec === undefined || Number.isNaN(totalSec)) {
-      return t("common.na");
-    }
-    const sec = Math.max(0, Math.floor(totalSec));
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) return `${h}h ${m}m`;
-    if (m > 0) return `${m}m ${s}s`;
-    return `${s}s`;
-  }
-
 
   function timeAgo(ts?: string) {
     if (!ts) return t("common.never");
@@ -554,15 +557,14 @@ export default function MachineDetailClient() {
         const label = t(key);
         return label === key ? normalizedStatus : label;
       })();
-  const cycleTarget = (machine as any)?.effectiveCycleTime ?? kpi?.cycleTime ?? null;
+  const cycleTarget = machine?.effectiveCycleTime ?? kpi?.cycleTime ?? null;
   const machineCode = machine?.code ?? t("common.na");
   const machineLocation = machine?.location ?? t("common.na");
   const lastSeenLabel = t("machine.detail.lastSeen", {
     time: hbTs ? timeAgo(hbTs) : t("common.never"),
   });
 
-  const ActiveRing = (props: any) => {
-    const { cx, cy, fill } = props;
+  const ActiveRing = ({ cx, cy, fill }: ActiveRingProps) => {
     if (cx == null || cy == null) return null;
     return (
       <g>
@@ -609,12 +611,84 @@ export default function MachineDetailClient() {
   }
 
   function MachineActivityTimeline({
-    segments,
-    windowSec,
+    cycles,
+    cycleTarget,
+    thresholds,
+    activeStoppage,
   }: {
-    segments: TimelineSeg[];
-    windowSec: number;
+    cycles: CycleRow[];
+    cycleTarget: number | null;
+    thresholds: Thresholds | null;
+    activeStoppage: ActiveStoppage | null;
   }) {
+    const [nowMs, setNowMs] = useState(() => Date.now());
+
+    useEffect(() => {
+      const timer = setInterval(() => setNowMs(Date.now()), 1000);
+      return () => clearInterval(timer);
+    }, []);
+
+    const timeline = useMemo(() => {
+      const rows = cycles ?? [];
+      const windowSec = rows.length < 1 ? 10800 : 3600;
+      const end = nowMs;
+      const start = end - windowSec * 1000;
+
+      if (rows.length < 1) {
+        return {
+          windowSec,
+          segments: [] as TimelineSeg[],
+          start,
+          end,
+        };
+      }
+
+      const segs: TimelineSeg[] = [];
+
+      for (const cycle of rows) {
+        const ideal = (cycle.ideal ?? cycleTarget ?? 0) as number;
+        const actual = cycle.actual ?? 0;
+        if (!ideal || ideal <= 0 || !actual || actual <= 0) continue;
+
+        const cycleEnd = cycle.t;
+        const cycleStart = cycleEnd - actual * 1000;
+        if (cycleEnd <= start || cycleStart >= end) continue;
+
+        const segStart = Math.max(cycleStart, start);
+        const segEnd = Math.min(cycleEnd, end);
+        if (segEnd <= segStart) continue;
+
+        const state = classifyCycleDuration(actual, ideal, thresholds);
+
+        segs.push({
+          start: segStart,
+          end: segEnd,
+          durationSec: (segEnd - segStart) / 1000,
+          state,
+        });
+      }
+
+      if (activeStoppage?.startedAt) {
+        const stoppageStart = new Date(activeStoppage.startedAt).getTime();
+        const segStart = Math.max(stoppageStart, start);
+        const segEnd = Math.min(end, nowMs);
+        if (segEnd > segStart) {
+          segs.push({
+            start: segStart,
+            end: segEnd,
+            durationSec: (segEnd - segStart) / 1000,
+            state: activeStoppage.state,
+          });
+        }
+      }
+
+      segs.sort((a, b) => a.start - b.start);
+
+      return { windowSec, segments: segs, start, end };
+    }, [activeStoppage, cycles, cycleTarget, nowMs, thresholds]);
+
+    const { segments, windowSec } = timeline;
+
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="flex items-start justify-between gap-4">
@@ -647,7 +721,7 @@ export default function MachineDetailClient() {
               </div>
             ) : (
               segments.map((seg, idx) => {
-                const wPct = Math.max(0.25, (seg.durationSec / windowSec) * 100);
+                const wPct = Math.max(0, (seg.durationSec / windowSec) * 100);
                 const meta = BUCKET[seg.state];
                 const glow =
                   seg.state === "microstop" || seg.state === "macrostop"
@@ -718,11 +792,16 @@ export default function MachineDetailClient() {
     );
   }
 
-  function CycleTooltip({ active, payload, label }: any) {
+  function CycleTooltip({
+    active,
+    payload,
+    label,
+  }: SimpleTooltipProps<{ actual?: number; ideal?: number; deltaPct?: number }>) {
     if (!active || !payload?.length) return null;
 
     const p = payload[0]?.payload;
     if (!p) return null;
+    const safeLabel = label ?? "";
 
     const ideal = p.ideal ?? null;
     const actual = p.actual ?? null;
@@ -731,7 +810,7 @@ export default function MachineDetailClient() {
     return (
       <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
         <div className="text-sm font-semibold text-white">
-          {t("machine.detail.tooltip.cycle", { label })}
+          {t("machine.detail.tooltip.cycle", { label: safeLabel })}
         </div>
         <div className="mt-2 space-y-1 text-xs text-zinc-300">
           <div>
@@ -756,7 +835,6 @@ export default function MachineDetailClient() {
 
   const cycleDerived = useMemo(() => {
     const rows = cycles ?? [];
-    const { micro, macro } = resolveMultipliers(thresholds);
 
     const mapped: CycleDerivedRow[] = rows.map((cycle) => {
       const ideal = cycle.ideal ?? null;
@@ -833,62 +911,15 @@ export default function MachineDetailClient() {
 
     const total = rows.reduce((sum, row) => sum + row.seconds, 0);
     return { rows, total };
-  }, [BUCKET, cycleDerived.mapped, t]);
-
-  const timeline = useMemo(() => {
-    const rows = cycles ?? [];
-    if (rows.length < 1) {
-      return {
-        windowSec: 10800,
-        segments: [] as TimelineSeg[],
-        start: null as number | null,
-        end: null as number | null,
-      };
-    }
-
-    const windowSec = 3600;
-    const end = rows[rows.length - 1].t;
-    const start = end - windowSec * 1000;
-
-    const segs: TimelineSeg[] = [];
-
-    for (const cycle of rows) {
-      const ideal = (cycle.ideal ?? cycleTarget ?? 0) as number;
-      const actual = cycle.actual ?? 0;
-      if (!ideal || ideal <= 0 || !actual || actual <= 0) continue;
-
-      const cycleEnd = cycle.t;
-      const cycleStart = cycleEnd - actual * 1000;
-      if (cycleEnd <= start || cycleStart >= end) continue;
-
-      const segStart = Math.max(cycleStart, start);
-      const segEnd = Math.min(cycleEnd, end);
-      if (segEnd <= segStart) continue;
-
-      const state = classifyCycleDuration(actual, ideal, thresholds);
-
-
-
-      segs.push({
-        start: segStart,
-        end: segEnd,
-        durationSec: (segEnd - segStart) / 1000,
-        state,
-      });
-    }
-
-
-
-    return { windowSec, segments: segs, start, end };
-  }, [cycles, cycleTarget, thresholds]);
+  }, [cycleDerived.mapped, t]);
 
   const cycleTargetLabel = cycleTarget ? `${cycleTarget}s` : t("common.na");
   const workOrderLabel = kpi?.workOrderId ?? t("common.na");
   const skuLabel = kpi?.sku ?? t("common.na");
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div className="p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="truncate text-2xl font-semibold text-white">
@@ -903,8 +934,8 @@ export default function MachineDetailClient() {
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col items-start gap-2 sm:w-auto sm:items-end">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <input
               ref={fileInputRef}
               type="file"
@@ -916,18 +947,18 @@ export default function MachineDetailClient() {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               disabled={isUploading}
-              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 transition hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
               {uploadButtonLabel}
             </button>
             <Link
               href="/machines"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-white hover:bg-white/10 sm:w-auto"
             >
               {t("machine.detail.back")}
             </Link>
           </div>
-          <div className="text-right text-[11px] text-zinc-500">
+          <div className="text-left text-[11px] text-zinc-500 sm:text-right">
             {t("machine.detail.workOrders.uploadHint")}
           </div>
           {uploadState.status !== "idle" && uploadState.message && (
@@ -975,7 +1006,12 @@ export default function MachineDetailClient() {
           </div>
 
           <div className="mt-6">
-            <MachineActivityTimeline segments={timeline.segments} windowSec={timeline.windowSec} />
+            <MachineActivityTimeline
+              cycles={cycles}
+              cycleTarget={cycleTarget}
+              thresholds={thresholds}
+              activeStoppage={activeStoppage}
+            />
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -1197,9 +1233,9 @@ export default function MachineDetailClient() {
                       dataKey="actual"
                       isAnimationActive={false}
                       activeShape={<ActiveRing />}
-                      shape={(props: any) => {
-                        const { cx, cy, payload } = props;
-                        const meta = BUCKET[payload.bucket as keyof typeof BUCKET] ?? BUCKET.unknown;
+                      shape={({ cx, cy, payload }: ScatterPointProps) => {
+                        const meta =
+                          BUCKET[(payload?.bucket as keyof typeof BUCKET) ?? "unknown"] ?? BUCKET.unknown;
 
                         return (
                           <circle
@@ -1259,7 +1295,10 @@ export default function MachineDetailClient() {
                         border: "1px solid var(--app-chart-tooltip-border)",
                       }}
                       labelStyle={{ color: "var(--app-chart-label)" }}
-                      formatter={(val: any) => [`${Number(val).toFixed(1)}s`, t("machine.detail.modal.extraTimeLabel")]}
+                      formatter={(val: number | string | undefined) => [
+                        `${val == null ? 0 : Number(val).toFixed(1)}s`,
+                        t("machine.detail.modal.extraTimeLabel"),
+                      ]}
                     />
                     <Bar dataKey="seconds" radius={[10, 10, 0, 0]} isAnimationActive={false}>
                       {impactAgg.rows.map((row, idx) => {

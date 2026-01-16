@@ -2,17 +2,26 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { BarChart3, Bell, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BarChart3, Bell, DollarSign, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { useI18n } from "@/lib/i18n/useI18n";
 
-const items = [
+type NavItem = {
+  href: string;
+  labelKey: string;
+  icon: LucideIcon;
+  ownerOnly?: boolean;
+};
+
+const items: NavItem[] = [
   { href: "/overview", labelKey: "nav.overview", icon: LayoutGrid },
   { href: "/machines", labelKey: "nav.machines", icon: Wrench },
   { href: "/reports", labelKey: "nav.reports", icon: BarChart3 },
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
+  { href: "/financial", labelKey: "nav.financial", icon: DollarSign, ownerOnly: true },
   { href: "/settings", labelKey: "nav.settings", icon: Settings },
-] as const;
+];
 
 type SidebarProps = {
   variant?: "desktop" | "drawer";
@@ -57,6 +66,14 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
   }
 
   const roleKey = (me?.membership?.role || "MEMBER").toLowerCase();
+  const isOwner = roleKey === "owner";
+  const visibleItems = useMemo(() => items.filter((it) => !it.ownerOnly || isOwner), [isOwner]);
+
+  useEffect(() => {
+    visibleItems.forEach((it) => {
+      router.prefetch(it.href);
+    });
+  }, [router, visibleItems]);
   const shellClass = [
     "relative z-20 flex flex-col border-r border-white/10 bg-black/40",
     variant === "desktop" ? "hidden md:flex h-screen w-64" : "flex h-full w-72 max-w-[85vw]",
@@ -82,13 +99,14 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
       </div>
 
       <nav className="px-3 py-2 flex-1 space-y-1">
-        {items.map((it) => {
+        {visibleItems.map((it) => {
           const active = pathname === it.href || pathname.startsWith(it.href + "/");
           const Icon = it.icon;
           return (
             <Link
               key={it.href}
               href={it.href}
+              onMouseEnter={() => router.prefetch(it.href)}
               onClick={onNavigate}
               className={[
                 "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition",

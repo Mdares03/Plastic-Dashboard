@@ -1,7 +1,5 @@
 import nodemailer from "nodemailer";
 import { logLine } from "@/lib/logger";
-
-
 type EmailPayload = {
   to: string;
   subject: string;
@@ -54,15 +52,14 @@ export async function sendEmail(payload: EmailPayload) {
   if (!from) {
     throw new Error("SMTP_FROM not configured");
   }
-   logLine("email.send.start", {
+  logLine("email.send.start", {
     to: payload.to,
     subject: payload.subject,
     from,
   });
 
-
   const transporter = getTransporter();
-    try {
+  try {
     const info = await transporter.sendMail({
       from,
       to: payload.to,
@@ -77,6 +74,7 @@ export async function sendEmail(payload: EmailPayload) {
     });
 
     // Nodemailer response details:
+    const pending = "pending" in info ? (info as { pending?: string[] }).pending : undefined;
     logLine("email.send.ok", {
       to: payload.to,
       from,
@@ -84,25 +82,33 @@ export async function sendEmail(payload: EmailPayload) {
       response: info.response,
       accepted: info.accepted,
       rejected: info.rejected,
-      pending: (info as any).pending,
+      pending,
     });
 
     return info;
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const error = err as {
+      name?: string;
+      message?: string;
+      code?: string;
+      command?: string;
+      response?: unknown;
+      responseCode?: number;
+      stack?: string;
+    };
     logLine("email.send.err", {
       to: payload.to,
       from,
-      name: err?.name,
-      message: err?.message,
-      code: err?.code,
-      command: err?.command,
-      response: err?.response,
-      responseCode: err?.responseCode,
-      stack: err?.stack,
+      name: error?.name,
+      message: error?.message,
+      code: error?.code,
+      command: error?.command,
+      response: error?.response,
+      responseCode: error?.responseCode,
+      stack: error?.stack,
     });
     throw err;
   }
-  
 }
 
 export function buildVerifyEmail(params: { appName: string; verifyUrl: string }) {

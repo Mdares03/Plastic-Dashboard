@@ -6,7 +6,10 @@ import { prisma } from "@/lib/prisma";
 const COOKIE_NAME = "mis_session";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
-  const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
+  const cookieJar = await cookies();
+  const sessionId = cookieJar.get(COOKIE_NAME)?.value;
+  const themeCookie = cookieJar.get("mis_theme")?.value;
+  const initialTheme = themeCookie === "light" ? "light" : "dark";
 
   if (!sessionId) redirect("/login?next=/machines");
 
@@ -24,5 +27,5 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/login?next=/machines");
   }
 
-  return <AppShell>{children}</AppShell>;
+  return <AppShell initialTheme={initialTheme}>{children}</AppShell>;
 }

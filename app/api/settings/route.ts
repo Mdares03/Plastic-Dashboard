@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
@@ -19,7 +18,15 @@ import {
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
-function isPlainObject(value: any): value is Record<string, any> {
+type ValidShift = {
+  name: string;
+  startTime: string;
+  endTime: string;
+  sortOrder: number;
+  enabled: boolean;
+};
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
@@ -191,7 +198,7 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: defaultsValidation.error }, { status: 400 });
     }
 
-    let shiftRows: any[] | null = null;
+    let shiftRows: ValidShift[] | null = null;
     if (shiftSchedule?.shifts !== undefined) {
       const shiftResult = validateShiftSchedule(shiftSchedule.shifts);
       if (!shiftResult.ok) {
@@ -291,15 +298,15 @@ export async function PUT(req: Request) {
       return { settings: refreshed, shifts: refreshedShifts };
     });
 
-    if ((updated as any)?.error === "VERSION_MISMATCH") {
+    if ("error" in updated && updated.error === "VERSION_MISMATCH") {
       return NextResponse.json(
-        { ok: false, error: "Version mismatch", currentVersion: (updated as any).currentVersion },
+        { ok: false, error: "Version mismatch", currentVersion: updated.currentVersion },
         { status: 409 }
       );
     }
 
-    if ((updated as any)?.error) {
-      return NextResponse.json({ ok: false, error: (updated as any).error }, { status: 400 });
+    if ("error" in updated) {
+      return NextResponse.json({ ok: false, error: updated.error }, { status: 400 });
     }
 
     const payload = buildSettingsPayload(updated.settings, updated.shifts ?? []);

@@ -3,6 +3,7 @@ type SmsPayload = {
   body: string;
 };
 
-export async function sendSms(_payload: SmsPayload) {
+export async function sendSms(payload: SmsPayload) {
+  void payload;
   throw new Error("SMS not configured");
 }

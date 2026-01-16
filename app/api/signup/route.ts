@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   const verificationToken = randomBytes(24).toString("hex");
   const verificationExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
 
-  const result = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     const org = await tx.org.create({
       data: { name: orgName, slug },
     });
@@ -118,14 +118,15 @@ export async function POST(req: Request) {
       text: emailContent.text,
       html: emailContent.html,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     emailSent = false;
+    const error = err as { message?: string; code?: string; response?: unknown; responseCode?: number };
     logLine("signup.verify_email.failed", {
       email,
-      message: err?.message,
-      code: err?.code,
-      response: err?.response,
-      responseCode: err?.responseCode,
+      message: error?.message,
+      code: error?.code,
+      response: error?.response,
+      responseCode: error?.responseCode,
     });
   }
   return NextResponse.json({

@@ -68,15 +68,17 @@ type ReportPayload = {
 type MachineOption = { id: string; name: string };
 type FilterOptions = { workOrders: string[]; skus: string[] };
 type Translator = (key: string, vars?: Record<string, string | number>) => string;
+type TooltipPayload<T> = { payload?: T; name?: string; value?: number | string };
+type SimpleTooltipProps<T> = {
+  active?: boolean;
+  payload?: Array<TooltipPayload<T>>;
+  label?: string | number;
+};
+type CycleHistogramRow = ReportPayload["distribution"]["cycleTime"][number];
 
 function fmtPct(v?: number | null) {
   if (v === null || v === undefined || Number.isNaN(v)) return "--";
   return `${v.toFixed(1)}%`;
-}
-
-function fmtNum(v?: number | null) {
-  if (v === null || v === undefined || Number.isNaN(v)) return "--";
-  return `${Math.round(v)}`;
 }
 
 function fmtDuration(sec?: number | null) {
@@ -104,7 +106,7 @@ function formatTickLabel(ts: string, range: RangeKey) {
   return `${month}-${day}`;
 }
 
-function CycleTooltip({ active, payload, t }: any) {
+function CycleTooltip({ active, payload, t }: SimpleTooltipProps<CycleHistogramRow> & { t: Translator }) {
   if (!active || !payload?.length) return null;
   const p = payload[0]?.payload;
   if (!p) return null;
@@ -141,7 +143,7 @@ function CycleTooltip({ active, payload, t }: any) {
   );
 }
 
-function DowntimeTooltip({ active, payload, t }: any) {
+function DowntimeTooltip({ active, payload, t }: SimpleTooltipProps<{ name?: string; value?: number }> & { t: Translator }) {
   if (!active || !payload?.length) return null;
   const row = payload[0]?.payload ?? {};
   const label = row.name ?? payload[0]?.name ?? "";
@@ -155,6 +157,15 @@ function DowntimeTooltip({ active, payload, t }: any) {
       </div>
     </div>
   );
+}
+
+function toMachineOption(value: unknown): MachineOption | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = typeof record.id === "string" ? record.id : "";
+  const name = typeof record.name === "string" ? record.name : "";
+  if (!id || !name) return null;
+  return { id, name };
 }
 
 function buildCsv(report: ReportPayload, t: Translator) {
@@ -386,12 +397,28 @@ export default function ReportsPage() {
         const res = await fetch("/api/machines", { cache: "no-store" });
         const json = await res.json();
         if (!alive) return;
-        setMachines((json?.machines ?? []).map((m: any) => ({ id: m.id, name: m.name })));
+        const rows: unknown[] = Array.isArray(json?.machines) ? json.machines : [];
+        const options: MachineOption[] = [];
+        rows.forEach((row) => {
+          const option = toMachineOption(row);
+          if (option) options.push(option);
+        });
+        setMachines(options);
       } catch {
         if (!alive) return;
         setMachines([]);
       }
     }
+
+    loadMachines();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
 
     async function load() {
       setLoading(true);
@@ -402,7 +429,10 @@ export default function ReportsPage() {
         if (workOrderId) params.set("workOrderId", workOrderId);
         if (sku) params.set("sku", sku);
 
-        const res = await fetch(`/api/reports?${params.toString()}`, { cache: "no-store" });
+        const res = await fetch(`/api/reports?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         const json = await res.json();
         if (!alive) return;
         if (!res.ok || json?.ok === false) {
@@ -420,21 +450,25 @@ export default function ReportsPage() {
       }
     }
 
-    loadMachines();
     load();
     return () => {
       alive = false;
+      controller.abort();
     };
-  }, [range, machineId, workOrderId, sku]);
+  }, [range, machineId, workOrderId, sku, t]);
 
   useEffect(() => {
     let alive = true;
+    const controller = new AbortController();
 
     async function loadFilters() {
       try {
         const params = new URLSearchParams({ range });
         if (machineId) params.set("machineId", machineId);
-        const res = await fetch(`/api/reports/filters?${params.toString()}`, { cache: "no-store" });
+        const res = await fetch(`/api/reports/filters?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
         const json = await res.json();
         if (!alive) return;
         if (!res.ok || json?.ok === false) {
@@ -454,6 +488,7 @@ export default function ReportsPage() {
     loadFilters();
     return () => {
       alive = false;
+      controller.abort();
     };
   }, [range, machineId]);
 
@@ -536,23 +571,23 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="p-6">
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div className="p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold text-white">{t("reports.title")}</h1>
           <p className="text-sm text-zinc-400">{t("reports.subtitle")}</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <button
             onClick={handleExportCsv}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 sm:w-auto"
           >
             {t("reports.exportCsv")}
           </button>
           <button
             onClick={handleExportPdf}
-            className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 sm:w-auto"
           >
             {t("reports.exportPdf")}
           </button>
@@ -681,7 +716,10 @@ export default function ReportsPage() {
                       const row = payload?.[0]?.payload;
                       return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
-                    formatter={(val: any) => [`${Number(val).toFixed(1)}%`, "OEE"]}
+                    formatter={(val: number | string | undefined) => [
+                      val == null ? "--" : `${Number(val).toFixed(1)}%`,
+                      "OEE",
+                    ]}
                   />
                   <Line type="monotone" dataKey="value" stroke="#34d399" dot={false} strokeWidth={2} />
                 </LineChart>
@@ -761,7 +799,10 @@ export default function ReportsPage() {
                       const row = payload?.[0]?.payload;
                       return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
-                    formatter={(val: any) => [`${Number(val).toFixed(1)}%`, t("reports.scrapRate")]}
+                    formatter={(val: number | string | undefined) => [
+                      val == null ? "--" : `${Number(val).toFixed(1)}%`,
+                      t("reports.scrapRate"),
+                    ]}
                   />
                   <Line type="monotone" dataKey="value" stroke="#f97316" dot={false} strokeWidth={2} />
                 </LineChart>

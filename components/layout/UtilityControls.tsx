@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n/useI18n";
 
@@ -46,19 +46,13 @@ const MoonIcon = ({ className }: { className?: string }) => (
 
 type UtilityControlsProps = {
   className?: string;
+  initialTheme?: "dark" | "light";
 };
 
-export function UtilityControls({ className }: UtilityControlsProps) {
+export function UtilityControls({ className, initialTheme = "dark" }: UtilityControlsProps) {
   const router = useRouter();
   const { locale, setLocale, t } = useI18n();
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-
-  useEffect(() => {
-    const current = document.documentElement.getAttribute("data-theme");
-    if (current === "light" || current === "dark") {
-      setTheme(current);
-    }
-  }, []);
+  const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
 
   function applyTheme(next: "light" | "dark") {
     document.documentElement.setAttribute("data-theme", next);
@@ -78,7 +72,7 @@ export function UtilityControls({ className }: UtilityControlsProps) {
   return (
     <div
       className={[
-        "pointer-events-auto flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2",
+        "pointer-events-auto flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-2 py-1 sm:gap-3 sm:px-3 sm:py-2",
         className ?? "",
       ].join(" ")}
       title={t("sidebar.themeTooltip")}
@@ -91,7 +85,7 @@ export function UtilityControls({ className }: UtilityControlsProps) {
       >
         {theme === "light" ? <SunIcon className="h-4 w-4" /> : <MoonIcon className="h-4 w-4" />}
       </button>
-      <div className="flex items-center gap-2 text-[11px] font-semibold tracking-[0.2em]">
+      <div className="flex items-center gap-2 text-[10px] font-semibold tracking-[0.2em] sm:text-[11px]">
         <button
           type="button"
           onClick={() => switchLocale("en")}
