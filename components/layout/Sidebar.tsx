@@ -6,6 +6,8 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Bell, DollarSign, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { useScreenlessMode } from "@/lib/ui/screenlessMode";
+
 
 type NavItem = {
   href: string;
@@ -21,6 +23,8 @@ const items: NavItem[] = [
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
   { href: "/financial", labelKey: "nav.financial", icon: DollarSign, ownerOnly: true },
   { href: "/settings", labelKey: "nav.settings", icon: Settings },
+  { href: "/downtime", labelKey: "nav.downtime", icon: BarChart3 },
+
 ];
 
 type SidebarProps = {
@@ -33,6 +37,7 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
+  const { screenlessMode } = useScreenlessMode();
   const [me, setMe] = useState<{
     user?: { name?: string | null; email?: string | null };
     org?: { name?: string | null };
@@ -67,7 +72,28 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
 
   const roleKey = (me?.membership?.role || "MEMBER").toLowerCase();
   const isOwner = roleKey === "owner";
-  const visibleItems = useMemo(() => items.filter((it) => !it.ownerOnly || isOwner), [isOwner]);
+  const visibleItems = useMemo(() => {
+    return items.filter((it) => {
+      if (it.ownerOnly && !isOwner) return false;
+      if (screenlessMode && it.href === "/downtime") return false;
+      return true;
+    });
+  }, [isOwner, screenlessMode]);
+
+  useEffect(() => {
+    if (screenlessMode && pathname.startsWith("/downtime")) {
+      router.replace("/overview");
+    }
+  }, [screenlessMode, pathname, router]);
+
+  useEffect(() => {
+    if (!screenlessMode) return;
+    if (pathname === "/downtime" || pathname.startsWith("/downtime/")) {
+      router.replace("/overview");
+    }
+  }, [screenlessMode, pathname, router]);
+
+
 
   useEffect(() => {
     visibleItems.forEach((it) => {
@@ -75,7 +101,7 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
     });
   }, [router, visibleItems]);
   const shellClass = [
-    "relative z-20 flex flex-col border-r border-white/10 bg-black/40",
+    "relative z-20 flex flex-col border-r border-white/10 bg-black/40 shrink-0",
     variant === "desktop" ? "hidden md:flex h-screen w-64" : "flex h-full w-72 max-w-[85vw]",
   ].join(" ");
 

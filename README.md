@@ -20,6 +20,61 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Downtime Action Reminders
+
+Reminders are sent by calling `POST /api/downtime/actions/reminders`. This endpoint does not run automatically, so you need to schedule it with cron or systemd. It sends at most one reminder per threshold (1w/1d/1h/overdue) and resets if the due date changes.
+The secret can be any random string; it just needs to match what your scheduler sends in the Authorization header.
+
+1) Set a secret in your env file (example: `/etc/mis-control-tower.env`):
+
+```
+DOWNTIME_ACTION_REMINDER_SECRET=your-secret-here
+APP_BASE_URL=https://your-domain
+```
+
+2) Cron example (runs hourly for 1w/1d/1h/overdue thresholds):
+
+```
+0 * * * * . /etc/mis-control-tower.env && curl -s -X POST "$APP_BASE_URL/api/downtime/actions/reminders?dueInDays=7" -H "Authorization: Bearer $DOWNTIME_ACTION_REMINDER_SECRET"
+```
+
+If you prefer systemd instead of cron, you can create a small service + timer that runs the same curl command.
+
+Example systemd units:
+
+`/etc/systemd/system/mis-control-tower-reminders.service`
+
+```
+[Unit]
+Description=MIS Control Tower downtime action reminders
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/mis-control-tower.env
+ExecStart=/usr/bin/curl -s -X POST "$APP_BASE_URL/api/downtime/actions/reminders?dueInDays=7" -H "Authorization: Bearer $DOWNTIME_ACTION_REMINDER_SECRET"
+```
+
+`/etc/systemd/system/mis-control-tower-reminders.timer`
+
+```
+[Unit]
+Description=Run MIS Control Tower reminders hourly
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable with:
+
+```
+sudo systemctl daemon-reload
+sudo systemctl enable --now mis-control-tower-reminders.timer
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertsConfig } from "@/components/settings/AlertsConfig";
 import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { useScreenlessMode } from "@/lib/ui/screenlessMode";
+
 
 type Shift = {
   name: string;
@@ -16,6 +18,11 @@ type SettingsPayload = {
   orgId?: string;
   version?: number;
   timezone?: string;
+
+  modules: {
+    screenlessMode: boolean;
+  };
+
   shiftSchedule: {
     shifts: Shift[];
     shiftChangeCompensationMin: number;
@@ -41,6 +48,7 @@ type SettingsPayload = {
   updatedAt?: string;
   updatedBy?: string;
 };
+
 
 type OrgInfo = {
   id: string;
@@ -77,6 +85,7 @@ const DEFAULT_SETTINGS: SettingsPayload = {
   orgId: "",
   version: 0,
   timezone: "UTC",
+  modules: { screenlessMode: false },
   shiftSchedule: {
     shifts: [],
     shiftChangeCompensationMin: 10,
@@ -105,6 +114,7 @@ const DEFAULT_SETTINGS: SettingsPayload = {
 
 const SETTINGS_TABS = [
   { id: "general", labelKey: "settings.tabs.general" },
+  { id: "modules", labelKey: "settings.tabs.modules" },
   { id: "shifts", labelKey: "settings.tabs.shifts" },
   { id: "thresholds", labelKey: "settings.tabs.thresholds" },
   { id: "alerts", labelKey: "settings.tabs.alerts" },
@@ -191,6 +201,7 @@ function normalizeShift(raw: unknown, fallbackName: string): Shift {
 
 function normalizeSettings(raw: unknown, fallbackName: (index: number) => string): SettingsPayload {
   const record = asRecord(raw);
+  const modules = asRecord(record?.modules) ?? {};
   if (!record) {
     return {
       ...DEFAULT_SETTINGS,
@@ -253,6 +264,9 @@ function normalizeSettings(raw: unknown, fallbackName: (index: number) => string
       moldTotal: Number(defaults.moldTotal ?? DEFAULT_SETTINGS.defaults.moldTotal),
       moldActive: Number(defaults.moldActive ?? DEFAULT_SETTINGS.defaults.moldActive),
     },
+    modules: {
+  screenlessMode: (modules.screenlessMode as boolean | undefined) ?? false,
+    },
     updatedAt: record.updatedAt ? String(record.updatedAt) : "",
     updatedBy: record.updatedBy ? String(record.updatedBy) : "",
   };
@@ -296,6 +310,7 @@ function Toggle({
 
 export default function SettingsPage() {
   const { t, locale } = useI18n();
+  const { setScreenlessMode } = useScreenlessMode();
   const [draft, setDraft] = useState<SettingsPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -329,6 +344,7 @@ export default function SettingsPage() {
       }
       const next = normalizeSettings(api.record?.settings, defaultShiftName);
       setDraft(next);
+      setScreenlessMode(next.modules.screenlessMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settings.failedLoad"));
     } finally {
@@ -576,6 +592,7 @@ export default function SettingsPage() {
           source: "control_tower",
           version: draft.version,
           timezone: draft.timezone,
+          modules: draft.modules,
           shiftSchedule: draft.shiftSchedule,
           thresholds: draft.thresholds,
           alerts: draft.alerts,
@@ -593,6 +610,7 @@ export default function SettingsPage() {
       }
       const next = normalizeSettings(api.record?.settings, defaultShiftName);
       setDraft(next);
+      setScreenlessMode(next.modules.screenlessMode);
       setSaveStatus("saved");
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settings.failedSave"));
@@ -680,7 +698,12 @@ export default function SettingsPage() {
                 : "rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-200 hover:bg-white/10"
             }
           >
-            {t(tab.labelKey)}
+            {(() => {
+            const label = t(tab.labelKey);
+            return label === tab.labelKey
+              ? tab.id.charAt(0).toUpperCase() + tab.id.slice(1)
+              : label;
+          })()}
           </button>
         ))}
       </div>
@@ -766,6 +789,38 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+      {activeTab === "modules" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.modules.title")}</div>
+            <div className="mt-1 text-xs text-zinc-400">{t("settings.modules.subtitle")}</div>
+
+            <div className="mt-4 space-y-3">
+              <Toggle
+                label={t("settings.modules.screenless.title")}
+                helper={t("settings.modules.screenless.helper")}
+                enabled={draft.modules.screenlessMode}
+                onChange={(next) =>
+                  setDraft((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          modules: { ...prev.modules, screenlessMode: next },
+                        }
+                      : prev
+                  )
+                }
+              />
+            </div>
+
+            <div className="mt-3 text-xs text-zinc-500">
+              Org-wide setting. Hides Downtime from navigation for all users in this org.
+            </div>
+          </div>
+        </div>
+      )}
+
+
 
       {activeTab === "thresholds" && (
         <div className="space-y-6">

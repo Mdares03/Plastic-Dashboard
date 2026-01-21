@@ -505,5 +505,12 @@
   "financial.field.energyMultiplier": "Energy multiplier",
   "financial.field.energyCostPerMin": "Energy cost / min",
   "financial.field.scrapCostPerUnit": "Scrap cost / unit",
-  "financial.field.rawMaterialCostPerUnit": "Raw material / unit"
+  "financial.field.rawMaterialCostPerUnit": "Raw material / unit",
+  "nav.downtime": "Downtime",
+  "settings.tabs.modules": "Modules",
+  "settings.modules.title": "Modules",
+  "settings.modules.subtitle": "Enable/disable UI modules depending on how the plant operates.",
+  "settings.modules.screenless.title": "Screenless mode",
+  "settings.modules.screenless.helper": "Hide the Downtime module from navigation (for plants without Node-RED reason capture).",
+  "settings.modules.note": "This setting is org-wide."
 }

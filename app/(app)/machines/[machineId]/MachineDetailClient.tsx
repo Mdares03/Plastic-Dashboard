@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import DowntimeParetoCard from "@/components/analytics/DowntimeParetoCard";
 import {
   Bar,
   BarChart,
@@ -1013,6 +1014,34 @@ export default function MachineDetailClient() {
               activeStoppage={activeStoppage}
             />
           </div>
+          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">Downtime (preview)</div>
+                <div className="mt-1 text-xs text-zinc-400">Top reasons + quick pareto</div>
+              </div>
+              <Link
+                href={`/downtime?machineId=${encodeURIComponent(machineId)}&range=7d`}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
+              >
+                View full report →
+              </Link>
+            </div>
+
+            <div className="mt-4">
+              <DowntimeParetoCard
+                machineId={machineId}
+                range="7d"
+                variant="summary"
+                maxBars={5}
+                showCoverage={true}
+                showOpenFullReport={false}
+              />
+            </div>
+          </div>
+
+
+
 
           <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-1">

@@ -144,3 +144,71 @@ export function buildInviteEmail(params: {
 
   return { subject, text, html };
 }
+
+export function buildDowntimeActionAssignedEmail(params: {
+  appName: string;
+  orgName: string;
+  actionTitle: string;
+  assigneeName: string;
+  dueDate: string | null;
+  actionUrl: string;
+  priority: string;
+  status: string;
+}) {
+  const dueLabel = params.dueDate ? `Due ${params.dueDate}` : "No due date";
+  const subject = `Action assigned: ${params.actionTitle}`;
+  const text =
+    `Hi ${params.assigneeName},\n\n` +
+    `You have been assigned an action in ${params.orgName} (${params.appName}).\n\n` +
+    `Title: ${params.actionTitle}\n` +
+    `Status: ${params.status}\n` +
+    `Priority: ${params.priority}\n` +
+    `${dueLabel}\n\n` +
+    `Open in Control Tower:\n${params.actionUrl}\n\n` +
+    `If you did not expect this assignment, please contact your admin.`;
+  const html =
+    `<p>Hi ${params.assigneeName},</p>` +
+    `<p>You have been assigned an action in ${params.orgName} (${params.appName}).</p>` +
+    `<p><strong>Title:</strong> ${params.actionTitle}<br />` +
+    `<strong>Status:</strong> ${params.status}<br />` +
+    `<strong>Priority:</strong> ${params.priority}<br />` +
+    `<strong>${dueLabel}</strong></p>` +
+    `<p><a href="${params.actionUrl}">Open in Control Tower</a></p>` +
+    `<p>If you did not expect this assignment, please contact your admin.</p>`;
+
+  return { subject, text, html };
+}
+
+export function buildDowntimeActionReminderEmail(params: {
+  appName: string;
+  orgName: string;
+  actionTitle: string;
+  assigneeName: string;
+  dueDate: string | null;
+  actionUrl: string;
+  priority: string;
+  status: string;
+}) {
+  const dueLabel = params.dueDate ? `Due ${params.dueDate}` : "No due date";
+  const subject = `Reminder: ${params.actionTitle}`;
+  const text =
+    `Hi ${params.assigneeName},\n\n` +
+    `Reminder for your action in ${params.orgName} (${params.appName}).\n\n` +
+    `Title: ${params.actionTitle}\n` +
+    `Status: ${params.status}\n` +
+    `Priority: ${params.priority}\n` +
+    `${dueLabel}\n\n` +
+    `Open in Control Tower:\n${params.actionUrl}\n\n` +
+    `If you have already completed this action, you can mark it done in the app.`;
+  const html =
+    `<p>Hi ${params.assigneeName},</p>` +
+    `<p>Reminder for your action in ${params.orgName} (${params.appName}).</p>` +
+    `<p><strong>Title:</strong> ${params.actionTitle}<br />` +
+    `<strong>Status:</strong> ${params.status}<br />` +
+    `<strong>Priority:</strong> ${params.priority}<br />` +
+    `<strong>${dueLabel}</strong></p>` +
+    `<p><a href="${params.actionUrl}">Open in Control Tower</a></p>` +
+    `<p>If you have already completed this action, you can mark it done in the app.</p>`;
+
+  return { subject, text, html };
+}

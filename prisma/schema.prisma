@@ -32,6 +32,9 @@ model Org {
   locationFinancialOverrides LocationFinancialOverride[]
   machineFinancialOverrides MachineFinancialOverride[]
   productCostOverrides ProductCostOverride[]
+  reasonEntries ReasonEntry[]
+  downtimeActions DowntimeAction[]
+
 }
 
 model User {
@@ -51,6 +54,8 @@ model User {
   sentInvites OrgInvite[] @relation("OrgInviteInviter")
   alertContacts AlertContact[]
   alertNotifications AlertNotification[]
+  downtimeActionsOwned DowntimeAction[] @relation("DowntimeActionOwner")
+  downtimeActionsCreated DowntimeAction[] @relation("DowntimeActionCreator")
 }
 
 model OrgUser {
@@ -135,6 +140,9 @@ model Machine {
   settingsAudits SettingsAudit[]
   alertNotifications AlertNotification[]
   financialOverrides MachineFinancialOverride[]
+  reasonEntries ReasonEntry[]
+  downtimeActions DowntimeAction[]
+
 
   @@unique([orgId, name])
   @@index([orgId])
@@ -516,4 +524,84 @@ model SettingsAudit {
   @@index([orgId, createdAt])
   @@index([machineId, createdAt])
   @@map("settings_audit")
+}
+
+model ReasonEntry {
+  id            String   @id @default(uuid())
+  orgId         String
+  machineId     String
+
+  // idempotency key from Edge (rsn_<ulid>)
+  reasonId      String   @unique
+
+  // "downtime" | "scrap"
+  kind          String
+
+  // For downtime reasons
+  episodeId       String?
+  durationSeconds Int?
+  episodeEndTs    DateTime?
+
+  // For scrap reasons
+  scrapEntryId String?
+  scrapQty     Int?
+  scrapUnit    String?
+
+  // Required reason
+  reasonCode   String
+  reasonLabel  String?
+  reasonText   String?
+
+  capturedAt    DateTime
+  workOrderId   String?
+  meta          Json?
+  schemaVersion Int @default(1)
+
+  createdAt DateTime @default(now())
+
+  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([orgId, machineId, capturedAt])
+  @@index([orgId, kind, capturedAt])
+  @@unique([orgId, kind, episodeId])
+  @@unique([orgId, kind, scrapEntryId])
+}
+
+model DowntimeAction {
+  id        String   @id @default(uuid())
+  orgId     String   @map("org_id")
+  machineId String?  @map("machine_id")
+  reasonCode String? @map("reason_code")
+  hmDay     Int?     @map("hm_day")
+  hmHour    Int?     @map("hm_hour")
+
+  title     String
+  notes     String?
+  status    String   @default("open")
+  priority  String   @default("medium")
+  dueDate   DateTime? @map("due_date")
+  reminderAt DateTime? @map("reminder_at")
+  lastReminderAt DateTime? @map("last_reminder_at")
+  reminderStage String? @map("reminder_stage")
+  completedAt DateTime? @map("completed_at")
+
+  ownerUserId String? @map("owner_user_id")
+  createdBy   String? @map("created_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  org       Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine   Machine? @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  ownerUser User?   @relation("DowntimeActionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  creator   User?   @relation("DowntimeActionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+
+  @@index([orgId])
+  @@index([orgId, machineId])
+  @@index([orgId, reasonCode])
+  @@index([orgId, hmDay, hmHour])
+  @@index([orgId, status, dueDate])
+  @@index([ownerUserId])
+  @@map("downtime_actions")
 }

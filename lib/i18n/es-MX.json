@@ -505,5 +505,12 @@
   "financial.field.energyMultiplier": "Multiplicador de energía",
   "financial.field.energyCostPerMin": "Costo energía / min",
   "financial.field.scrapCostPerUnit": "Costo scrap / unidad",
-  "financial.field.rawMaterialCostPerUnit": "Costo materia prima / unidad"
+  "financial.field.rawMaterialCostPerUnit": "Costo materia prima / unidad",
+  "nav.downtime": "Downtime",
+  "settings.tabs.modules": "Módulos",
+  "settings.modules.title": "Módulos",
+  "settings.modules.subtitle": "Activa/desactiva módulos según cómo opera la planta.",
+  "settings.modules.screenless.title": "Modo sin pantalla",
+  "settings.modules.screenless.helper": "Oculta el módulo de Paros (Downtime) del menú (para plantas sin captura de razones en Node-RED).",
+  "settings.modules.note": "Este ajuste aplica a toda la organización."
 }

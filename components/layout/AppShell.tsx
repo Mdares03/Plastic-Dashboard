@@ -30,10 +30,10 @@ export function AppShell({
   }, [drawerOpen]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="flex min-h-screen">
+    <div className="h-screen overflow-hidden bg-black text-white">
+      <div className="flex h-full">
         <Sidebar />
-        <div className="flex min-h-screen flex-1 flex-col">
+        <div className="flex h-full flex-1 flex-col">
           <header className="sticky top-0 z-30 flex min-h-[3.5rem] flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 backdrop-blur">
             <div className="flex items-center gap-3">
               <button
@@ -50,7 +50,7 @@ export function AppShell({
             </div>
             <UtilityControls initialTheme={initialTheme} />
           </header>
-          <main className="flex-1">{children}</main>
+          <main className="flex-1 overflow-y-auto">{children}</main>
         </div>
       </div>
 

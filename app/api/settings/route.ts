@@ -37,6 +37,7 @@ function canManageSettings(role?: string | null) {
 const settingsPayloadSchema = z
   .object({
     source: z.string().trim().max(40).optional(),
+    modules: z.any().optional(),
     timezone: z.string().trim().max(64).optional(),
     shiftSchedule: z.any().optional(),
     thresholds: z.any().optional(),
@@ -87,7 +88,7 @@ async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, us
       performanceThresholdPct: 85,
       qualitySpikeDeltaPct: 5,
       alertsJson: DEFAULT_ALERTS,
-      defaultsJson: DEFAULT_DEFAULTS,
+      defaultsJson: { ...(DEFAULT_DEFAULTS as any), modules: { screenlessMode: false } },
       updatedBy: userId,
     },
   });
@@ -122,7 +123,13 @@ export async function GET() {
     });
 
     const payload = buildSettingsPayload(loaded.settings, loaded.shifts ?? []);
-    return NextResponse.json({ ok: true, settings: payload });
+
+    const defaultsRaw = isPlainObject(loaded.settings.defaultsJson) ? (loaded.settings.defaultsJson as any) : {};
+    const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
+    const modules = { screenlessMode: modulesRaw.screenlessMode === true };
+
+    return NextResponse.json({ ok: true, settings: { ...payload, modules } });
+
   } catch (err) {
     console.error("[settings GET] failed", err);
     const message = err instanceof Error ? err.message : "Internal error";
@@ -156,13 +163,18 @@ export async function PUT(req: Request) {
     const alerts = parsed.data.alerts;
     const defaults = parsed.data.defaults;
     const expectedVersion = parsed.data.version;
+    const modules = parsed.data.modules;
+
+
 
     if (
       timezone === undefined &&
       shiftSchedule === undefined &&
       thresholds === undefined &&
       alerts === undefined &&
-      defaults === undefined
+      defaults === undefined &&
+      modules === undefined
+
     ) {
       return NextResponse.json({ ok: false, error: "No settings provided" }, { status: 400 });
     }
@@ -179,6 +191,16 @@ export async function PUT(req: Request) {
     if (defaults !== undefined && !isPlainObject(defaults)) {
       return NextResponse.json({ ok: false, error: "defaults must be an object" }, { status: 400 });
     }
+    if (modules !== undefined && !isPlainObject(modules)) {
+      return NextResponse.json({ ok: false, error: "Invalid modules payload" }, { status: 400 });
+    }
+
+    const screenlessMode =
+      modules && typeof (modules as any).screenlessMode === "boolean"
+        ? (modules as any).screenlessMode
+        : undefined;
+
+
 
     const shiftValidation = validateShiftFields(
       shiftSchedule?.shiftChangeCompensationMin,
@@ -191,11 +213,6 @@ export async function PUT(req: Request) {
     const thresholdsValidation = validateThresholds(thresholds);
     if (!thresholdsValidation.ok) {
       return NextResponse.json({ ok: false, error: thresholdsValidation.error }, { status: 400 });
-    }
-
-    const defaultsValidation = validateDefaults(defaults);
-    if (!defaultsValidation.ok) {
-      return NextResponse.json({ ok: false, error: defaultsValidation.error }, { status: 400 });
     }
 
     let shiftRows: ValidShift[] | null = null;
@@ -218,8 +235,34 @@ export async function PUT(req: Request) {
 
     const nextAlerts =
       alerts !== undefined ? { ...normalizeAlerts(current.settings.alertsJson), ...alerts } : undefined;
-    const nextDefaults =
-      defaults !== undefined ? { ...normalizeDefaults(current.settings.defaultsJson), ...defaults } : undefined;
+    const currentDefaultsRaw = isPlainObject(current.settings.defaultsJson)
+      ? (current.settings.defaultsJson as any)
+      : {};
+    const currentModulesRaw = isPlainObject(currentDefaultsRaw.modules) ? currentDefaultsRaw.modules : {};
+
+    // Merge defaults core (moldTotal, etc.)
+    const nextDefaultsCore =
+      defaults !== undefined ? { ...normalizeDefaults(currentDefaultsRaw), ...defaults } : undefined;
+
+    // Validate merged defaults
+    if (nextDefaultsCore) {
+      const dv = validateDefaults(nextDefaultsCore);
+      if (!dv.ok) return { error: dv.error } as const;
+    }
+
+    // Merge modules
+    const nextModules =
+      screenlessMode === undefined
+        ? currentModulesRaw
+        : { ...currentModulesRaw, screenlessMode };
+
+    // Write defaultsJson if either defaults changed OR modules changed
+    const shouldWriteDefaultsJson = !!nextDefaultsCore || screenlessMode !== undefined;
+
+    const nextDefaultsJson = shouldWriteDefaultsJson
+      ? { ...(nextDefaultsCore ?? normalizeDefaults(currentDefaultsRaw)), modules: nextModules }
+      : undefined;
+
 
     const updateData = stripUndefined({
       timezone: timezone !== undefined ? String(timezone) : undefined,
@@ -244,7 +287,7 @@ export async function PUT(req: Request) {
       qualitySpikeDeltaPct:
         thresholds?.qualitySpikeDeltaPct !== undefined ? Number(thresholds.qualitySpikeDeltaPct) : undefined,
       alertsJson: nextAlerts,
-      defaultsJson: nextDefaults,
+      defaultsJson: nextDefaultsJson,
     });
 
     const hasShiftUpdate = shiftRows !== null;
@@ -326,7 +369,12 @@ export async function PUT(req: Request) {
     } catch (err) {
       console.warn("[settings PUT] MQTT publish failed", err);
     }
-    return NextResponse.json({ ok: true, settings: payload });
+    const defaultsRaw = isPlainObject(updated.settings.defaultsJson) ? (updated.settings.defaultsJson as any) : {};
+    const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
+    const modulesOut = { screenlessMode: modulesRaw.screenlessMode === true };
+
+    return NextResponse.json({ ok: true, settings: { ...payload, modules: modulesOut } });
+
   } catch (err) {
     console.error("[settings PUT] failed", err);
     const message = err instanceof Error ? err.message : "Internal error";
