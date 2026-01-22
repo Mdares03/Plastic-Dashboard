@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 type MachineRow = {
@@ -49,6 +50,7 @@ function badgeClass(status?: string, offline?: boolean) {
 
 export default function MachinesClient({ initialMachines = [] }: { initialMachines?: MachineRow[] }) {
   const { t, locale } = useI18n();
+  const router = useRouter();
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
   const [loading, setLoading] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -149,6 +151,13 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
       setCopyStatus(t("machines.pairing.copyFailed"));
     }
     setTimeout(() => setCopyStatus(null), 2000);
+  }
+
+  function handleCardKeyDown(event: KeyboardEvent<HTMLDivElement>, machineId: string) {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      router.push(`/machines/${machineId}`);
+    }
   }
 
   const showCreateCard = showCreate || (!loading && machines.length === 0);
@@ -276,10 +285,13 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
           const lastSeen = secondsAgo(hbTs, locale, t("common.never"));
 
           return (
-            <Link
+            <div
               key={m.id}
-              href={`/machines/${m.id}`}
-              className="rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10"
+              role="link"
+              tabIndex={0}
+              onClick={() => router.push(`/machines/${m.id}`)}
+              onKeyDown={(event) => handleCardKeyDown(event, m.id)}
+              className="cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -316,7 +328,8 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
                   </>
                 )}
               </div>
-            </Link>
+
+            </div>
           );
         })}
       </div>

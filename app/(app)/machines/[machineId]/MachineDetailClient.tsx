@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import DowntimeParetoCard from "@/components/analytics/DowntimeParetoCard";
 import {
   Bar,
@@ -19,6 +19,7 @@ import {
   YAxis,
 } from "recharts";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 
 type Heartbeat = {
   ts: string;
@@ -290,6 +291,8 @@ function rowsToWorkOrders(rows: WorkOrderRow[]): WorkOrderUpload[] {
 
 export default function MachineDetailClient() {
   const { t, locale } = useI18n();
+  const { screenlessMode } = useScreenlessMode();
+  const router = useRouter();
   const params = useParams<{ machineId: string }>();
   const machineId = params?.machineId;
 
@@ -306,6 +309,10 @@ export default function MachineDetailClient() {
   const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
+  const [canDelete, setCanDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
 
   useEffect(() => {
@@ -358,6 +365,27 @@ export default function MachineDetailClient() {
       clearInterval(timer);
     };
   }, [machineId, t]);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadRole() {
+      try {
+        const res = await fetch("/api/me", { cache: "no-store" });
+        const data = await res.json().catch(() => ({}));
+        if (!alive) return;
+        const role = data?.membership?.role;
+        setCanDelete(role === "OWNER" || role === "ADMIN");
+      } catch {
+        if (alive) setCanDelete(false);
+      }
+    }
+
+    loadRole();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (open !== "events" || !machineId) return;
@@ -467,6 +495,28 @@ export default function MachineDetailClient() {
     } catch {
       setUploadState({ status: "error", message: t("machine.detail.workOrders.uploadError") });
       event.target.value = "";
+    }
+  }
+
+  async function deleteMachine() {
+    if (!machineId) return;
+
+    setDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(`/api/machines/${machineId}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || t("machines.delete.error.failed"));
+      }
+      router.push("/machines");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : null;
+      setDeleteError(message || t("machines.delete.error.failed"));
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
@@ -958,7 +1008,50 @@ export default function MachineDetailClient() {
             >
               {t("machine.detail.back")}
             </Link>
+            {canDelete && !confirmDelete && (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="w-full rounded-xl border border-red-400/40 bg-red-500/20 px-4 py-2 text-sm text-red-100 hover:bg-red-500/30 sm:w-auto"
+              >
+                {t("machines.delete")}
+              </button>
+            )}
           </div>
+          {canDelete && confirmDelete && (
+            <div className="w-full rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs text-red-100">
+                  {t("machines.delete.confirm", {
+                    name: machine?.name ?? t("machine.detail.titleFallback"),
+                  })}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void deleteMachine()}
+                    disabled={deleting}
+                    className="rounded-full border border-red-400/40 bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-100 hover:bg-red-500/30 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {deleting ? t("machines.delete.loading") : t("machines.delete")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleting}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {deleteError && (
+            <div className="w-full rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
+              {deleteError}
+            </div>
+          )}
           <div className="text-left text-[11px] text-zinc-500 sm:text-right">
             {t("machine.detail.workOrders.uploadHint")}
           </div>
@@ -1014,31 +1107,33 @@ export default function MachineDetailClient() {
               activeStoppage={activeStoppage}
             />
           </div>
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-white">Downtime (preview)</div>
-                <div className="mt-1 text-xs text-zinc-400">Top reasons + quick pareto</div>
+          {!screenlessMode && (
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-white">Downtime (preview)</div>
+                  <div className="mt-1 text-xs text-zinc-400">Top reasons + quick pareto</div>
+                </div>
+                <Link
+                  href={`/downtime?machineId=${encodeURIComponent(machineId)}&range=7d`}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
+                >
+                  View full report →
+                </Link>
               </div>
-              <Link
-                href={`/downtime?machineId=${encodeURIComponent(machineId)}&range=7d`}
-                className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
-              >
-                View full report →
-              </Link>
-            </div>
 
-            <div className="mt-4">
-              <DowntimeParetoCard
-                machineId={machineId}
-                range="7d"
-                variant="summary"
-                maxBars={5}
-                showCoverage={true}
-                showOpenFullReport={false}
-              />
+              <div className="mt-4">
+                <DowntimeParetoCard
+                  machineId={machineId}
+                  range="7d"
+                  variant="summary"
+                  maxBars={5}
+                  showCoverage={true}
+                  showOpenFullReport={false}
+                />
+              </div>
             </div>
-          </div>
+          )}
 
 
 
