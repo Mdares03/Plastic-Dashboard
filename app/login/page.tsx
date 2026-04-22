@@ -6,13 +6,14 @@ import LoginForm from "./LoginForm"; // adjust path if needed
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams?: { next?: string };
+  searchParams?: Promise<{ next?: string }>;
 }) {
   const session = (await cookies()).get("mis_session")?.value;
 
   // If already logged in, send to next or machines
   if (session) {
-    const next = searchParams?.next || "/machines";
+    const params = searchParams ? await searchParams : {};
+    const next = params?.next || "/machines";
     redirect(next);
   }
 

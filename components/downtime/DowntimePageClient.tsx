@@ -80,6 +80,24 @@ type ApiDowntimeEventsRes = {
   events?: ApiDowntimeEvent[];
 };
 
+type ApiReasonCatalogRow = {
+  kind: "downtime" | "scrap";
+  categoryId: string;
+  categoryLabel: string;
+  detailId: string;
+  detailLabel: string;
+  reasonCode: string;
+  reasonLabel: string;
+};
+
+type ApiReasonCatalogRes = {
+  ok: boolean;
+  error?: string;
+  kind?: "downtime" | "scrap";
+  catalogVersion?: number;
+  rows?: ApiReasonCatalogRow[];
+};
+
 function fmtDT(iso: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -1155,6 +1173,8 @@ export default function DowntimePageClient() {
   const [eventsRes, setEventsRes] = useState<ApiDowntimeEventsRes | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsErr, setEventsErr] = useState<string | null>(null);
+  const [catalogRows, setCatalogRows] = useState<ApiReasonCatalogRow[]>([]);
+  const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
   const [eventsLimit, setEventsLimit] = useState<number>(200);
   const [eventsBefore, setEventsBefore] = useState<string | null>(null);
@@ -1251,6 +1271,41 @@ export default function DowntimePageClient() {
       ac.abort();
     };
   }, [range, machineId]);
+
+  useEffect(() => {
+    let alive = true;
+    const ac = new AbortController();
+
+    async function run() {
+      setCatalogErr(null);
+      try {
+        const res = await fetch("/api/reasons/catalog?kind=downtime", {
+          cache: "no-cache",
+          credentials: "include",
+          signal: ac.signal,
+        });
+        const json = (await res.json().catch(() => ({}))) as ApiReasonCatalogRes;
+        if (!alive) return;
+        if (!res.ok || json.ok === false) {
+          setCatalogRows([]);
+          setCatalogErr(json.error ?? "Failed to load reason catalog");
+          return;
+        }
+        setCatalogRows(Array.isArray(json.rows) ? json.rows : []);
+      } catch (err: unknown) {
+        if (!alive) return;
+        setCatalogRows([]);
+        setCatalogErr(err instanceof Error ? err.message : "Network error");
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, []);
+
     useEffect(() => {
         let alive = true;
         const ac = new AbortController();
@@ -1307,6 +1362,29 @@ export default function DowntimePageClient() {
     if (!reasonCode) return metricRowsAll;
     return metricRowsAll.filter((r) => r.reasonCode === reasonCode);
   }, [metricRowsAll, reasonCode]);
+
+  const selectedReasonLabel = useMemo(() => {
+    if (!reasonCode) return null;
+    const fromMetrics = metricRowsAll.find((row) => row.reasonCode === reasonCode)?.reasonLabel;
+    if (fromMetrics) return fromMetrics;
+    const fromCatalog = catalogRows.find((row) => row.reasonCode === reasonCode)?.reasonLabel;
+    return fromCatalog ?? reasonCode;
+  }, [catalogRows, metricRowsAll, reasonCode]);
+
+  const catalogByCategory = useMemo(() => {
+    const grouped = new Map<string, { categoryLabel: string; rows: ApiReasonCatalogRow[] }>();
+    for (const row of catalogRows) {
+      const key = row.categoryId;
+      const slot = grouped.get(key) ?? { categoryLabel: row.categoryLabel, rows: [] };
+      slot.rows.push(row);
+      grouped.set(key, slot);
+    }
+    return [...grouped.entries()].map(([categoryId, value]) => ({
+      categoryId,
+      categoryLabel: value.categoryLabel,
+      rows: value.rows,
+    }));
+  }, [catalogRows]);
 
   const totalMinutes = pareto?.totalMinutesLost ?? 0;
   const totalStops = useMemo(
@@ -1365,6 +1443,7 @@ const filteredEvents = useMemo(() => {
       e.machineName ?? "",
       e.reasonLabel ?? "",
       e.reasonCode ?? "",
+      e.reasonText ?? "",
       e.workOrderId ?? "",
       e.episodeId ?? "",
     ]
@@ -1467,7 +1546,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
       )}
       {reasonCode ? (
         <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
-          Reason: {reasonCode}
+          Reason: {selectedReasonLabel ?? reasonCode}
           <button
             className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-white/10"
             onClick={() => setParams({ reasonCode: null })}
@@ -1805,7 +1884,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                 className="mt-4 h-[360px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
                 style={{ boxShadow: "var(--app-chart-shadow)" }}
               >
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <ComposedChart
                     data={heroData}
                     onClick={(st: any) => {
@@ -1880,6 +1959,45 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">
                   Top {Math.min(12, metricRowsAll.length)}
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="text-xs font-semibold text-white">Downtime reason menu</div>
+                <div className="mt-1 text-[11px] text-zinc-400">
+                  From settings or `downtime_menu.md` fallback
+                </div>
+                {catalogErr ? (
+                  <div className="mt-2 text-[11px] text-rose-300">{catalogErr}</div>
+                ) : null}
+                <div className="mt-3 max-h-[180px] space-y-2 overflow-y-auto no-scrollbar pr-1">
+                  {catalogByCategory.map((group) => (
+                    <div key={group.categoryId} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                      <div className="mb-1 text-[11px] font-semibold text-zinc-300">{group.categoryLabel}</div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {group.rows.map((option) => {
+                          const active = reasonCode === option.reasonCode;
+                          return (
+                            <button
+                              key={option.reasonCode}
+                              onClick={() => setParams({ reasonCode: option.reasonCode })}
+                              className={cn(
+                                "rounded-lg border px-2 py-1 text-[11px]",
+                                active
+                                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                                  : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/10"
+                              )}
+                            >
+                              {option.detailLabel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                  {!catalogErr && catalogByCategory.length === 0 ? (
+                    <div className="text-[11px] text-zinc-500">No reason menu available.</div>
+                  ) : null}
                 </div>
               </div>
 
@@ -2162,6 +2280,9 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                             <td className="px-4 py-3">
                             <div className="truncate text-white">{e.reasonLabel}</div>
                             <div className="mt-1 text-[11px] text-zinc-500">{e.reasonCode}</div>
+                            {e.reasonText && e.reasonText !== e.reasonLabel ? (
+                              <div className="mt-1 text-[11px] text-zinc-400">{e.reasonText}</div>
+                            ) : null}
                             </td>
                             <td className="px-4 py-3 text-zinc-200">{e.workOrderId ?? "—"}</td>
                             <td className="px-4 py-3 text-right text-white">

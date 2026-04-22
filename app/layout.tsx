@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import "./globals.css";
+import { prisma } from "@/lib/prisma";
 
-export const metadata: Metadata = {
-  title: "MIS Control Tower",
-  description: "MaliounTech Industrial Suite",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: "MIS Control Tower",
+    description: "MaliounTech Industrial Suite",
+  };
+}
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const cookieJar = await cookies();

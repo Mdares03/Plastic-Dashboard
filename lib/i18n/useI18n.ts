@@ -7,6 +7,7 @@ const LOCALE_COOKIE = "mis_locale";
 const LOCALE_EVENT = "mis-locale-change";
 
 function readCookieLocale(): Locale | null {
+  if (typeof document === "undefined") return null;
   const match = document.cookie
     .split(";")
     .map((part) => part.trim())
@@ -18,6 +19,7 @@ function readCookieLocale(): Locale | null {
 }
 
 function readLocale(): Locale {
+  if (typeof document === "undefined") return defaultLocale;
   const docLang = document.documentElement.getAttribute("lang");
   if (docLang === "es-MX" || docLang === "en") return docLang;
   return readCookieLocale() ?? defaultLocale;

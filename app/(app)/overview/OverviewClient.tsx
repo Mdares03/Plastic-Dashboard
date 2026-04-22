@@ -1,57 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
-
-type Heartbeat = {
-  ts: string;
-  tsServer?: string | null;
-  status: string;
-  message?: string | null;
-  ip?: string | null;
-  fwVersion?: string | null;
-};
-
-type Kpi = {
-  ts: string;
-  oee?: number | null;
-  availability?: number | null;
-  performance?: number | null;
-  quality?: number | null;
-  workOrderId?: string | null;
-  sku?: string | null;
-  good?: number | null;
-  scrap?: number | null;
-  target?: number | null;
-  cycleTime?: number | null;
-};
-
-type MachineRow = {
-  id: string;
-  name: string;
-  code?: string | null;
-  location?: string | null;
-  latestHeartbeat: Heartbeat | null;
-  latestKpi?: Kpi | null;
-};
-
-type EventRow = {
-  id: string;
-  ts: string;
-  topic?: string;
-  eventType: string;
-  severity: string;
-  title: string;
-  description?: string | null;
-  requiresAck: boolean;
-  machineId?: string;
-  machineName?: string;
-  source: "ingested";
-};
+import type { EventRow, Heartbeat, MachineRow } from "./types";
 
 const OFFLINE_MS = 30000;
 const MAX_EVENT_MACHINES = 6;
+const OverviewTimeline = lazy(() => import("./OverviewTimeline"));
 
 function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
   if (!ts) return fallback;
@@ -87,17 +43,20 @@ function fmtNum(v?: number | null) {
   return `${Math.round(v)}`;
 }
 
-function severityClass(sev?: string) {
-  const s = (sev ?? "").toLowerCase();
-  if (s === "critical") return "bg-red-500/15 text-red-300";
-  if (s === "warning") return "bg-yellow-500/15 text-yellow-300";
-  if (s === "info") return "bg-blue-500/15 text-blue-300";
-  return "bg-white/10 text-zinc-200";
-}
-
-function sourceClass(src: EventRow["source"]) {
-  if (src === "ingested") return "bg-white/10 text-zinc-200";
-  return "bg-white/10 text-zinc-200";
+function OverviewTimelineSkeleton() {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="h-4 w-32 rounded bg-white/10" />
+        <div className="h-3 w-20 rounded bg-white/5" />
+      </div>
+      <div className="space-y-3">
+        {Array.from({ length: 4 }).map((_, idx) => (
+          <div key={idx} className="h-20 rounded-xl border border-white/10 bg-black/20" />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function OverviewClient({
@@ -111,7 +70,7 @@ export default function OverviewClient({
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
   const [events, setEvents] = useState<EventRow[]>(() => initialEvents);
   const [loading, setLoading] = useState(false);
-  const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventsLoading, setEventsLoading] = useState(() => initialEvents.length === 0);
 
   useEffect(() => {
     let alive = true;
@@ -119,9 +78,12 @@ export default function OverviewClient({
     async function load() {
       try {
         setEventsLoading(true);
-        const res = await fetch(`/api/overview?events=critical&eventMachines=${MAX_EVENT_MACHINES}`, {
-          cache: "no-cache",
-        });
+        const res = await fetch(
+          `/api/overview?detail=1&events=critical&eventMachines=${MAX_EVENT_MACHINES}`,
+          {
+            cache: "no-cache",
+          }
+        );
         if (res.status === 304) {
           if (alive) setLoading(false);
           return;
@@ -166,6 +128,7 @@ export default function OverviewClient({
     let goodSum = 0;
     let scrapSum = 0;
     let targetSum = 0;
+    let hasKpi = false;
 
     for (const m of machines) {
       const hb = m.latestHeartbeat;
@@ -183,22 +146,35 @@ export default function OverviewClient({
       if (k?.oee != null) {
         oeeSum += Number(k.oee);
         oeeCount += 1;
+        hasKpi = true;
       }
       if (k?.availability != null) {
         availSum += Number(k.availability);
         availCount += 1;
+        hasKpi = true;
       }
       if (k?.performance != null) {
         perfSum += Number(k.performance);
         perfCount += 1;
+        hasKpi = true;
       }
       if (k?.quality != null) {
         qualSum += Number(k.quality);
         qualCount += 1;
+        hasKpi = true;
       }
-      if (k?.good != null) goodSum += Number(k.good);
-      if (k?.scrap != null) scrapSum += Number(k.scrap);
-      if (k?.target != null) targetSum += Number(k.target);
+      if (k?.good != null) {
+        goodSum += Number(k.good);
+        hasKpi = true;
+      }
+      if (k?.scrap != null) {
+        scrapSum += Number(k.scrap);
+        hasKpi = true;
+      }
+      if (k?.target != null) {
+        targetSum += Number(k.target);
+        hasKpi = true;
+      }
     }
 
     return {
@@ -212,9 +188,9 @@ export default function OverviewClient({
       availability: availCount ? availSum / availCount : null,
       performance: perfCount ? perfSum / perfCount : null,
       quality: qualCount ? qualSum / qualCount : null,
-      goodSum,
-      scrapSum,
-      targetSum,
+      goodSum: hasKpi ? goodSum : null,
+      scrapSum: hasKpi ? scrapSum : null,
+      targetSum: hasKpi ? targetSum : null,
     };
   }, [machines]);
 
@@ -237,27 +213,6 @@ export default function OverviewClient({
 
     return list;
   }, [machines]);
-
-  const formatEventType = (eventType?: string) => {
-    if (!eventType) return "";
-    const key = `overview.event.${eventType}`;
-    const label = t(key);
-    return label === key ? eventType : label;
-  };
-
-  const formatSource = (source?: string) => {
-    if (!source) return "";
-    const key = `overview.source.${source}`;
-    const label = t(key);
-    return label === key ? source : label;
-  };
-
-  const formatSeverity = (severity?: string) => {
-    if (!severity) return "";
-    const key = `overview.severity.${severity}`;
-    const label = t(key);
-    return label === key ? severity.toUpperCase() : label;
-  };
 
   return (
     <div className="p-4 sm:p-6">
@@ -409,56 +364,9 @@ export default function OverviewClient({
           )}
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold text-white">{t("overview.timeline")}</div>
-            <div className="text-xs text-zinc-400">
-              {events.length} {t("overview.items")}
-            </div>
-          </div>
-
-          {events.length === 0 && !eventsLoading ? (
-            <div className="text-sm text-zinc-400">{t("overview.noEvents")}</div>
-          ) : (
-            <div className="h-[360px] space-y-3 overflow-y-auto no-scrollbar">
-              {events.map((e) => (
-                <div key={`${e.id}-${e.source}`} className="rounded-xl border border-white/10 bg-black/20 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${severityClass(e.severity)}`}>
-                          {formatSeverity(e.severity)}
-                        </span>
-                        <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-zinc-200">
-                          {formatEventType(e.eventType)}
-                        </span>
-                        <span className={`rounded-full px-2 py-0.5 text-xs ${sourceClass(e.source)}`}>
-                          {formatSource(e.source)}
-                        </span>
-                        {e.requiresAck ? (
-                          <span className="rounded-full bg-white/10 px-2 py-0.5 text-xs text-white">
-                            {t("overview.ack")}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-2 truncate text-sm font-semibold text-white">
-                        {e.machineName ? `${e.machineName}: ` : ""}
-                        {e.title}
-                      </div>
-                      {e.description ? (
-                        <div className="mt-1 text-sm text-zinc-300">{e.description}</div>
-                      ) : null}
-                    </div>
-                    <div className="shrink-0 text-xs text-zinc-400">
-                      {secondsAgo(e.ts, locale, t("common.never"))}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <Suspense fallback={<OverviewTimelineSkeleton />}>
+          <OverviewTimeline events={events} eventsLoading={eventsLoading} locale={locale} t={t} />
+        </Suspense>
       </div>
     </div>
   );

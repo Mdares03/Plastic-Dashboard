@@ -333,6 +333,20 @@ Main KPIs remain English in ES-MX (OEE, KPI, SKU, AVAILABILITY, PERFORMANCE, QUA
 | settings.shiftCompLabel | Shift change compensation (min) | Compensación por cambio de turno (min) |
 | settings.lunchBreakLabel | Lunch break (min) | Comida (min) |
 | settings.shift.defaultName | Shift {index} | Turno {index} |
+| settings.shiftOverrides.title | Day-specific shifts | Turnos por día |
+| settings.shiftOverrides.subtitle | Optional overrides for individual days. | Sobrescrituras opcionales por día. |
+| settings.shiftOverrides.useDefault | Use default | Usar predeterminado |
+| settings.shiftOverrides.customize | Customize | Personalizar |
+| settings.shiftOverrides.inherits | Uses default shift schedule. | Usa el horario de turnos predeterminado. |
+| settings.shiftOverrides.dayOff | Day off (no shifts) | Día libre (sin turnos) |
+| settings.shiftOverrides.clear | Clear shifts | Borrar turnos |
+| settings.shiftOverrides.mon | Monday | Lunes |
+| settings.shiftOverrides.tue | Tuesday | Martes |
+| settings.shiftOverrides.wed | Wednesday | Miércoles |
+| settings.shiftOverrides.thu | Thursday | Jueves |
+| settings.shiftOverrides.fri | Friday | Viernes |
+| settings.shiftOverrides.sat | Saturday | Sábado |
+| settings.shiftOverrides.sun | Sunday | Domingo |
 | settings.thresholds | Alert thresholds | Umbrales de alertas |
 | settings.thresholdsSubtitle | Tune production health alerts. | Ajusta alertas de salud de producción. |
 | settings.thresholds.appliesAll | Applies to all machines | Aplica a todas las máquinas |

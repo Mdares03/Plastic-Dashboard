@@ -14,8 +14,10 @@ import {
   validateDefaults,
   validateShiftFields,
   validateShiftSchedule,
+  validateShiftOverrides,
   validateThresholds,
 } from "@/lib/settings";
+import { loadFallbackReasonCatalog, normalizeReasonCatalog, type ReasonCatalog } from "@/lib/reasonCatalog";
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
@@ -42,6 +44,24 @@ function pickAllowedOverrides(raw: unknown) {
     if (raw[key] !== undefined) out[key] = raw[key];
   }
   return out;
+}
+
+function withReasonCatalog<T extends Record<string, unknown>>(payload: T, fallbackCatalog: ReasonCatalog) {
+  const base = (isPlainObject(payload) ? { ...payload } : {}) as T;
+  const defaults = isPlainObject(base.defaults) ? base.defaults : {};
+  const parsed =
+    normalizeReasonCatalog(base.reasonCatalog) ??
+    normalizeReasonCatalog(base.reasonCatalogData) ??
+    normalizeReasonCatalog(defaults.reasonCatalog) ??
+    normalizeReasonCatalog(defaults.reasonCatalogData) ??
+    fallbackCatalog;
+
+  return {
+    ...base,
+    reasonCatalog: parsed,
+    reasonCatalogData: parsed,
+    reasonCatalogVersion: Number(parsed.version || 1),
+  };
 }
 
 async function ensureOrgSettings(
@@ -144,6 +164,7 @@ export async function GET(
     if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     orgId = machine.orgId;
   }
+  const fallbackCatalog = await loadFallbackReasonCatalog();
 
   const { settings, overrides } = await prisma.$transaction(async (tx) => {
     const orgSettings = await ensureOrgSettings(tx, orgId as string, userId);
@@ -154,9 +175,15 @@ export async function GET(
       select: { overridesJson: true },
     });
 
-    const orgPayload = buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []);
+    const orgPayload = withReasonCatalog(
+      buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []),
+      fallbackCatalog
+    );
     const rawOverrides = pickAllowedOverrides(machineSettings?.overridesJson ?? {});
-    const effective = deepMerge(orgPayload, rawOverrides);
+    const effective = withReasonCatalog(
+      deepMerge(orgPayload, rawOverrides) as Record<string, unknown>,
+      fallbackCatalog
+    );
 
     return { settings: { org: orgPayload, effective }, overrides: rawOverrides };
   });
@@ -242,6 +269,14 @@ export async function PUT(
     return NextResponse.json({ ok: false, error: shiftValidation.error }, { status: 400 });
   }
 
+  const overridesResult =
+    patch?.shiftSchedule?.overrides !== undefined
+      ? validateShiftOverrides(patch.shiftSchedule.overrides)
+      : ({ ok: true, overrides: undefined } as const);
+  if (!overridesResult.ok) {
+    return NextResponse.json({ ok: false, error: overridesResult.error }, { status: 400 });
+  }
+
   const thresholdsValidation = validateThresholds(patch?.thresholds);
   if (!thresholdsValidation.ok) {
     return NextResponse.json({ ok: false, error: thresholdsValidation.error }, { status: 400 });
@@ -275,6 +310,12 @@ export async function PUT(
       ...patch,
       shiftSchedule: {
         ...patch.shiftSchedule,
+        overrides:
+          patch.shiftSchedule.overrides !== undefined
+            ? overridesResult.overrides === null
+              ? null
+              : overridesResult.overrides
+            : patch.shiftSchedule.overrides,
         shiftChangeCompensationMin:
           patch.shiftSchedule.shiftChangeCompensationMin !== undefined
             ? Number(patch.shiftSchedule.shiftChangeCompensationMin)
@@ -372,9 +413,16 @@ export async function PUT(
       },
     });
 
-    const orgPayload = buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []);
+    const fallbackCatalog = await loadFallbackReasonCatalog();
+    const orgPayload = withReasonCatalog(
+      buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []),
+      fallbackCatalog
+    );
     const overrides = pickAllowedOverrides(saved.overridesJson ?? {});
-    const effective = deepMerge(orgPayload, overrides);
+    const effective = withReasonCatalog(
+      deepMerge(orgPayload, overrides) as Record<string, unknown>,
+      fallbackCatalog
+    );
 
     return {
       orgPayload,

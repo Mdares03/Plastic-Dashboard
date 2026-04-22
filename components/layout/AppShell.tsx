@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { RouteAudit } from "@/components/perf/RouteAudit";
 import { UtilityControls } from "@/components/layout/UtilityControls";
 import { useI18n } from "@/lib/i18n/useI18n";
 
@@ -31,6 +32,7 @@ export function AppShell({
 
   return (
     <div className="h-screen overflow-hidden bg-black text-white">
+      <RouteAudit />
       <div className="flex h-full">
         <Sidebar />
         <div className="flex h-full flex-1 flex-col">

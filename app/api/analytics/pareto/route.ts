@@ -64,7 +64,7 @@ export async function GET(req: Request) {
         count: g._count._all,
       };
     })
-    .filter((x) => x.value > 0);
+    .filter((x) => (kind === "downtime" ? x.value > 0 || x.count > 0 : x.value > 0));
 
   itemsRaw.sort((a, b) => b.value - a.value);
 

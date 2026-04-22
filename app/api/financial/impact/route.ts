@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
-import { computeFinancialImpact } from "@/lib/financial/impact";
+import {
+  FINANCIAL_IMPACT_SWR_SEC,
+  FINANCIAL_IMPACT_TTL_SEC,
+  getFinancialImpactCached,
+} from "@/lib/financial/cache";
 
 const RANGE_MS: Record<string, number> = {
   "24h": 24 * 60 * 60 * 1000,
@@ -50,22 +54,31 @@ export async function GET(req: NextRequest) {
   }
 
   const url = new URL(req.url);
+  const refresh = url.searchParams.get("refresh") === "1";
   const { start, end } = pickRange(req);
   const machineId = url.searchParams.get("machineId") ?? undefined;
   const location = url.searchParams.get("location") ?? undefined;
   const sku = url.searchParams.get("sku") ?? undefined;
   const currency = url.searchParams.get("currency") ?? undefined;
 
-  const result = await computeFinancialImpact({
-    orgId: session.orgId,
-    start,
-    end,
-    machineId,
-    location,
-    sku,
-    currency,
-    includeEvents: false,
+  const result = await getFinancialImpactCached(
+    {
+      orgId: session.orgId,
+      start,
+      end,
+      machineId,
+      location,
+      sku,
+      currency,
+      includeEvents: false,
+    },
+    { refresh }
+  );
+
+  const responseHeaders = new Headers({
+    "Cache-Control": `private, max-age=${FINANCIAL_IMPACT_TTL_SEC}, stale-while-revalidate=${FINANCIAL_IMPACT_SWR_SEC}`,
+    Vary: "Cookie",
   });
 
-  return NextResponse.json({ ok: true, ...result });
+  return NextResponse.json({ ok: true, ...result }, { headers: responseHeaders });
 }

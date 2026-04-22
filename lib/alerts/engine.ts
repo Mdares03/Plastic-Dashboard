@@ -46,6 +46,19 @@ function readBool(value: unknown) {
   return value === true;
 }
 
+function normalizeStatus(value?: string | null) {
+  if (!value) return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "in_progress" || raw === "in-progress" || raw === "open" || raw === "activa" || raw === "activo") {
+    return "active";
+  }
+  if (raw === "resuelta" || raw === "resuelto" || raw === "closed" || raw === "ended" || raw === "done") {
+    return "resolved";
+  }
+  return raw;
+}
+
 function extractDurationSec(raw: unknown): number | null {
   const payload = asRecord(raw);
   if (!payload) return null;
@@ -302,10 +315,11 @@ export async function evaluateAlertsForEvent(eventId: string) {
   const alertId = readString(payload?.alert_id ?? inner?.alert_id);
   const isUpdate = readBool(payload?.is_update ?? inner?.is_update);
   const isAutoAck = readBool(payload?.is_auto_ack ?? inner?.is_auto_ack);
+  const status = normalizeStatus(readString(payload?.status ?? inner?.status));
   const lastCycleTs = readNumber(payload?.last_cycle_timestamp ?? inner?.last_cycle_timestamp);
   const theoreticalSec = readNumber(payload?.theoretical_cycle_time ?? inner?.theoretical_cycle_time);
   if (isAutoAck) return;
-  if (isUpdate && !(rule.repeatMinutes && rule.repeatMinutes > 0)) return;
+  if (isUpdate && status !== "resolved") return;
   if ((eventType === "microstop" || eventType === "macrostop") && theoreticalSec && lastCycleTs == null) {
     return;
   }
@@ -345,9 +359,11 @@ export async function evaluateAlertsForEvent(eventId: string) {
         const key = `${channel}:${recipient.userId ?? recipient.contactId ?? recipient.email ?? recipient.phone ?? ""}`;
         if (delivered.has(key)) continue;
 
+        const statusKey = status === "resolved" ? "resolved" : "active";
+        const ruleKey = `${rule.id}:${statusKey}`;
         const allowed = await shouldSendNotification({
           eventIds: notificationEventIds,
-          ruleId: rule.id,
+          ruleId: ruleKey,
           role: roleName,
           channel,
           contactId: recipient.contactId,
@@ -376,7 +392,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
             machineId: event.machineId,
             eventId: event.id,
             eventType,
-            ruleId: rule.id,
+            ruleId: ruleKey,
             role: roleName,
             channel,
             contactId: recipient.contactId,
@@ -391,7 +407,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
             machineId: event.machineId,
             eventId: event.id,
             eventType,
-            ruleId: rule.id,
+            ruleId: ruleKey,
             role: roleName,
             channel,
             contactId: recipient.contactId,

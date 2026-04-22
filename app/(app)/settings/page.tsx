@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsConfig } from "@/components/settings/AlertsConfig";
 import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { SHIFT_OVERRIDE_DAYS, type ShiftOverrideDay } from "@/lib/settings";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 
 
@@ -25,6 +26,7 @@ type SettingsPayload = {
 
   shiftSchedule: {
     shifts: Shift[];
+    overrides?: Partial<Record<ShiftOverrideDay, Shift[]>>;
     shiftChangeCompensationMin: number;
     lunchBreakMin: number;
   };
@@ -88,6 +90,7 @@ const DEFAULT_SETTINGS: SettingsPayload = {
   modules: { screenlessMode: false },
   shiftSchedule: {
     shifts: [],
+    overrides: {},
     shiftChangeCompensationMin: 10,
     lunchBreakMin: 30,
   },
@@ -199,6 +202,21 @@ function normalizeShift(raw: unknown, fallbackName: string): Shift {
   return { name, start, end, enabled };
 }
 
+function normalizeShiftOverrides(
+  raw: unknown,
+  fallbackName: (index: number) => string
+): Partial<Record<ShiftOverrideDay, Shift[]>> {
+  const record = asRecord(raw);
+  if (!record) return {};
+  const out: Partial<Record<ShiftOverrideDay, Shift[]>> = {};
+  for (const day of SHIFT_OVERRIDE_DAYS) {
+    const shiftsRaw = Array.isArray(record[day]) ? (record[day] as unknown[]) : null;
+    if (!shiftsRaw) continue;
+    out[day] = shiftsRaw.map((shift, idx) => normalizeShift(shift, fallbackName(idx + 1)));
+  }
+  return out;
+}
+
 function normalizeSettings(raw: unknown, fallbackName: (index: number) => string): SettingsPayload {
   const record = asRecord(raw);
   const modules = asRecord(record?.modules) ?? {};
@@ -217,6 +235,7 @@ function normalizeSettings(raw: unknown, fallbackName: (index: number) => string
   const shifts = shiftsRaw.length
     ? shiftsRaw.map((s, idx) => normalizeShift(s, fallbackName(idx + 1)))
     : [{ name: fallbackName(1), ...DEFAULT_SHIFT }];
+  const overrides = normalizeShiftOverrides(shiftSchedule.overrides, fallbackName);
   const thresholds = asRecord(record.thresholds) ?? {};
   const alerts = asRecord(record.alerts) ?? {};
   const defaults = asRecord(record.defaults) ?? {};
@@ -227,6 +246,7 @@ function normalizeSettings(raw: unknown, fallbackName: (index: number) => string
     timezone: String(record.timezone ?? DEFAULT_SETTINGS.timezone),
     shiftSchedule: {
       shifts,
+      overrides,
       shiftChangeCompensationMin: Number(
         shiftSchedule.shiftChangeCompensationMin ?? DEFAULT_SETTINGS.shiftSchedule.shiftChangeCompensationMin
       ),
@@ -326,16 +346,26 @@ export default function SettingsPage() {
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState<(typeof SETTINGS_TABS)[number]["id"]>("general");
+  const hasMountedRef = useRef(false);
   const defaultShiftName = useCallback(
     (index: number) => t("settings.shift.defaultName", { index }),
     [t]
   );
+  const shiftOverrideDays = useMemo(
+    () =>
+      SHIFT_OVERRIDE_DAYS.map((day) => ({
+        key: day,
+        label: t(`settings.shiftOverrides.${day}`),
+      })),
+    [t]
+  );
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch("/api/settings", { cache: "no-store" });
+      const url = forceRefresh ? "/api/settings?refresh=1" : "/api/settings";
+      const response = await fetch(url, { cache: forceRefresh ? "no-store" : "default" });
       const { data, text } = await readResponse(response);
       const api = unwrapApiResponse(data);
       if (!response.ok || !api.ok) {
@@ -350,7 +380,7 @@ export default function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, [defaultShiftName, t]);
+  }, [defaultShiftName, t, setScreenlessMode]);
 
   const buildInviteUrl = useCallback((token: string) => {
     if (typeof window === "undefined") return `/invite/${token}`;
@@ -380,10 +410,14 @@ export default function SettingsPage() {
     }
   }, [t]);
 
+  // Only run once on mount to prevent infinite loops from dependency changes
   useEffect(() => {
+    if (hasMountedRef.current) return;
+    hasMountedRef.current = true;
     loadSettings();
     loadTeam();
-  }, [loadSettings, loadTeam]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const updateShift = useCallback((index: number, patch: Partial<Shift>) => {
     setDraft((prev) => {
@@ -443,6 +477,96 @@ export default function SettingsPage() {
         shiftSchedule: {
           ...prev.shiftSchedule,
           [key]: value,
+        },
+      };
+    });
+  }, []);
+
+  const toggleShiftOverride = useCallback((day: ShiftOverrideDay) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const overrides = { ...(prev.shiftSchedule.overrides ?? {}) };
+      if (overrides[day]) {
+        delete overrides[day];
+      } else {
+        overrides[day] = prev.shiftSchedule.shifts.map((shift) => ({ ...shift }));
+      }
+      return {
+        ...prev,
+        shiftSchedule: {
+          ...prev.shiftSchedule,
+          overrides,
+        },
+      };
+    });
+  }, []);
+
+  const updateShiftOverride = useCallback((day: ShiftOverrideDay, index: number, patch: Partial<Shift>) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const current = prev.shiftSchedule.overrides?.[day];
+      if (!current) return prev;
+      const overrides = { ...(prev.shiftSchedule.overrides ?? {}) };
+      overrides[day] = current.map((shift, idx) => (idx === index ? { ...shift, ...patch } : shift));
+      return {
+        ...prev,
+        shiftSchedule: {
+          ...prev.shiftSchedule,
+          overrides,
+        },
+      };
+    });
+  }, []);
+
+  const addShiftOverride = useCallback(
+    (day: ShiftOverrideDay) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        const overrides = { ...(prev.shiftSchedule.overrides ?? {}) };
+        const current = overrides[day] ? [...overrides[day]!] : [];
+        if (current.length >= 3) return prev;
+        const nextIndex = current.length + 1;
+        current.push({ name: defaultShiftName(nextIndex), ...DEFAULT_SHIFT });
+        overrides[day] = current;
+        return {
+          ...prev,
+          shiftSchedule: {
+            ...prev.shiftSchedule,
+            overrides,
+          },
+        };
+      });
+    },
+    [defaultShiftName]
+  );
+
+  const removeShiftOverride = useCallback((day: ShiftOverrideDay, index: number) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const current = prev.shiftSchedule.overrides?.[day];
+      if (!current) return prev;
+      const overrides = { ...(prev.shiftSchedule.overrides ?? {}) };
+      overrides[day] = current.filter((_, idx) => idx !== index);
+      return {
+        ...prev,
+        shiftSchedule: {
+          ...prev.shiftSchedule,
+          overrides,
+        },
+      };
+    });
+  }, []);
+
+  const clearShiftOverride = useCallback((day: ShiftOverrideDay) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const overrides = { ...(prev.shiftSchedule.overrides ?? {}) };
+      overrides[day] = [];
+      return {
+        ...prev,
+        shiftSchedule: {
+          ...prev.shiftSchedule,
+          overrides,
         },
       };
     });
@@ -665,7 +789,7 @@ export default function SettingsPage() {
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <button
-            onClick={loadSettings}
+            onClick={() => loadSettings(true)}
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-white hover:bg-white/10 sm:w-auto"
           >
             {t("settings.refresh")}
@@ -992,6 +1116,119 @@ export default function SettingsPage() {
                   />
                 </label>
               </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-2 text-sm font-semibold text-white">{t("settings.shiftOverrides.title")}</div>
+            <div className="text-xs text-zinc-400">{t("settings.shiftOverrides.subtitle")}</div>
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+              {shiftOverrideDays.map((day) => {
+                const dayOverrides = draft.shiftSchedule.overrides?.[day.key];
+                const overrideShifts = dayOverrides ?? [];
+                const isCustom = dayOverrides !== undefined;
+                return (
+                  <div key={day.key} className="rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-sm font-semibold text-white">{day.label}</div>
+                      <button
+                        type="button"
+                        onClick={() => toggleShiftOverride(day.key)}
+                        className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+                      >
+                        {isCustom
+                          ? t("settings.shiftOverrides.useDefault")
+                          : t("settings.shiftOverrides.customize")}
+                      </button>
+                    </div>
+
+                    {!isCustom && (
+                      <div className="mt-2 text-xs text-zinc-400">{t("settings.shiftOverrides.inherits")}</div>
+                    )}
+
+                    {isCustom && (
+                      <>
+                        {overrideShifts.length === 0 ? (
+                          <div className="mt-2 text-xs text-zinc-400">
+                            {t("settings.shiftOverrides.dayOff")}
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {overrideShifts.map((shift, index) => (
+                              <div key={`${day.key}-${index}`} className="rounded-lg border border-white/10 bg-black/30 p-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <input
+                                    value={shift.name}
+                                    onChange={(event) =>
+                                      updateShiftOverride(day.key, index, { name: event.target.value })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => removeShiftOverride(day.key, index)}
+                                    className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+                                  >
+                                    {t("settings.shiftRemove")}
+                                  </button>
+                                </div>
+                                <div className="mt-2 flex items-center gap-2">
+                                  <input
+                                    type="time"
+                                    value={shift.start}
+                                    onChange={(event) =>
+                                      updateShiftOverride(day.key, index, { start: event.target.value })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+                                  />
+                                  <span className="text-xs text-zinc-400">{t("settings.shiftTo")}</span>
+                                  <input
+                                    type="time"
+                                    value={shift.end}
+                                    onChange={(event) =>
+                                      updateShiftOverride(day.key, index, { end: event.target.value })
+                                    }
+                                    className="w-full rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="mt-2 flex items-center gap-2 text-xs text-zinc-400">
+                                  <input
+                                    type="checkbox"
+                                    checked={shift.enabled}
+                                    onChange={(event) =>
+                                      updateShiftOverride(day.key, index, { enabled: event.target.checked })
+                                    }
+                                    className="h-4 w-4 rounded border border-white/20 bg-black/20"
+                                  />
+                                  {t("settings.shiftEnabled")}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => addShiftOverride(day.key)}
+                            disabled={overrideShifts.length >= 3}
+                            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white disabled:opacity-40"
+                          >
+                            {t("settings.shiftAdd")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => clearShiftOverride(day.key)}
+                            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white"
+                          >
+                            {t("settings.shiftOverrides.clear")}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>

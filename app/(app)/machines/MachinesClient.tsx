@@ -19,6 +19,7 @@ type MachineRow = {
     fwVersion?: string | null;
   };
 };
+const LIVE_REFRESH_MS = 5000;
 
 function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
   if (!ts) return fallback;
@@ -52,7 +53,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
   const { t, locale } = useI18n();
   const router = useRouter();
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(() => initialMachines.length === 0);
   const [showCreate, setShowCreate] = useState(false);
   const [createName, setCreateName] = useState("");
   const [createCode, setCreateCode] = useState("");
@@ -69,28 +70,36 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
 
   useEffect(() => {
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function load() {
+    async function load(initial: boolean) {
       try {
+        if (!initial && typeof document !== "undefined" && document.hidden) {
+          return;
+        }
+
         const res = await fetch("/api/machines", { cache: "no-store" });
         const json = await res.json();
         if (alive) {
           setMachines(json.machines ?? []);
-          setLoading(false);
+          if (initial) setLoading(false);
         }
       } catch {
-        if (alive) setLoading(false);
+        if (alive && initial) setLoading(false);
+      } finally {
+        if (!alive) return;
+        timer = setTimeout(() => {
+          void load(false);
+        }, LIVE_REFRESH_MS);
       }
     }
 
-    load();
-    const t = setInterval(load, 15000);
-
+    void load(initialMachines.length === 0);
     return () => {
       alive = false;
-      clearInterval(t);
+      if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [initialMachines.length]);
 
   async function createMachine() {
     if (!createName.trim()) {

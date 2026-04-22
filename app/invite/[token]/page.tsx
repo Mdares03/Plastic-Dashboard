@@ -3,14 +3,14 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import InviteAcceptForm from "./InviteAcceptForm";
 
-export default async function InvitePage({ params }: { params: { token: string } | Promise<{ token: string }> }) {
+export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
   const session = (await cookies()).get("mis_session")?.value;
   if (session) {
     redirect("/machines");
   }
 
-  const resolvedParams = await Promise.resolve(params);
-  const token = String(resolvedParams?.token || "").trim().toLowerCase();
+  const { token: rawToken } = await params;
+  const token = String(rawToken || "").trim().toLowerCase();
   let invite = null;
   let error: string | null = null;
 

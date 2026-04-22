@@ -3,6 +3,10 @@ import path from "path";
 
 const LOG_PATH = process.env.LOG_FILE || "/tmp/mis-control-tower.log";
 
+export function getLogPath() {
+  return LOG_PATH;
+}
+
 export function logLine(event: string, data: Record<string, unknown> = {}) {
   const line = JSON.stringify({
     ts: new Date().toISOString(),

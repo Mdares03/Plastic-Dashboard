@@ -76,6 +76,8 @@ export default function FinancialClient({
   const [currencyFilter, setCurrencyFilter] = useState("");
   const [loading, setLoading] = useState(() => initialMachines.length === 0);
   const skipInitialImpactRef = useRef(true);
+  const forceRefreshRef = useRef(false);
+  const [refreshSeed, setRefreshSeed] = useState(0);
 
   const locations = useMemo(() => {
     const seen = new Set<string>();
@@ -158,6 +160,8 @@ export default function FinancialClient({
       if (locationFilter) params.set("location", locationFilter);
       if (skuFilter) params.set("sku", skuFilter);
       if (currencyFilter) params.set("currency", currencyFilter);
+      const forceRefresh = forceRefreshRef.current;
+      if (forceRefresh) params.set("refresh", "1");
 
       try {
         const res = await fetch(`/api/financial/impact?${params.toString()}`, {
@@ -169,6 +173,8 @@ export default function FinancialClient({
         setImpact(json);
       } catch {
         if (alive) setImpact(null);
+      } finally {
+        if (forceRefresh) forceRefreshRef.current = false;
       }
     }
 
@@ -177,7 +183,7 @@ export default function FinancialClient({
       alive = false;
       controller.abort();
     };
-  }, [currencyFilter, initialImpact, locationFilter, machineFilter, range, role, skuFilter]);
+  }, [currencyFilter, initialImpact, locationFilter, machineFilter, range, refreshSeed, role, skuFilter]);
 
   const selectedSummary = impact?.currencySummaries?.[0] ?? null;
   const chartData = selectedSummary?.byDay ?? [];
@@ -193,6 +199,10 @@ export default function FinancialClient({
 
   const htmlHref = `/api/financial/export/pdf?${exportQuery}`;
   const csvHref = `/api/financial/export/excel?${exportQuery}`;
+  const handleRefresh = () => {
+    forceRefreshRef.current = true;
+    setRefreshSeed((prev) => prev + 1);
+  };
 
   if (role && role !== "OWNER") {
     return (
@@ -212,6 +222,13 @@ export default function FinancialClient({
           <p className="text-sm text-zinc-400">{t("financial.subtitle")}</p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+          <button
+            type="button"
+            onClick={handleRefresh}
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-zinc-200 hover:bg-white/10 sm:w-auto"
+          >
+            {t("financial.refresh")}
+          </button>
           <a
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-zinc-200 hover:bg-white/10 sm:w-auto"
             href={htmlHref}
@@ -288,7 +305,7 @@ export default function FinancialClient({
           </div>
 
           <div className="mt-4 h-64">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
               <AreaChart data={chartData}>
                 <defs>
                   <linearGradient id="slowFill" x1="0" y1="0" x2="0" y2="1">

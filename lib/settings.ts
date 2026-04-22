@@ -18,6 +18,9 @@ export const DEFAULT_SHIFT = {
   end: "15:00",
 };
 
+export const SHIFT_OVERRIDE_DAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type ShiftOverrideDay = (typeof SHIFT_OVERRIDE_DAYS)[number];
+
 type AnyRecord = Record<string, unknown>;
 
 function isPlainObject(value: unknown): value is AnyRecord {
@@ -40,6 +43,7 @@ type SettingsRow = {
   timezone: string;
   shiftChangeCompMin?: number | null;
   lunchBreakMin?: number | null;
+  shiftScheduleOverridesJson?: unknown;
   stoppageMultiplier?: number | null;
   macroStoppageMultiplier?: number | null;
   oeeAlertThresholdPct?: number | null;
@@ -59,6 +63,13 @@ type ShiftRow = {
   sortOrder?: number | null;
 };
 
+type ShiftOverridePayload = {
+  name: string;
+  start: string;
+  end: string;
+  enabled: boolean;
+};
+
 export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) {
   const ordered = [...(shifts ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
   const mappedShifts = ordered.map((s, idx) => ({
@@ -67,6 +78,13 @@ export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) 
     end: s.endTime,
     enabled: s.enabled !== false,
   }));
+  const overrides = normalizeShiftOverrides(settings.shiftScheduleOverridesJson);
+
+  const defaults = normalizeDefaults(settings.defaultsJson);
+  const reasonCatalog =
+    isPlainObject(settings.defaultsJson) && "reasonCatalog" in settings.defaultsJson
+      ? (settings.defaultsJson as AnyRecord).reasonCatalog
+      : null;
 
   return {
     orgId: settings.orgId,
@@ -74,6 +92,7 @@ export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) 
     timezone: settings.timezone,
     shiftSchedule: {
       shifts: mappedShifts,
+      overrides: overrides && Object.keys(overrides).length ? overrides : undefined,
       shiftChangeCompensationMin: settings.shiftChangeCompMin,
       lunchBreakMin: settings.lunchBreakMin,
     },
@@ -85,7 +104,10 @@ export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) 
       qualitySpikeDeltaPct: settings.qualitySpikeDeltaPct,
     },
     alerts: normalizeAlerts(settings.alertsJson),
-    defaults: normalizeDefaults(settings.defaultsJson),
+    defaults,
+    reasonCatalog: reasonCatalog ?? undefined,
+    reasonCatalogData: reasonCatalog ?? undefined,
+    reasonCatalogVersion: Number((reasonCatalog as AnyRecord | null)?.version ?? 1),
     updatedAt: settings.updatedAt,
     updatedBy: settings.updatedBy,
   };
@@ -167,6 +189,57 @@ export function validateShiftSchedule(shifts: unknown) {
   if (firstError) return { ok: false, error: firstError.error };
 
   return { ok: true, shifts: normalized as NormalizedShift[] };
+}
+
+export function validateShiftOverrides(overrides: unknown) {
+  if (overrides === null) {
+    return { ok: true, overrides: null as Record<string, ShiftOverridePayload[]> | null } as const;
+  }
+  if (!isPlainObject(overrides)) {
+    return { ok: false, error: "shift overrides must be an object" } as const;
+  }
+
+  const normalized: Record<string, ShiftOverridePayload[]> = {};
+  for (const [key, value] of Object.entries(overrides)) {
+    if (!SHIFT_OVERRIDE_DAYS.includes(key as ShiftOverrideDay)) {
+      return { ok: false, error: `invalid shift override day: ${key}` } as const;
+    }
+    const shiftResult = validateShiftSchedule(value);
+    if (!shiftResult.ok) {
+      return { ok: false, error: `shift overrides ${key}: ${shiftResult.error}` } as const;
+    }
+    normalized[key] =
+      shiftResult.shifts?.map((s) => ({
+        name: s.name,
+        start: s.startTime,
+        end: s.endTime,
+        enabled: s.enabled !== false,
+      })) ?? [];
+  }
+
+  return { ok: true, overrides: normalized } as const;
+}
+
+export function normalizeShiftOverrides(raw: unknown) {
+  if (!isPlainObject(raw)) return undefined;
+  const out: Record<string, ShiftOverridePayload[]> = {};
+  for (const day of SHIFT_OVERRIDE_DAYS) {
+    const value = raw[day];
+    if (!Array.isArray(value)) continue;
+    const normalized = value
+      .map((entry, idx) => {
+        const record = isPlainObject(entry) ? entry : {};
+        const start = String(record.start ?? record.startTime ?? "").trim();
+        const end = String(record.end ?? record.endTime ?? "").trim();
+        if (!TIME_RE.test(start) || !TIME_RE.test(end)) return null;
+        const name = String(record.name ?? `Shift ${idx + 1}`).trim() || `Shift ${idx + 1}`;
+        const enabled = record.enabled !== false;
+        return { name, start, end, enabled };
+      })
+      .filter((entry): entry is ShiftOverridePayload => !!entry);
+    out[day] = normalized;
+  }
+  return out;
 }
 
 export function validateShiftFields(shiftChangeCompensationMin?: unknown, lunchBreakMin?: unknown) {

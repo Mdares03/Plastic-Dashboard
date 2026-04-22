@@ -128,6 +128,7 @@ const TOL = 0.10;
 const DEFAULT_MICRO_MULT = 1.5;
 const DEFAULT_MACRO_MULT = 5;
 const NORMAL_TOL_SEC = 0.1;
+const LIVE_REFRESH_MS = 5000;
 
 const BUCKET = {
   normal: {
@@ -289,6 +290,24 @@ function rowsToWorkOrders(rows: WorkOrderRow[]): WorkOrderUpload[] {
   return out;
 }
 
+function toErrorMessage(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim().length > 0) return value;
+  if (value && typeof value === "object") {
+    const maybeMessage =
+      ("message" in value && typeof value.message === "string" && value.message) ||
+      ("error" in value && typeof value.error === "string" && value.error) ||
+      ("text" in value && typeof value.text === "string" && value.text) ||
+      null;
+    if (maybeMessage && maybeMessage.trim().length > 0) return maybeMessage;
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 export default function MachineDetailClient() {
   const { t, locale } = useI18n();
   const { screenlessMode } = useScreenlessMode();
@@ -319,9 +338,14 @@ export default function MachineDetailClient() {
     if (!machineId) return;
 
     let alive = true;
+    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function load() {
+    async function load(initial: boolean) {
       try {
+        if (!initial && typeof document !== "undefined" && document.hidden) {
+          return;
+        }
+
         const res = await fetch(`/api/machines/${machineId}?windowSec=3600&events=critical`, {
           cache: "no-cache",
           credentials: "include",
@@ -329,7 +353,7 @@ export default function MachineDetailClient() {
 
         if (res.status === 304) {
           if (!alive) return;
-          setLoading(false);
+          if (initial) setLoading(false);
           return;
         }
 
@@ -338,8 +362,8 @@ export default function MachineDetailClient() {
         if (!alive) return;
 
         if (!res.ok || json?.ok === false) {
-          setError(json?.error ?? t("machine.detail.error.failed"));
-          setLoading(false);
+          setError(toErrorMessage(json?.error, t("machine.detail.error.failed")));
+          if (initial) setLoading(false);
           return;
         }
 
@@ -350,19 +374,25 @@ export default function MachineDetailClient() {
         setThresholds(json.thresholds ?? null);
         setActiveStoppage(json.activeStoppage ?? null);
         setError(null);
-        setLoading(false);
+        if (initial) setLoading(false);
       } catch {
         if (!alive) return;
-        setError(t("machine.detail.error.network"));
-        setLoading(false);
+        if (initial) {
+          setError(t("machine.detail.error.network"));
+          setLoading(false);
+        }
+      } finally {
+        if (!alive) return;
+        timer = setTimeout(() => {
+          void load(false);
+        }, LIVE_REFRESH_MS);
       }
     }
 
-    load();
-    const timer = setInterval(load, 15000);
+    void load(true);
     return () => {
       alive = false;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [machineId, t]);
 
@@ -479,7 +509,7 @@ export default function MachineDetailClient() {
         } else {
           setUploadState({
             status: "error",
-            message: json?.error ?? t("machine.detail.workOrders.uploadError"),
+            message: toErrorMessage(json?.error, t("machine.detail.workOrders.uploadError")),
           });
         }
         event.target.value = "";
@@ -508,7 +538,7 @@ export default function MachineDetailClient() {
       const res = await fetch(`/api/machines/${machineId}`, { method: "DELETE" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.ok) {
-        throw new Error(data.error || t("machines.delete.error.failed"));
+        throw new Error(toErrorMessage(data?.error, t("machines.delete.error.failed")));
       }
       router.push("/machines");
     } catch (err: unknown) {
@@ -886,9 +916,10 @@ export default function MachineDetailClient() {
 
   const cycleDerived = useMemo(() => {
     const rows = cycles ?? [];
+    const fallbackIdeal = cycleTarget && cycleTarget > 0 ? cycleTarget : null;
 
     const mapped: CycleDerivedRow[] = rows.map((cycle) => {
-      const ideal = cycle.ideal ?? null;
+      const ideal = cycle.ideal ?? fallbackIdeal;
       const actual = cycle.actual ?? null;
       const extra = ideal != null && actual != null ? actual - ideal : null;
 
@@ -914,7 +945,7 @@ export default function MachineDetailClient() {
     const avgDeltaPct = deltas.length ? deltas.reduce((a, b) => a + b, 0) / deltas.length : null;
 
     return { mapped, counts, avgDeltaPct };
-  }, [cycles, thresholds]);
+  }, [cycles, cycleTarget, thresholds]);
 
   const deviationSeries = useMemo(() => {
     const last = cycleDerived.mapped.slice(-100);
@@ -1313,7 +1344,7 @@ export default function MachineDetailClient() {
                 className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
                 style={{ boxShadow: "var(--app-chart-shadow)" }}
               >
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <ComposedChart data={deviationSeries}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
                     <XAxis
@@ -1407,7 +1438,7 @@ export default function MachineDetailClient() {
                 className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
                 style={{ boxShadow: "var(--app-chart-shadow)" }}
               >
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                   <BarChart data={impactAgg.rows}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
                     <XAxis dataKey="label" tick={{ fill: "var(--app-chart-tick)" }} />

@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { logLine } from "@/lib/logger";
+import { elapsedMs, formatServerTiming, nowMs, PERF_LOGS_ENABLED } from "@/lib/perf/serverTiming";
+
+let reportsColdStart = true;
+
+function getColdStartInfo() {
+  const coldStart = reportsColdStart;
+  reportsColdStart = false;
+  return { coldStart, uptimeMs: Math.round(process.uptime() * 1000) };
+}
 
 const RANGE_MS: Record<string, number> = {
   "24h": 24 * 60 * 60 * 1000,
@@ -37,10 +47,19 @@ function safeNum(v: unknown) {
 }
 
 export async function GET(req: NextRequest) {
+  const perfEnabled = PERF_LOGS_ENABLED;
+  const totalStart = nowMs();
+  const timings: Record<string, number> = {};
+  const { coldStart, uptimeMs } = getColdStartInfo();
+
+  const authStart = nowMs();
   const session = await requireSession();
+  if (perfEnabled) timings.auth = elapsedMs(authStart);
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
+  const preQueryStart = nowMs();
   const url = new URL(req.url);
+  const range = url.searchParams.get("range") ?? "24h";
   const machineId = url.searchParams.get("machineId") ?? undefined;
   const { start, end } = pickRange(req);
   const workOrderId = url.searchParams.get("workOrderId") ?? undefined;
@@ -52,6 +71,9 @@ export async function GET(req: NextRequest) {
     ...(sku ? { sku } : {}),
   };
 
+  if (perfEnabled) timings.preQuery = elapsedMs(preQueryStart);
+
+  const kpiStart = nowMs();
   const kpiRows = await prisma.machineKpiSnapshot.findMany({
     where: { ...baseWhere, ts: { gte: start, lte: end } },
     orderBy: { ts: "asc" },
@@ -67,6 +89,7 @@ export async function GET(req: NextRequest) {
       machineId: true,
     },
   });
+  if (perfEnabled) timings.kpiRows = elapsedMs(kpiStart);
 
   let oeeSum = 0;
   let oeeCount = 0;
@@ -96,10 +119,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const cyclesStart = nowMs();
   const cycles = await prisma.machineCycle.findMany({
     where: { ...baseWhere, ts: { gte: start, lte: end } },
     select: { goodDelta: true, scrapDelta: true },
   });
+  if (perfEnabled) timings.cycles = elapsedMs(cyclesStart);
 
   let goodTotal = 0;
   let scrapTotal = 0;
@@ -109,6 +134,7 @@ export async function GET(req: NextRequest) {
     if (safeNum(c.scrapDelta) != null) scrapTotal += Number(c.scrapDelta);
   }
 
+  const kpiAggStart = nowMs();
   const kpiAgg = await prisma.machineKpiSnapshot.groupBy({
     by: ["machineId"],
     where: { ...baseWhere, ts: { gte: start, lte: end } },
@@ -116,6 +142,7 @@ export async function GET(req: NextRequest) {
     _min: { good: true, scrap: true },
     _count: { _all: true },
   });
+  if (perfEnabled) timings.kpiAgg = elapsedMs(kpiAggStart);
 
   let targetTotal = 0;
   if (goodTotal === 0 && scrapTotal === 0) {
@@ -151,10 +178,12 @@ export async function GET(req: NextRequest) {
     if (maxTarget != null) targetTotal += maxTarget;
   }
 
+  const eventsStart = nowMs();
   const events = await prisma.machineEvent.findMany({
     where: { ...baseWhere, ts: { gte: start, lte: end } },
     select: { eventType: true, data: true },
   });
+  if (perfEnabled) timings.events = elapsedMs(eventsStart);
 
   let macrostopSec = 0;
   let microstopSec = 0;
@@ -223,10 +252,12 @@ export async function GET(req: NextRequest) {
       trend.scrapRate.push({ t, v: (scrap / (good + scrap)) * 100 });
     }
   }
+  const cycleRowsStart = nowMs();
   const cycleRows = await prisma.machineCycle.findMany({
     where: { ...baseWhere, ts: { gte: start, lte: end } },
     select: { actualCycleTime: true },
   });
+  if (perfEnabled) timings.cycleRows = elapsedMs(cycleRowsStart);
 
   const values = cycleRows
     .map((c) => Number(c.actualCycleTime))
@@ -310,10 +341,14 @@ export async function GET(req: NextRequest) {
   const scrapBySku = new Map<string, number>();
   const scrapByWo = new Map<string, number>();
 
+  const scrapRowsStart = nowMs();
   const scrapRows = await prisma.machineCycle.findMany({
     where: { ...baseWhere, ts: { gte: start, lte: end } },
     select: { sku: true, workOrderId: true, scrapDelta: true },
   });
+  if (perfEnabled) timings.scrapRows = elapsedMs(scrapRowsStart);
+
+  const postQueryStart = nowMs();
 
   for (const row of scrapRows) {
     const scrap = safeNum(row.scrapDelta);
@@ -340,20 +375,20 @@ export async function GET(req: NextRequest) {
 
 
 
-  return NextResponse.json({
+  const payload = {
     ok: true,
     summary: {
-    oeeAvg,
-    availabilityAvg,
-    performanceAvg,
-    qualityAvg,
-    goodTotal,
-    scrapTotal,
-    targetTotal,
-    scrapRate,
-    topScrapSku,
-    topScrapWorkOrder,
-  },
+      oeeAvg,
+      availabilityAvg,
+      performanceAvg,
+      qualityAvg,
+      goodTotal,
+      scrapTotal,
+      targetTotal,
+      scrapRate,
+      topScrapSku,
+      topScrapWorkOrder,
+    },
 
     downtime: {
       macrostopSec,
@@ -365,9 +400,36 @@ export async function GET(req: NextRequest) {
     },
     trend,
     insights,
-    distribution: { 
-      cycleTime: cycleTimeBins 
+    distribution: {
+      cycleTime: cycleTimeBins,
     },
+  };
 
-  });
+  const responseHeaders = new Headers();
+  if (perfEnabled) {
+    timings.postQuery = elapsedMs(postQueryStart);
+    timings.total = elapsedMs(totalStart);
+    responseHeaders.set("Server-Timing", formatServerTiming(timings));
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload));
+    logLine("perf.reports.api", {
+      orgId: session.orgId,
+      coldStart,
+      uptimeMs,
+      range,
+      machineId,
+      workOrderId,
+      sku,
+      timings,
+      rowCounts: {
+        kpiRows: kpiRows.length,
+        cycles: cycles.length,
+        events: events.length,
+        cycleRows: cycleRows.length,
+        scrapRows: scrapRows.length,
+      },
+      payloadBytes,
+    });
+  }
+
+  return NextResponse.json(payload, { headers: responseHeaders });
 }

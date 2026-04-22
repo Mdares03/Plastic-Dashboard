@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 
-export default function LegacyDowntimeParetoPage({
+export default async function LegacyDowntimeParetoPage({
   searchParams,
 }: {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const params = await searchParams;
   const qs = new URLSearchParams();
-  for (const [k, v] of Object.entries(searchParams)) {
+  for (const [k, v] of Object.entries(params)) {
     if (typeof v === "string") qs.set(k, v);
     else if (Array.isArray(v)) v.forEach((vv) => qs.append(k, vv));
   }

@@ -1,8 +1,17 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { createHash } from "crypto";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
+import {
+  FINANCIAL_CONFIG_SWR_SEC,
+  FINANCIAL_CONFIG_TTL_SEC,
+  getFinancialConfig,
+  type FinancialConfigPayload,
+} from "@/lib/financial/cache";
 
 function canManageFinancials(role?: string | null) {
   return role === "OWNER";
@@ -101,18 +110,37 @@ async function ensureOrgFinancialProfile(
   });
 }
 
-async function loadFinancialConfig(orgId: string) {
-  const [org, locations, machines, products] = await Promise.all([
-    prisma.orgFinancialProfile.findUnique({ where: { orgId } }),
-    prisma.locationFinancialOverride.findMany({ where: { orgId }, orderBy: { location: "asc" } }),
-    prisma.machineFinancialOverride.findMany({ where: { orgId }, orderBy: { createdAt: "desc" } }),
-    prisma.productCostOverride.findMany({ where: { orgId }, orderBy: { sku: "asc" } }),
-  ]);
-
-  return { org, locations, machines, products };
+function toMs(value?: Date | string | null) {
+  if (!value) return 0;
+  const date = typeof value === "string" ? new Date(value) : value;
+  const ms = date.getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
-export async function GET() {
+function maxUpdatedMs(rows: Array<{ updatedAt?: Date | string | null }>) {
+  let max = 0;
+  for (const row of rows) {
+    const ms = toMs(row.updatedAt);
+    if (ms > max) max = ms;
+  }
+  return max;
+}
+
+function buildConfigEtag(orgId: string, payload: FinancialConfigPayload) {
+  const parts = [
+    orgId,
+    toMs(payload.org?.updatedAt),
+    maxUpdatedMs(payload.locations ?? []),
+    maxUpdatedMs(payload.machines ?? []),
+    maxUpdatedMs(payload.products ?? []),
+    payload.locations?.length ?? 0,
+    payload.machines?.length ?? 0,
+    payload.products?.length ?? 0,
+  ];
+  return `W/"${createHash("sha1").update(parts.join("|")).digest("hex")}"`;
+}
+
+export async function GET(req: NextRequest) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
@@ -124,9 +152,25 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
+  const url = new URL(req.url);
+  const refresh = url.searchParams.get("refresh") === "1";
+
   await prisma.$transaction((tx) => ensureOrgFinancialProfile(tx, session.orgId, session.userId));
-  const payload = await loadFinancialConfig(session.orgId);
-  return NextResponse.json({ ok: true, ...payload });
+  const payload = await getFinancialConfig(session.orgId, { refresh });
+
+  const etag = buildConfigEtag(session.orgId, payload);
+  const responseHeaders = new Headers({
+    "Cache-Control": `private, max-age=${FINANCIAL_CONFIG_TTL_SEC}, stale-while-revalidate=${FINANCIAL_CONFIG_SWR_SEC}`,
+    ETag: etag,
+    Vary: "Cookie",
+  });
+
+  const ifNoneMatch = req.headers.get("if-none-match");
+  if (!refresh && ifNoneMatch && ifNoneMatch === etag) {
+    return new NextResponse(null, { status: 304, headers: responseHeaders });
+  }
+
+  return NextResponse.json({ ok: true, ...payload }, { headers: responseHeaders });
 }
 
 export async function POST(req: Request) {
@@ -257,6 +301,9 @@ export async function POST(req: Request) {
     }
   });
 
-  const payload = await loadFinancialConfig(session.orgId);
+  revalidateTag(`financial-config:${session.orgId}`, { expire: 0 });
+  revalidateTag(`financial-impact:${session.orgId}`, { expire: 0 });
+
+  const payload = await getFinancialConfig(session.orgId, { refresh: true });
   return NextResponse.json({ ok: true, ...payload });
 }

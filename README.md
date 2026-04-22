@@ -75,7 +75,24 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mis-control-tower-reminders.timer
 ```
 
-## Learn More
+## Production build and deploy
+
+**Dev uses Turbopack, production build uses Webpack.** Next.js 16 defaults to Turbopack for both, but Turbopack production builds have known issues. This project uses:
+
+- `npm run dev` → `next dev --turbopack` (fast dev)
+- `npm run build` → `next build --webpack` (stable production build)
+
+**When deploying** (e.g. for `https://mis.maliountech.com.mx`):
+
+1. **Build:** Run `npm run build` (Webpack).
+2. **Start:** Run `npm run start` (or your process manager) to serve the built app.
+3. If you previously built with Turbopack, run `rm -rf .next` then `npm run build` for a clean Webpack build.
+4. Hard-refresh the browser (or clear site data) after redeploying so clients don’t load old Turbopack chunks.
+
+## Logging and debugging
+
+See **[LOGGING.md](./LOGGING.md)** for where errors are logged (log file, process stdout, optional `/api/debug/logs`), how to tail them, and how to debug "Internal Server Error".
+
 
 To learn more about Next.js, take a look at the following resources:
 

@@ -1,6 +1,10 @@
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import {
+  fetchLatestHeartbeats,
+  fetchMachineBase,
+  mergeMachineOverviewRows,
+} from "@/lib/machines/withLatest";
 import MachinesClient from "./MachinesClient";
 
 function toIso(value?: Date | null) {
@@ -11,34 +15,32 @@ export default async function MachinesPage() {
   const session = await requireSession();
   if (!session) redirect("/login?next=/machines");
 
-  const machines = await prisma.machine.findMany({
-    where: { orgId: session.orgId },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      location: true,
-      createdAt: true,
-      updatedAt: true,
-      heartbeats: {
-        orderBy: { tsServer: "desc" },
-        take: 1,
-        select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true },
-      },
-    },
+  const machines = await fetchMachineBase(session.orgId);
+  const heartbeats = await fetchLatestHeartbeats(
+    session.orgId,
+    machines.map((machine) => machine.id)
+  );
+  const rows = mergeMachineOverviewRows({
+    machines,
+    heartbeats,
+    includeKpi: false,
   });
 
-  const initialMachines = machines.map((machine) => ({
-    ...machine,
-    latestHeartbeat: machine.heartbeats[0]
+  const initialMachines = rows.map((machine) => ({
+    id: machine.id,
+    name: machine.name,
+    code: machine.code ?? null,
+    location: machine.location ?? null,
+    latestHeartbeat: machine.latestHeartbeat
       ? {
-          ...machine.heartbeats[0],
-          ts: toIso(machine.heartbeats[0].ts) ?? "",
-          tsServer: toIso(machine.heartbeats[0].tsServer),
+          ts: toIso(machine.latestHeartbeat.ts) ?? "",
+          tsServer: toIso(machine.latestHeartbeat.tsServer),
+          status: machine.latestHeartbeat.status,
+          message: machine.latestHeartbeat.message ?? null,
+          ip: machine.latestHeartbeat.ip ?? null,
+          fwVersion: machine.latestHeartbeat.fwVersion ?? null,
         }
       : null,
-    heartbeats: undefined,
   }));
 
   return <MachinesClient initialMachines={initialMachines} />;

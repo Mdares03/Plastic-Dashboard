@@ -33,6 +33,48 @@ function unwrapEnvelope(raw: unknown) {
   };
 }
 
+function asNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
+function normalizeCycleInput(raw: unknown): Record<string, unknown> | null {
+  const row = asRecord(raw);
+  if (!row) return null;
+  const data = asRecord(row.data);
+
+  const fromRowOrData = (keys: string[]) => {
+    for (const key of keys) {
+      if (row[key] !== undefined) return row[key];
+      if (data && data[key] !== undefined) return data[key];
+    }
+    return undefined;
+  };
+
+  return {
+    ...row,
+    actual_cycle_time: fromRowOrData(["actual_cycle_time", "actualCycleTime", "actual_cycle", "actual"]),
+    theoretical_cycle_time: fromRowOrData([
+      "theoretical_cycle_time",
+      "theoreticalCycleTime",
+      "cycleTime",
+      "cycle_time",
+      "ideal",
+    ]),
+    cycle_count: fromRowOrData(["cycle_count", "cycleCount"]),
+    work_order_id: fromRowOrData(["work_order_id", "workOrderId"]),
+    good_delta: fromRowOrData(["good_delta", "goodDelta"]),
+    scrap_delta: fromRowOrData(["scrap_delta", "scrapDelta", "scrap_total"]),
+    timestamp: fromRowOrData(["timestamp", "tsMs"]),
+    ts: fromRowOrData(["ts", "tsMs"]),
+    event_timestamp: fromRowOrData(["event_timestamp", "eventTimestamp"]),
+  };
+}
+
 const numberFromAny = z.preprocess((value) => {
   if (typeof value === "number") return value;
   if (typeof value === "string" && value.trim() !== "") return Number(value);
@@ -87,15 +129,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
-  const cycleList = Array.isArray(cyclesRaw) ? cyclesRaw : [cyclesRaw];
+  const cycleList = (Array.isArray(cyclesRaw) ? cyclesRaw : [cyclesRaw])
+    .map((row) => normalizeCycleInput(row))
+    .filter((row): row is Record<string, unknown> => !!row);
+
+  if (!cycleList.length) {
+    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  }
+
   const parsedCycles = z.array(cycleSchema).safeParse(cycleList);
   if (!parsedCycles.success) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
 
   const fallbackTsMs =
-    (typeof bodyRecord.tsMs === "number" && bodyRecord.tsMs) ||
-    (typeof bodyRecord.tsDevice === "number" && bodyRecord.tsDevice) ||
+    asNumber(bodyRecord.tsMs) ||
+    asNumber(bodyRecord.tsDevice) ||
     undefined;
 
   const rows = parsedCycles.data.map((data) => {

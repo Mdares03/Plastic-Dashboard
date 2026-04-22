@@ -1,11 +1,25 @@
 import { NextResponse } from "next/server";
 import { randomBytes } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
 import { generatePairingCode } from "@/lib/pairingCode";
 import { z } from "zod";
+import { logLine } from "@/lib/logger";
+import { elapsedMs, formatServerTiming, nowMs, PERF_LOGS_ENABLED } from "@/lib/perf/serverTiming";
+import { requireSession } from "@/lib/auth/requireSession";
+import {
+  fetchLatestHeartbeats,
+  fetchLatestKpis,
+  fetchMachineBase,
+  mergeMachineOverviewRows,
+} from "@/lib/machines/withLatest";
 
-const COOKIE_NAME = "mis_session";
+let machinesColdStart = true;
+
+function getColdStartInfo() {
+  const coldStart = machinesColdStart;
+  machinesColdStart = false;
+  return { coldStart, uptimeMs: Math.round(process.uptime() * 1000) };
+}
 
 const createMachineSchema = z.object({
   name: z.string().trim().min(1).max(80),
@@ -13,72 +27,66 @@ const createMachineSchema = z.object({
   location: z.string().trim().max(80).optional(),
 });
 
-async function requireSession() {
-  const sessionId = (await cookies()).get(COOKIE_NAME)?.value;
-  if (!sessionId) return null;
+export async function GET(req: Request) {
+  const perfEnabled = PERF_LOGS_ENABLED;
+  const totalStart = nowMs();
+  const timings: Record<string, number> = {};
+  const { coldStart, uptimeMs } = getColdStartInfo();
+  const url = new URL(req.url);
+  const includeKpi = url.searchParams.get("includeKpi") === "1";
 
-  const session = await prisma.session.findFirst({
-    where: { id: sessionId, revokedAt: null, expiresAt: { gt: new Date() } },
-    include: { org: true, user: true },
-  });
-
-  if (!session || !session.user?.isActive || !session.user?.emailVerifiedAt) {
-    return null;
-  }
-
-  return session;
-}
-
-export async function GET() {
+  const authStart = nowMs();
   const session = await requireSession();
+  if (perfEnabled) timings.auth = elapsedMs(authStart);
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
-  const machines = await prisma.machine.findMany({
-    where: { orgId: session.orgId },
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      code: true,
-      location: true,
-      createdAt: true,
-      updatedAt: true,
-      heartbeats: {
-        orderBy: { tsServer: "desc" },
-        take: 1,
-        select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true },
-      },
-      kpiSnapshots: {
-        orderBy: { ts: "desc" },
-        take: 1,
-        select: {
-          ts: true,
-          oee: true,
-          availability: true,
-          performance: true,
-          quality: true,
-          workOrderId: true,
-          sku: true,
-          good: true,
-          scrap: true,
-          target: true,
-          cycleTime: true,
-        },
-      },
-    },
-  });
+  const preQueryStart = nowMs();
+  const machinesStart = nowMs();
+  if (perfEnabled) timings.preQuery = elapsedMs(preQueryStart);
+  const machines = await fetchMachineBase(session.orgId);
+  if (perfEnabled) timings.machinesQuery = elapsedMs(machinesStart);
 
+  const heartbeatStart = nowMs();
+  const machineIds = machines.map((machine) => machine.id);
+  const heartbeats = await fetchLatestHeartbeats(session.orgId, machineIds);
+  if (perfEnabled) timings.heartbeatsQuery = elapsedMs(heartbeatStart);
+
+  let kpis: Awaited<ReturnType<typeof fetchLatestKpis>> = [];
+  if (includeKpi) {
+    const kpiStart = nowMs();
+    kpis = await fetchLatestKpis(session.orgId, machineIds);
+    if (perfEnabled) timings.kpiQuery = elapsedMs(kpiStart);
+  }
+
+  const postQueryStart = nowMs();
 
   // flatten latest heartbeat for UI convenience
-  const out = machines.map((m) => ({
-    ...m,
-    latestHeartbeat: m.heartbeats[0] ?? null,
-    latestKpi: m.kpiSnapshots[0] ?? null,
-    heartbeats: undefined,
-    kpiSnapshots: undefined,
-  }));
+  const out = mergeMachineOverviewRows({
+    machines,
+    heartbeats,
+    kpis,
+    includeKpi,
+  });
 
-  return NextResponse.json({ ok: true, machines: out });
+  const payload = { ok: true, machines: out };
+
+  const responseHeaders = new Headers();
+  if (perfEnabled) {
+    timings.postQuery = elapsedMs(postQueryStart);
+    timings.total = elapsedMs(totalStart);
+    responseHeaders.set("Server-Timing", formatServerTiming(timings));
+    const payloadBytes = Buffer.byteLength(JSON.stringify(payload));
+    logLine("perf.machines.api", {
+      orgId: session.orgId,
+      coldStart,
+      uptimeMs,
+      timings,
+      counts: { machines: out.length },
+      payloadBytes,
+    });
+  }
+
+  return NextResponse.json(payload, { headers: responseHeaders });
 }
 
 export async function POST(req: Request) {

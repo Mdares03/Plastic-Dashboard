@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Bell, DollarSign, LayoutGrid, LogOut, Settings, Wrench, X } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { BarChart3, Bell, DollarSign, LayoutGrid, Loader2, LogOut, Settings, Wrench, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 
+const PERF_ENABLED = process.env.NEXT_PUBLIC_PERF_LOGS === "1";
+const NAV_MARK_KEY = "perf_nav_start";
 
 type NavItem = {
   href: string;
@@ -38,6 +40,8 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
   const router = useRouter();
   const { t } = useI18n();
   const { screenlessMode } = useScreenlessMode();
+  const [isPending, startTransition] = useTransition();
+  const [pendingHref, setPendingHref] = useState<string | null>(null);
   const [me, setMe] = useState<{
     user?: { name?: string | null; email?: string | null };
     org?: { name?: string | null };
@@ -93,13 +97,33 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
     }
   }, [screenlessMode, pathname, router]);
 
-
-
   useEffect(() => {
-    visibleItems.forEach((it) => {
-      router.prefetch(it.href);
-    });
-  }, [router, visibleItems]);
+    if (!pendingHref) return;
+    if (pathname === pendingHref || pathname.startsWith(`${pendingHref}/`)) {
+      setPendingHref(null);
+    } else if (!isPending) {
+      setPendingHref(null);
+    }
+  }, [pathname, pendingHref, isPending]);
+
+  const markNavStart = (href: string) => {
+    if (!PERF_ENABLED) return;
+    try {
+      sessionStorage.setItem(
+        NAV_MARK_KEY,
+        JSON.stringify({
+          href,
+          from: pathname,
+          ts: Date.now(),
+        })
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  // Prefetch disabled: Next.js 16 has RSC prefetch bugs that can cause 404 on
+  // client-side navigation (see e.g. vercel/next.js#85374). Use fresh fetch on click.
   const shellClass = [
     "relative z-20 flex flex-col border-r border-white/10 bg-black/40 shrink-0",
     variant === "desktop" ? "hidden md:flex h-screen w-64" : "flex h-full w-72 max-w-[85vw]",
@@ -126,23 +150,53 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
 
       <nav className="px-3 py-2 flex-1 space-y-1">
         {visibleItems.map((it) => {
-          const active = pathname === it.href || pathname.startsWith(it.href + "/");
+          const isCurrent = pathname === it.href;
+          const active = isCurrent || pathname.startsWith(it.href + "/");
+          const isPendingItem = isPending && pendingHref === it.href;
+          const navLocked = isPending;
           const Icon = it.icon;
           return (
             <Link
               key={it.href}
               href={it.href}
-              onMouseEnter={() => router.prefetch(it.href)}
-              onClick={onNavigate}
+              prefetch={false}
+              aria-disabled={navLocked}
+              onClick={(event) => {
+                if (
+                  navLocked ||
+                  event.defaultPrevented ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.altKey ||
+                  event.ctrlKey ||
+                  event.shiftKey
+                ) {
+                  return;
+                }
+                if (isCurrent) {
+                  onNavigate?.();
+                  return;
+                }
+                event.preventDefault();
+                markNavStart(it.href);
+                setPendingHref(it.href);
+                startTransition(() => {
+                  router.push(it.href);
+                });
+                onNavigate?.();
+              }}
               className={[
                 "flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition",
                 active
                   ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
                   : "text-zinc-300 hover:bg-white/5 hover:text-white",
+                navLocked ? "pointer-events-none" : "",
+                navLocked && !isPendingItem ? "opacity-60" : "",
               ].join(" ")}
             >
               <Icon className="h-4 w-4" />
               <span>{t(it.labelKey)}</span>
+              {isPendingItem ? <Loader2 className="ml-auto h-4 w-4 animate-spin text-emerald-300" /> : null}
             </Link>
           );
         })}

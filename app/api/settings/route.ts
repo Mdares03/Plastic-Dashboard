@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { createHash } from "crypto";
+import { revalidateTag, unstable_cache } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
@@ -13,8 +16,10 @@ import {
   validateDefaults,
   validateShiftFields,
   validateShiftSchedule,
+  validateShiftOverrides,
   validateThresholds,
 } from "@/lib/settings";
+import { loadFallbackReasonCatalog, normalizeReasonCatalog, type ReasonCatalog } from "@/lib/reasonCatalog";
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
@@ -34,6 +39,24 @@ function canManageSettings(role?: string | null) {
   return role === "OWNER" || role === "ADMIN";
 }
 
+function withReasonCatalog<T extends Record<string, unknown>>(payload: T, fallbackCatalog: ReasonCatalog) {
+  const base = (isPlainObject(payload) ? { ...payload } : {}) as T;
+  const defaults = isPlainObject(base.defaults) ? base.defaults : {};
+  const parsed =
+    normalizeReasonCatalog(base.reasonCatalog) ??
+    normalizeReasonCatalog(base.reasonCatalogData) ??
+    normalizeReasonCatalog(defaults.reasonCatalog) ??
+    normalizeReasonCatalog(defaults.reasonCatalogData) ??
+    fallbackCatalog;
+
+  return {
+    ...base,
+    reasonCatalog: parsed,
+    reasonCatalogData: parsed,
+    reasonCatalogVersion: Number(parsed.version || 1),
+  };
+}
+
 const settingsPayloadSchema = z
   .object({
     source: z.string().trim().max(40).optional(),
@@ -43,9 +66,13 @@ const settingsPayloadSchema = z
     thresholds: z.any().optional(),
     alerts: z.any().optional(),
     defaults: z.any().optional(),
+    reasonCatalog: z.any().optional(),
     version: z.union([z.number(), z.string()]).optional(),
   })
   .passthrough();
+
+const SETTINGS_TTL_SEC = 10;
+const SETTINGS_SWR_SEC = 30;
 
 async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, userId: string) {
   let settings = await tx.orgSettings.findUnique({
@@ -111,24 +138,56 @@ async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, us
   return { settings, shifts };
 }
 
-export async function GET() {
+async function loadSettingsPayload(orgId: string, userId: string) {
+  const loaded = await prisma.$transaction(async (tx) => {
+    const found = await ensureOrgSettings(tx, orgId, userId);
+    if (!found?.settings) throw new Error("SETTINGS_NOT_FOUND");
+    return found;
+  });
+
+  const fallbackCatalog = await loadFallbackReasonCatalog();
+  const payload = withReasonCatalog(buildSettingsPayload(loaded.settings, loaded.shifts ?? []), fallbackCatalog);
+  const defaultsRaw = isPlainObject(loaded.settings.defaultsJson) ? (loaded.settings.defaultsJson as any) : {};
+  const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
+  const modules = { screenlessMode: modulesRaw.screenlessMode === true };
+
+  return { payload, modules };
+}
+
+async function loadSettingsCached(orgId: string, userId: string) {
+  const cached = unstable_cache(
+    () => loadSettingsPayload(orgId, userId),
+    ["settings", orgId],
+    { revalidate: SETTINGS_TTL_SEC, tags: [`settings:${orgId}`] }
+  );
+  return cached();
+}
+
+export async function GET(req: NextRequest) {
   const session = await requireSession();
   if (!session) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
 
   try {
-    const loaded = await prisma.$transaction(async (tx) => {
-      const found = await ensureOrgSettings(tx, session.orgId, session.userId);
-      if (!found?.settings) throw new Error("SETTINGS_NOT_FOUND");
-      return found;
+    const url = new URL(req.url);
+    const refresh = url.searchParams.get("refresh") === "1";
+    const { payload, modules } = refresh
+      ? await loadSettingsPayload(session.orgId, session.userId)
+      : await loadSettingsCached(session.orgId, session.userId);
+
+    const version = payload.version ?? 0;
+    const etag = `W/"${createHash("sha1").update(`${session.orgId}:${version}`).digest("hex")}"`;
+    const responseHeaders = new Headers({
+      "Cache-Control": `private, max-age=${SETTINGS_TTL_SEC}, stale-while-revalidate=${SETTINGS_SWR_SEC}`,
+      ETag: etag,
+      Vary: "Cookie",
     });
 
-    const payload = buildSettingsPayload(loaded.settings, loaded.shifts ?? []);
+    const ifNoneMatch = req.headers.get("if-none-match");
+    if (!refresh && ifNoneMatch && ifNoneMatch === etag) {
+      return new NextResponse(null, { status: 304, headers: responseHeaders });
+    }
 
-    const defaultsRaw = isPlainObject(loaded.settings.defaultsJson) ? (loaded.settings.defaultsJson as any) : {};
-    const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
-    const modules = { screenlessMode: modulesRaw.screenlessMode === true };
-
-    return NextResponse.json({ ok: true, settings: { ...payload, modules } });
+    return NextResponse.json({ ok: true, settings: { ...payload, modules } }, { headers: responseHeaders });
 
   } catch (err) {
     console.error("[settings GET] failed", err);
@@ -162,6 +221,7 @@ export async function PUT(req: Request) {
     const thresholds = parsed.data.thresholds;
     const alerts = parsed.data.alerts;
     const defaults = parsed.data.defaults;
+    const reasonCatalogRaw = parsed.data.reasonCatalog;
     const expectedVersion = parsed.data.version;
     const modules = parsed.data.modules;
 
@@ -173,6 +233,7 @@ export async function PUT(req: Request) {
       thresholds === undefined &&
       alerts === undefined &&
       defaults === undefined &&
+      reasonCatalogRaw === undefined &&
       modules === undefined
 
     ) {
@@ -191,6 +252,13 @@ export async function PUT(req: Request) {
     if (defaults !== undefined && !isPlainObject(defaults)) {
       return NextResponse.json({ ok: false, error: "defaults must be an object" }, { status: 400 });
     }
+    const nextReasonCatalog =
+      reasonCatalogRaw === undefined || reasonCatalogRaw === null
+        ? reasonCatalogRaw
+        : normalizeReasonCatalog(reasonCatalogRaw);
+    if (reasonCatalogRaw !== undefined && reasonCatalogRaw !== null && !nextReasonCatalog) {
+      return NextResponse.json({ ok: false, error: "reasonCatalog must be a valid catalog payload" }, { status: 400 });
+    }
     if (modules !== undefined && !isPlainObject(modules)) {
       return NextResponse.json({ ok: false, error: "Invalid modules payload" }, { status: 400 });
     }
@@ -208,6 +276,14 @@ export async function PUT(req: Request) {
     );
     if (!shiftValidation.ok) {
       return NextResponse.json({ ok: false, error: shiftValidation.error }, { status: 400 });
+    }
+
+    const overridesResult =
+      shiftSchedule?.overrides !== undefined
+        ? validateShiftOverrides(shiftSchedule.overrides)
+        : ({ ok: true, overrides: undefined } as const);
+    if (!overridesResult.ok) {
+      return NextResponse.json({ ok: false, error: overridesResult.error }, { status: 400 });
     }
 
     const thresholdsValidation = validateThresholds(thresholds);
@@ -257,11 +333,21 @@ export async function PUT(req: Request) {
         : { ...currentModulesRaw, screenlessMode };
 
     // Write defaultsJson if either defaults changed OR modules changed
-    const shouldWriteDefaultsJson = !!nextDefaultsCore || screenlessMode !== undefined;
+    const shouldWriteDefaultsJson =
+      !!nextDefaultsCore || screenlessMode !== undefined || reasonCatalogRaw !== undefined;
 
     const nextDefaultsJson = shouldWriteDefaultsJson
       ? { ...(nextDefaultsCore ?? normalizeDefaults(currentDefaultsRaw)), modules: nextModules }
       : undefined;
+
+    if (nextDefaultsJson && reasonCatalogRaw !== undefined) {
+      const defaultsTarget = nextDefaultsJson as Record<string, unknown>;
+      if (nextReasonCatalog === null) {
+        delete defaultsTarget.reasonCatalog;
+      } else if (nextReasonCatalog) {
+        defaultsTarget.reasonCatalog = nextReasonCatalog;
+      }
+    }
 
 
     const updateData = stripUndefined({
@@ -272,6 +358,12 @@ export async function PUT(req: Request) {
           : undefined,
       lunchBreakMin:
         shiftSchedule?.lunchBreakMin !== undefined ? Number(shiftSchedule.lunchBreakMin) : undefined,
+      shiftScheduleOverridesJson:
+        shiftSchedule?.overrides !== undefined
+          ? overridesResult.overrides === null
+            ? null
+            : overridesResult.overrides
+          : undefined,
       stoppageMultiplier:
         thresholds?.stoppageMultiplier !== undefined ? Number(thresholds.stoppageMultiplier) : undefined,
       macroStoppageMultiplier:
@@ -372,6 +464,8 @@ export async function PUT(req: Request) {
     const defaultsRaw = isPlainObject(updated.settings.defaultsJson) ? (updated.settings.defaultsJson as any) : {};
     const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
     const modulesOut = { screenlessMode: modulesRaw.screenlessMode === true };
+
+    revalidateTag(`settings:${session.orgId}`, { expire: 0 });
 
     return NextResponse.json({ ok: true, settings: { ...payload, modules: modulesOut } });
 

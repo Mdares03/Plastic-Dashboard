@@ -1,3 +1,4 @@
+import { normalizeShiftOverrides } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
 
 const RANGE_MS: Record<string, number> = {
@@ -19,6 +20,26 @@ type AlertsInboxParams = {
   shift?: string;
   includeUpdates?: boolean;
   limit?: number;
+};
+
+type AlertsInboxEvent = {
+  id: string;
+  ts: Date;
+  eventType: string;
+  severity: string;
+  title: string;
+  description?: string | null;
+  machineId: string;
+  machineName?: string | null;
+  location?: string | null;
+  workOrderId?: string | null;
+  sku?: string | null;
+  durationSec?: number | null;
+  status?: string | null;
+  shift?: string | null;
+  alertId?: string | null;
+  isUpdate?: boolean;
+  isAutoAck?: boolean;
 };
 
 function pickRange(range: string, start?: Date | null, end?: Date | null) {
@@ -48,6 +69,19 @@ function safeNumber(value: unknown) {
 
 function safeBool(value: unknown) {
   return value === true;
+}
+
+function normalizeStatus(value?: string | null) {
+  if (!value) return null;
+  const raw = value.trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "in_progress" || raw === "in-progress" || raw === "open" || raw === "activa" || raw === "activo") {
+    return "active";
+  }
+  if (raw === "resuelta" || raw === "resuelto" || raw === "closed" || raw === "ended" || raw === "done") {
+    return "resolved";
+  }
+  return raw;
 }
 
 function parsePayload(raw: unknown) {
@@ -131,17 +165,54 @@ function getLocalMinutes(ts: Date, timeZone: string) {
   }
 }
 
+const WEEKDAY_KEY_MAP: Record<string, string> = {
+  Sun: "sun",
+  Mon: "mon",
+  Tue: "tue",
+  Wed: "wed",
+  Thu: "thu",
+  Fri: "fri",
+  Sat: "sat",
+};
+
+const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+function getLocalDayKey(ts: Date, timeZone: string) {
+  try {
+    const weekday = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      weekday: "short",
+    }).format(ts);
+    return WEEKDAY_KEY_MAP[weekday] ?? WEEKDAY_KEYS[ts.getUTCDay()];
+  } catch {
+    return WEEKDAY_KEYS[ts.getUTCDay()];
+  }
+}
+
+type ShiftLike = {
+  name: string;
+  startTime?: string | null;
+  endTime?: string | null;
+  start?: string | null;
+  end?: string | null;
+  enabled?: boolean;
+};
+
 function resolveShift(
-  shifts: Array<{ name: string; startTime: string; endTime: string; enabled?: boolean }>,
+  shifts: ShiftLike[],
+  overrides: Record<string, ShiftLike[]> | undefined,
   ts: Date,
   timeZone: string
 ) {
-  if (!shifts.length) return null;
+  const dayKey = getLocalDayKey(ts, timeZone);
+  const dayOverrides = overrides?.[dayKey];
+  const activeShifts = dayOverrides ?? shifts;
+  if (!activeShifts.length) return null;
   const nowMin = getLocalMinutes(ts, timeZone);
-  for (const shift of shifts) {
+  for (const shift of activeShifts) {
     if (shift.enabled === false) continue;
-    const start = parseTimeMinutes(shift.startTime);
-    const end = parseTimeMinutes(shift.endTime);
+    const start = parseTimeMinutes(shift.startTime ?? shift.start ?? null);
+    const end = parseTimeMinutes(shift.endTime ?? shift.end ?? null);
     if (start == null || end == null) continue;
     if (start <= end) {
       if (nowMin >= start && nowMin < end) return shift.name;
@@ -150,6 +221,34 @@ function resolveShift(
     }
   }
   return null;
+}
+
+function collapseAlertEvents(events: AlertsInboxEvent[]) {
+  const byAlert = new Map<string, AlertsInboxEvent>();
+  const passthrough: AlertsInboxEvent[] = [];
+
+  for (const ev of events) {
+    if (!ev.alertId) {
+      passthrough.push(ev);
+      continue;
+    }
+    const statusKey = ev.status === "resolved" ? "resolved" : "active";
+    const key = `${ev.alertId}:${statusKey}`;
+    const existing = byAlert.get(key);
+    if (!existing) {
+      byAlert.set(key, ev);
+      continue;
+    }
+    const pickNewest = statusKey === "resolved";
+    const shouldReplace = pickNewest
+      ? ev.ts.getTime() > existing.ts.getTime()
+      : ev.ts.getTime() < existing.ts.getTime();
+    if (shouldReplace) byAlert.set(key, ev);
+  }
+
+  const combined = [...passthrough, ...byAlert.values()];
+  combined.sort((a, b) => b.ts.getTime() - a.ts.getTime());
+  return combined;
 }
 
 export async function getAlertsInboxData(params: AlertsInboxParams) {
@@ -213,12 +312,13 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
     }),
     prisma.orgSettings.findUnique({
       where: { orgId },
-      select: { timezone: true },
+      select: { timezone: true, shiftScheduleOverridesJson: true },
     }),
   ]);
 
   const timeZone = settings?.timezone || "UTC";
-  const mapped = [];
+  const shiftOverrides = normalizeShiftOverrides(settings?.shiftScheduleOverridesJson);
+  const mapped: AlertsInboxEvent[] = [];
 
   for (const ev of events) {
     const { payload, inner } = parsePayload(ev.data);
@@ -227,10 +327,10 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
     const isAutoAck = safeBool(payload?.is_auto_ack ?? inner?.is_auto_ack);
     if (!includeUpdates && (isUpdate || isAutoAck)) continue;
 
-    const shiftName = resolveShift(shifts, ev.ts, timeZone);
+    const shiftName = resolveShift(shifts, shiftOverrides, ev.ts, timeZone);
     if (normalizedShift && shiftName !== normalizedShift) continue;
 
-    const statusLabel = rawStatus ? rawStatus.toLowerCase() : "unknown";
+    const statusLabel = normalizeStatus(rawStatus) ?? "unknown";
     if (normalizedStatus && statusLabel !== normalizedStatus) continue;
 
     mapped.push({
@@ -254,8 +354,10 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
     });
   }
 
+  const finalEvents = includeUpdates ? mapped : collapseAlertEvents(mapped);
+
   return {
     range: { range: picked.range, start: picked.start, end: picked.end },
-    events: mapped,
+    events: finalEvents,
   };
 }

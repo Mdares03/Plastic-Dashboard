@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { normalizeSnapshotV1 } from "@/lib/contracts/v1";
 import { toJsonValue } from "@/lib/prismaJson";
+import { logLine } from "@/lib/logger";
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
@@ -21,11 +22,68 @@ function parseSeqToBigInt(seq: unknown): bigint | null {
   return null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readPath(root: unknown, path: string[]): unknown {
+  let current = root;
+  for (const key of path) {
+    const record = asRecord(current);
+    if (!record) return undefined;
+    current = record[key];
+  }
+  return current;
+}
+
+function collectQualityTrace(params: {
+  rawBody: unknown;
+  normalizedKpis: Record<string, unknown> | null;
+  persistedQuality: number | null;
+  machineId: string;
+  rowId: string;
+}) {
+  const { rawBody, normalizedKpis, persistedQuality, machineId, rowId } = params;
+  const candidates = [
+    "kpis.quality",
+    "payload.kpis.quality",
+    "kpi_snapshot.quality",
+    "quality",
+    "payload.quality",
+  ] as const;
+
+  const rawQualityCandidates: Record<string, { type: string; value: unknown }> = {};
+  for (const path of candidates) {
+    const value = readPath(rawBody, path.split("."));
+    rawQualityCandidates[path] = {
+      type: value === null ? "null" : typeof value,
+      value,
+    };
+  }
+
+  const normalizedQuality = normalizedKpis?.quality;
+  return {
+    machineId,
+    rowId,
+    rawQualityCandidates,
+    normalizedQuality: {
+      type: normalizedQuality === null ? "null" : typeof normalizedQuality,
+      value: normalizedQuality ?? null,
+    },
+    persistedQuality: {
+      type: persistedQuality === null ? "null" : typeof persistedQuality,
+      value: persistedQuality,
+    },
+  };
+}
+
 export async function POST(req: Request) {
   const endpoint = "/api/ingest/kpi";
   const startedAt = Date.now();
   const ip = getClientIp(req);
   const userAgent = req.headers.get("user-agent");
+  const traceEnabled = process.env.TRACE_KPI_INGEST === "1" || req.headers.get("x-debug-ingest") === "1";
 
   let rawBody: unknown = null;
   let orgId: string | null = null;
@@ -182,11 +240,33 @@ export async function POST(req: Request) {
       },
     });
 
+    const trace = collectQualityTrace({
+      rawBody,
+      normalizedKpis: asRecord(k),
+      persistedQuality: row.quality ?? null,
+      machineId: machine.id,
+      rowId: row.id,
+    });
+    if (traceEnabled) {
+      logLine("ingest.kpi.trace", {
+        endpoint,
+        machineId: machine.id,
+        orgId,
+        schemaVersion,
+        seq: seq != null ? seq.toString() : null,
+        ip,
+        userAgent,
+        trace,
+        rawBody: toJsonValue(rawBody),
+      });
+    }
+
     return NextResponse.json({
       ok: true,
       id: row.id,
       tsDevice: row.ts,
       tsServer: row.tsServer,
+      trace: traceEnabled ? trace : undefined,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";

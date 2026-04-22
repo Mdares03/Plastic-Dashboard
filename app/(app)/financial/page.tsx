@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
-import { computeFinancialImpact } from "@/lib/financial/impact";
+import { getFinancialImpactCached } from "@/lib/financial/cache";
 import FinancialClient from "./FinancialClient";
 
 const RANGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -28,7 +28,7 @@ export default async function FinancialPage() {
 
   const end = new Date();
   const start = new Date(end.getTime() - RANGE_MS);
-  const impact = await computeFinancialImpact({
+  const impact = await getFinancialImpactCached({
     orgId: session.orgId,
     start,
     end,

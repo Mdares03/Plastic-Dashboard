@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 
 type MachineAuth = { id: string; orgId: string };
 
-const TTL_MS = 60_000;
+const TTL_MS = 10_000;
 const MAX_SIZE = 1000;
 const cache = new Map<string, { value: MachineAuth; expiresAt: number }>();
 
@@ -35,4 +35,13 @@ export async function getMachineAuth(machineId: string, apiKey: string) {
 
   cache.set(key, { value: machine, expiresAt: now + TTL_MS });
   return machine;
+}
+
+export function invalidateMachineAuth(machineId: string) {
+  const prefix = `${machineId}:`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key);
+    }
+  }
 }

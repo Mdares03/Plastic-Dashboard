@@ -146,6 +146,7 @@ model Machine {
 
   @@unique([orgId, name])
   @@index([orgId])
+  @@index([orgId, createdAt])
 }
 
 model MachineHeartbeat {
@@ -166,6 +167,7 @@ model MachineHeartbeat {
   machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
 
   @@index([orgId, machineId, ts])
+  @@index([orgId, machineId, tsServer])
 }
 
 model MachineKpiSnapshot {
@@ -310,6 +312,7 @@ model OrgSettings {
   timezone                String   @default("UTC")
   shiftChangeCompMin      Int      @default(10) @map("shift_change_comp_min")
   lunchBreakMin           Int      @default(30) @map("lunch_break_min")
+  shiftScheduleOverridesJson Json? @map("shift_schedule_overrides_json")
   stoppageMultiplier      Float    @default(1.5) @map("stoppage_multiplier")
   oeeAlertThresholdPct    Float    @default(90) @map("oee_alert_threshold_pct")
   macroStoppageMultiplier Float    @default(5) @map("macro_stoppage_multiplier")

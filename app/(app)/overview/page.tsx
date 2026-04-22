@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/requireSession";
-import { getOverviewData } from "@/lib/overview/getOverviewData";
+import { getOverviewSummary } from "@/lib/overview/getOverviewSummary";
+import type { getOverviewData } from "@/lib/overview/getOverviewData";
+import { logLine } from "@/lib/logger";
 import OverviewClient from "./OverviewClient";
 
 function toIso(value?: Date | null) {
@@ -11,12 +13,18 @@ export default async function OverviewPage() {
   const session = await requireSession();
   if (!session) redirect("/login?next=/overview");
 
-  const { machines, events } = await getOverviewData({
-    orgId: session.orgId,
-    eventsMode: "critical",
-    eventsWindowSec: 21600,
-    eventMachines: 6,
-  });
+  let machines: Awaited<ReturnType<typeof getOverviewData>>["machines"];
+  let events: Awaited<ReturnType<typeof getOverviewData>>["events"] = [];
+  try {
+    const data = await getOverviewSummary({ orgId: session.orgId });
+    machines = data.machines;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    logLine("OverviewPage.getOverviewSummary.error", { message, stack });
+    console.error("[OverviewPage] getOverviewSummary:", err);
+    machines = [];
+  }
 
   const initialMachines = machines.map((machine) => ({
     ...machine,
