@@ -44,6 +44,14 @@ type ApiParetoRes = {
   total?: number;
 };
 
+type LegacyParetoItem = {
+  reasonCode?: string;
+  reasonLabel?: string;
+  value?: number; // minutes (downtime) or qty (scrap)
+  count?: number;
+  cumPct?: number;
+};
+
 type ApiDowntimeEvent = {
   id: string;
   episodeId: string | null;
@@ -102,6 +110,139 @@ function fmtDT(iso: string | null) {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleString("en-US", { hour12: true });
+}
+
+function normalizeParetoRes(input: ApiParetoRes): ApiParetoRes {
+  const rows = Array.isArray(input?.rows) ? input.rows : [];
+  if (rows.length > 0) return input;
+
+  // Support a legacy envelope where the server returns `items[]` instead of `rows[]`.
+  const legacyItems = (input as any)?.items as unknown;
+  if (!Array.isArray(legacyItems) || legacyItems.length === 0) return input;
+
+  const items = legacyItems as LegacyParetoItem[];
+  const safeItems = items
+    .map((it) => ({
+      reasonCode: String(it?.reasonCode ?? "").trim(),
+      reasonLabel: String(it?.reasonLabel ?? it?.reasonCode ?? "").trim(),
+      value: typeof it?.value === "number" && Number.isFinite(it.value) ? it.value : 0,
+      count: typeof it?.count === "number" && Number.isFinite(it.count) ? it.count : 0,
+    }))
+    .filter((x) => x.reasonCode);
+
+  // Legacy `items` are usually pre-sorted by value desc; enforce it anyway.
+  safeItems.sort((a, b) => b.value - a.value);
+
+  const total = safeItems.reduce((acc, x) => acc + x.value, 0);
+  let cum = 0;
+  let threshold80Index: number | null = null;
+
+  const outRows: ApiParetoRow[] = safeItems.map((x, idx) => {
+    const pctOfTotal = total > 0 ? (x.value / total) * 100 : 0;
+    cum += x.value;
+    const cumulativePct = total > 0 ? (cum / total) * 100 : 0;
+    if (threshold80Index === null && cumulativePct >= 80) threshold80Index = idx;
+
+    return {
+      reasonCode: x.reasonCode,
+      reasonLabel: x.reasonLabel || x.reasonCode,
+      minutesLost: input.kind === "scrap" ? undefined : x.value,
+      scrapQty: input.kind === "scrap" ? x.value : undefined,
+      pctOfTotal,
+      cumulativePct,
+      count: x.count,
+    };
+  });
+
+  const threshold80 =
+    threshold80Index === null
+      ? null
+      : {
+          index: threshold80Index,
+          reasonCode: outRows[threshold80Index].reasonCode,
+          reasonLabel: outRows[threshold80Index].reasonLabel,
+        };
+
+  return {
+    ...input,
+    rows: outRows,
+    top3: outRows.slice(0, 3),
+    threshold80,
+    totalMinutesLost: input.kind === "scrap" ? undefined : total,
+    totalScrap: input.kind === "scrap" ? total : undefined,
+    total,
+  };
+}
+
+function buildParetoFromEvents(events: ApiDowntimeEvent[]): ApiParetoRes | null {
+  if (!Array.isArray(events) || events.length === 0) return null;
+
+  const byCode = new Map<
+    string,
+    { reasonCode: string; reasonLabel: string; minutes: number; count: number }
+  >();
+
+  for (const e of events) {
+    const reasonCode = String(e?.reasonCode ?? "").trim();
+    if (!reasonCode) continue;
+    const reasonLabel = String(e?.reasonLabel ?? reasonCode).trim() || reasonCode;
+    const minutes =
+      (typeof e?.durationMinutes === "number" && Number.isFinite(e.durationMinutes)
+        ? e.durationMinutes
+        : null) ??
+      (typeof e?.durationSeconds === "number" && Number.isFinite(e.durationSeconds)
+        ? e.durationSeconds / 60
+        : 0);
+
+    const slot =
+      byCode.get(reasonCode) ?? { reasonCode, reasonLabel, minutes: 0, count: 0 };
+    slot.minutes += Math.max(0, minutes);
+    slot.count += 1;
+    // prefer the most recent non-empty label if they differ
+    if (reasonLabel && reasonLabel !== reasonCode) slot.reasonLabel = reasonLabel;
+    byCode.set(reasonCode, slot);
+  }
+
+  const items = [...byCode.values()].filter((x) => x.minutes > 0 || x.count > 0);
+  items.sort((a, b) => b.minutes - a.minutes);
+
+  const totalMinutesLost = items.reduce((acc, x) => acc + x.minutes, 0);
+  let cum = 0;
+  let threshold80Index: number | null = null;
+
+  const rows: ApiParetoRow[] = items.map((x, idx) => {
+    const pctOfTotal = totalMinutesLost > 0 ? (x.minutes / totalMinutesLost) * 100 : 0;
+    cum += x.minutes;
+    const cumulativePct = totalMinutesLost > 0 ? (cum / totalMinutesLost) * 100 : 0;
+    if (threshold80Index === null && cumulativePct >= 80) threshold80Index = idx;
+    return {
+      reasonCode: x.reasonCode,
+      reasonLabel: x.reasonLabel,
+      minutesLost: Math.round(x.minutes * 10) / 10,
+      pctOfTotal,
+      cumulativePct,
+      count: x.count,
+    };
+  });
+
+  const threshold80 =
+    threshold80Index === null
+      ? null
+      : {
+          index: threshold80Index,
+          reasonCode: rows[threshold80Index].reasonCode,
+          reasonLabel: rows[threshold80Index].reasonLabel,
+        };
+
+  return {
+    ok: true,
+    kind: "downtime",
+    totalMinutesLost: Math.round(totalMinutesLost * 10) / 10,
+    rows,
+    top3: rows.slice(0, 3),
+    threshold80,
+    total: totalMinutesLost,
+  };
 }
 
 
@@ -1178,6 +1319,7 @@ export default function DowntimePageClient() {
 
   const [eventsLimit, setEventsLimit] = useState<number>(200);
   const [eventsBefore, setEventsBefore] = useState<string | null>(null);
+  const debug = sp.get("debug") === "1";
 
   // simple client filter (fast): text search on machine/reason/wo
   const [eventSearch, setEventSearch] = useState("");
@@ -1236,13 +1378,13 @@ export default function DowntimePageClient() {
           }),
         ]);
 
-        const j1 = (await r1.json().catch(() => ({}))) as ApiParetoRes;
+        const j1raw = (await r1.json().catch(() => ({}))) as ApiParetoRes;
         const j2 = (await r2.json().catch(() => ({}))) as ApiCoverageRes;
 
         if (!alive) return;
 
-        if (!r1.ok || j1.ok === false) {
-          setErr(j1?.error ?? "Failed to load pareto");
+        if (!r1.ok || j1raw.ok === false) {
+          setErr(j1raw?.error ?? "Failed to load pareto");
           setPareto(null);
           setCoverage(null);
           setLoading(false);
@@ -1256,7 +1398,7 @@ export default function DowntimePageClient() {
           setCoverage(j2);
         }
 
-        setPareto(j1);
+        setPareto(normalizeParetoRes(j1raw));
         setLoading(false);
       } catch (e: any) {
         if (!alive) return;
@@ -1355,7 +1497,23 @@ export default function DowntimePageClient() {
         }, [range, machineId, reasonCode, eventsLimit, eventsBefore]);
 
   // Derived data
-  const baseRows = pareto?.rows ?? [];
+  const events = eventsRes?.events ?? [];
+  const paretoEffective = useMemo(() => {
+    const normalized = pareto ? normalizeParetoRes(pareto) : null;
+    if (normalized?.rows && normalized.rows.length > 0) return normalized;
+    const fromEvents = buildParetoFromEvents(events);
+    if (!fromEvents) return normalized;
+    return {
+      ...fromEvents,
+      range: (eventsRes?.range as any) ?? normalized?.range,
+      start: eventsRes?.start ?? normalized?.start,
+      orgId: eventsRes?.orgId ?? normalized?.orgId,
+      machineId: eventsRes?.machineId ?? normalized?.machineId ?? null,
+    };
+  }, [pareto, events, eventsRes?.orgId, eventsRes?.machineId, eventsRes?.range, eventsRes?.start]);
+  const usingEventsFallback = (paretoEffective?.rows?.length ?? 0) > 0 && (pareto?.rows?.length ?? 0) === 0 && events.length > 0;
+
+  const baseRows = paretoEffective?.rows ?? [];
   const metricRowsAll = useMemo(() => computeMetricRows(baseRows, metric), [baseRows, metric]);
 
   const metricRowsFiltered = useMemo(() => {
@@ -1386,7 +1544,7 @@ export default function DowntimePageClient() {
     }));
   }, [catalogRows]);
 
-  const totalMinutes = pareto?.totalMinutesLost ?? 0;
+  const totalMinutes = paretoEffective?.totalMinutesLost ?? 0;
   const totalStops = useMemo(
     () => baseRows.reduce((acc, r) => acc + (r.count ?? 0), 0),
     [baseRows]
@@ -1401,10 +1559,10 @@ export default function DowntimePageClient() {
 
   const threshold80Index = useMemo(() => {
     // If API threshold80 exists, it’s based on minutes. For count metric, compute locally.
-    if (metric === "minutes") return pareto?.threshold80?.index ?? null;
+    if (metric === "minutes") return paretoEffective?.threshold80?.index ?? null;
     const idx = metricRowsAll.findIndex((r) => (r.cumulativePct ?? 0) >= 80);
     return idx >= 0 ? idx : null;
-  }, [metric, pareto?.threshold80?.index, metricRowsAll]);
+  }, [metric, paretoEffective?.threshold80?.index, metricRowsAll]);
 
   const heroData = useMemo(() => {
     // Keep hero readable: top 12 (like your screenshot)
@@ -1420,8 +1578,7 @@ export default function DowntimePageClient() {
     }));
   }, [metricRowsAll]);
 
-const totalDowntimeMin = pareto?.totalMinutesLost ?? 0;
-const events = eventsRes?.events ?? [];
+const totalDowntimeMin = paretoEffective?.totalMinutesLost ?? 0;
 
 useEffect(() => {
   setEventsBefore(null);
@@ -1805,8 +1962,51 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
         </div>
       ) : null}
 
+      {debug ? (
+        <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="font-semibold text-white">Debug</div>
+            <div className="text-[11px] text-zinc-500">
+              Disable with <span className="text-zinc-300">debug=0</span>
+            </div>
+          </div>
+          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="text-[11px] text-zinc-500">Status</div>
+              <div className="mt-1 text-zinc-200">
+                loading={String(loading)} · err={err ?? "null"} · eventsLoading={String(eventsLoading)} · eventsErr=
+                {eventsErr ?? "null"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="text-[11px] text-zinc-500">Filters</div>
+              <div className="mt-1 text-zinc-200">
+                range={range} · machineId={machineId ?? "null"} · reasonCode={reasonCode ?? "null"}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="text-[11px] text-zinc-500">API payload sizes</div>
+              <div className="mt-1 text-zinc-200">
+                pareto.rows={(pareto?.rows?.length ?? 0)} · events={(eventsRes?.events?.length ?? 0)}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="text-[11px] text-zinc-500">Effective (used by UI)</div>
+              <div className="mt-1 text-zinc-200">
+                rows={(paretoEffective?.rows?.length ?? 0)} · usingEventsFallback={String(usingEventsFallback)}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {!loading && !err && (
         <>
+          {eventsErr ? (
+            <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+              Events list unavailable: {eventsErr}
+            </div>
+          ) : null}
           {/* KPI strip */}
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-8">
             <KPI

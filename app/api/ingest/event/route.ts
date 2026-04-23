@@ -291,8 +291,11 @@ export async function POST(req: Request) {
       continue;
     }
     const evData = asRecord(evRecord.data) ?? {};
-    const evReason = asRecord(evRecord.reason) ?? asRecord(evData.reason);
+    // We'll re-check reason again after parsing `data` (it may be a JSON string)
+    let evReason = asRecord(evRecord.reason) ?? asRecord(evData.reason);
     const evDowntime = asRecord(evRecord.downtime) ?? asRecord(evData.downtime);
+    // Some producers nest the reason under `downtime.reason`
+    if (!evReason) evReason = asRecord(evDowntime?.reason);
 
     const rawType = evRecord.eventType ?? evRecord.anomaly_type ?? evRecord.topic ?? bodyRecord.topic ?? "";
     const typ0 = normalizeType(rawType);
@@ -313,11 +316,13 @@ export async function POST(req: Request) {
 
     // Stop classification -> microstop/macrostop
     let finalType = typ;
+    let stopSecForReason: number | null = null;
     if (typ === "stop") {
       const stopSec =
         (typeof evData.stoppage_duration_seconds === "number" && evData.stoppage_duration_seconds) ||
         (typeof evData.stop_duration_seconds === "number" && evData.stop_duration_seconds) ||
         null;
+      stopSecForReason = stopSec != null ? Number(stopSec) : null;
 
       if (stopSec != null) {
         const theoretical = Number(evData.theoretical_cycle_time ?? evData.theoreticalCycleTime ?? 0) || 0;
@@ -378,6 +383,28 @@ export async function POST(req: Request) {
     if (evReason && dataObj.reason == null) dataObj.reason = evReason;
     if (evDowntime && dataObj.downtime == null) dataObj.downtime = evDowntime;
 
+    // If `data` was a JSON string, the earlier evReason lookup would miss it.
+    // Re-check here using the normalized object we will persist.
+    if (!evReason) evReason = asRecord(dataObj.reason);
+    if (!evReason) evReason = asRecord(asRecord(dataObj.downtime)?.reason);
+
+    // If we have a reasonText but missing ids, derive ids from the path-like string.
+    if (evReason) {
+      const hasCat = clampText((evReason as any).categoryId, 64) ?? clampText((evReason as any).categoryLabel, 120);
+      const hasDet = clampText((evReason as any).detailId, 64) ?? clampText((evReason as any).detailLabel, 120);
+      const rt = clampText((evReason as any).reasonText, 240);
+      if ((!hasCat || !hasDet) && rt) {
+        const parsed = parseReasonTextPath(rt);
+        const next = { ...evReason } as Record<string, unknown>;
+        // Preserve any explicit ids; only fill gaps.
+        if ((next as any).categoryId == null && parsed.category) next.categoryId = canonicalText(parsed.category);
+        if ((next as any).categoryLabel == null && parsed.category) next.categoryLabel = parsed.category;
+        if ((next as any).detailId == null && parsed.detail) next.detailId = canonicalText(parsed.detail);
+        if ((next as any).detailLabel == null && parsed.detail) next.detailLabel = parsed.detail;
+        evReason = next;
+      }
+    }
+
     const activeWorkOrder = asRecord(evRecord.activeWorkOrder);
     const dataActiveWorkOrder = asRecord(evData.activeWorkOrder);
 
@@ -410,19 +437,34 @@ export async function POST(req: Request) {
 
     created.push({ id: row.id, ts: row.ts, eventType: row.eventType });
 
-    if (evReason) {
+    // If the payload carries a `reason`, create the corresponding ReasonEntry.
+    // If it doesn't, still create an "UNCLASSIFIED" downtime ReasonEntry for stop events so the dashboard can show coverage.
+    if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged") {
+      const reasonRaw: Record<string, unknown> =
+        evReason ??
+        ({
+          type: "downtime",
+          categoryId: "unclassified",
+          detailId: "unclassified",
+          categoryLabel: "Unclassified",
+          detailLabel: "Unclassified",
+          reasonCode: "UNCLASSIFIED",
+          reasonText: "Unclassified",
+          incidentKey: row.id,
+        } as Record<string, unknown>);
+
       const inferredKind: ReasonCatalogKind =
-        String(evReason.type ?? "").toLowerCase() === "scrap" || finalType === "scrap-manual-entry"
+        String(reasonRaw.type ?? "").toLowerCase() === "scrap" || finalType === "scrap-manual-entry"
           ? "scrap"
           : "downtime";
-      const resolved = resolveReason(evReason, inferredKind, reasonCatalog, reasonCatalog.version);
+      const resolved = resolveReason(reasonRaw, inferredKind, reasonCatalog, reasonCatalog.version);
 
       if (resolved.reasonCode) {
         const reasonId =
-          clampText(evReason.reasonId, 128) ??
+          clampText(reasonRaw.reasonId, 128) ??
           (inferredKind === "downtime"
-            ? `evt:${machine.id}:downtime:${clampText(evReason.incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id}`
-            : `evt:${machine.id}:scrap:${clampText(evReason.scrapEntryId, 128) ?? row.id}`);
+            ? `evt:${machine.id}:downtime:${clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id}`
+            : `evt:${machine.id}:scrap:${clampText(reasonRaw.scrapEntryId, 128) ?? row.id}`);
 
         const workOrderId =
           clampText(evRecord.work_order_id, 64) ??
@@ -441,7 +483,7 @@ export async function POST(req: Request) {
             source: "ingest:event",
             eventId: row.id,
             eventType: row.eventType,
-            incidentKey: clampText(evReason.incidentKey ?? evDowntime?.incidentKey, 128),
+            incidentKey: clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128),
             anomalyType:
               clampText(evRecord.anomalyType, 64) ??
               clampText(evDowntime?.anomalyType, 64) ??
@@ -459,11 +501,12 @@ export async function POST(req: Request) {
         };
 
         if (inferredKind === "downtime") {
-          const incidentKey = clampText(evReason.incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id;
+          const incidentKey = clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id;
           const durationSeconds =
             numberFrom(evDowntime?.durationSeconds) ??
             numberFrom(evData.stoppage_duration_seconds) ??
             numberFrom(evData.stop_duration_seconds) ??
+            (stopSecForReason != null ? stopSecForReason : null) ??
             null;
           const episodeEndTsMs =
             numberFrom(evDowntime?.episodeEndTsMs) ??
@@ -492,7 +535,7 @@ export async function POST(req: Request) {
           });
         } else {
           const scrapEntryId =
-            clampText(evReason.scrapEntryId, 128) ??
+            clampText((reasonRaw as any).scrapEntryId, 128) ??
             clampText(evRecord.id, 128) ??
             clampText(evRecord.eventId, 128) ??
             row.id;
@@ -512,14 +555,14 @@ export async function POST(req: Request) {
               kind: "scrap",
               scrapEntryId,
               scrapQty,
-              scrapUnit: clampText(evReason.scrapUnit, 16) ?? null,
+              scrapUnit: clampText((reasonRaw as any).scrapUnit, 16) ?? null,
               ...commonWrite,
             },
             update: {
               kind: "scrap",
               scrapEntryId,
               scrapQty,
-              scrapUnit: clampText(evReason.scrapUnit, 16) ?? null,
+              scrapUnit: clampText((reasonRaw as any).scrapUnit, 16) ?? null,
               ...commonWrite,
             },
           });
