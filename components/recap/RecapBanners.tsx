@@ -19,16 +19,18 @@ export default function RecapBanners({ moldChangeStartMs, offlineForMin, ongoing
   const moldStartLabel = moldChangeStartMs
     ? new Date(moldChangeStartMs).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })
     : "--:--";
+  const showOffline = offlineForMin != null && offlineForMin > 10;
+  const hideMoldBecauseOffline = showOffline && moldChangeStartMs != null;
 
   return (
     <div className="space-y-2">
-      {moldChangeStartMs ? (
+      {moldChangeStartMs && !hideMoldBecauseOffline ? (
         <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-200">
           {t("recap.banner.moldChange", { time: moldStartLabel })}
         </div>
       ) : null}
 
-      {offlineForMin != null && offlineForMin > 10 ? (
+      {showOffline ? (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
           {t("recap.banner.offline", { min: toInt(offlineForMin) })}
         </div>

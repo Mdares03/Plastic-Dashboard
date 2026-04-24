@@ -302,6 +302,133 @@ function toErrorMessage(value: unknown, fallback: string): string {
   return fallback;
 }
 
+type MachineActivityTimelineProps = {
+  machineId?: string;
+  locale: string;
+  t: (key: string, vars?: Record<string, string | number>) => string;
+};
+
+function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimelineProps) {
+  const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(true);
+  const timelineHashRef = useRef("");
+
+  useEffect(() => {
+    if (!machineId) return;
+    let alive = true;
+    timelineHashRef.current = "";
+    setTimelineLoading(true);
+
+    async function loadTimeline() {
+      try {
+        const res = await fetch(`/api/recap/${machineId}/timeline?range=1h`, { cache: "no-store" });
+        const json = await res.json().catch(() => null);
+        if (!alive || !res.ok || !json) return;
+        const nextTimeline = json as RecapTimelineResponse;
+        const nextHash = JSON.stringify({
+          hasData: nextTimeline.hasData,
+          segments: nextTimeline.segments.map((segment) => ({
+            type: segment.type,
+            startMs: segment.startMs,
+            endMs: segment.endMs,
+          })),
+        });
+        if (timelineHashRef.current === nextHash) return;
+        timelineHashRef.current = nextHash;
+        setTimeline(nextTimeline);
+      } finally {
+        if (alive) setTimelineLoading(false);
+      }
+    }
+
+    void loadTimeline();
+    const timer = window.setInterval(() => {
+      void loadTimeline();
+    }, 30000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [machineId]);
+
+  const hasData = timeline?.hasData ?? false;
+  const startMs = timeline ? new Date(timeline.range.start).getTime() : Date.now() - 60 * 60 * 1000;
+  const endMs = timeline ? new Date(timeline.range.end).getTime() : Date.now();
+  const totalMs = Math.max(1, endMs - startMs);
+  const normalized = useMemo(() => {
+    if (!timeline || !hasData) return [] as RecapTimelineSegment[];
+    return normalizeTimelineSegments(timeline.segments, startMs, endMs);
+  }, [timeline, hasData, startMs, endMs]);
+  const widths = useMemo(() => computeWidths(normalized, totalMs, 1.5), [normalized, totalMs]);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-sm font-semibold text-white">{t("machine.detail.activity.title")}</div>
+          <div className="mt-1 text-xs text-zinc-400">{t("machine.detail.activity.subtitle")}</div>
+        </div>
+        <div className="text-xs text-zinc-400">1h</div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
+        {(["production", "mold-change", "macrostop", "microstop", "idle"] as const).map((type) => (
+          <div key={type} className="flex items-center gap-2">
+            <span className={`h-2.5 w-2.5 rounded-full ${TIMELINE_COLORS[type]}`} />
+            <span>
+              {type === "production" ? t("recap.timeline.type.production") : null}
+              {type === "mold-change" ? t("recap.timeline.type.moldChange") : null}
+              {type === "macrostop" ? t("recap.timeline.type.macrostop") : null}
+              {type === "microstop" ? t("recap.timeline.type.microstop") : null}
+              {type === "idle" ? t("recap.timeline.type.idle") : null}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
+        <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
+          <span>{timelineLoading ? t("common.loading") : formatTime(startMs, locale)}</span>
+          <span>{formatTime(endMs, locale)}</span>
+        </div>
+
+        <div className="flex h-14 w-full overflow-hidden rounded-2xl">
+          {!hasData ? (
+            <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
+              {t("machine.detail.activity.noData")}
+            </div>
+          ) : (
+            normalized.map((segment, idx) => {
+              const widthPct = widths[idx] ?? 0;
+              const typeLabel =
+                segment.type === "production"
+                  ? t("recap.timeline.type.production")
+                  : segment.type === "mold-change"
+                    ? t("recap.timeline.type.moldChange")
+                    : segment.type === "macrostop"
+                      ? t("recap.timeline.type.macrostop")
+                      : segment.type === "microstop" || segment.type === "slow-cycle"
+                        ? t("recap.timeline.type.microstop")
+                        : t("recap.timeline.type.idle");
+              const title = `${typeLabel} · ${formatDuration(segment.startMs, segment.endMs)}`;
+
+              return (
+                <div
+                  key={`${segment.type}:${segment.startMs}:${segment.endMs}:${idx}`}
+                  title={title}
+                  className={`h-full ${TIMELINE_COLORS[segment.type]}`}
+                  style={{ width: `${Math.max(0, widthPct)}%` }}
+                />
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function MachineDetailClient() {
   const { t, locale } = useI18n();
   const { screenlessMode } = useScreenlessMode();
@@ -683,130 +810,6 @@ export default function MachineDetailClient() {
     );
   }
 
-  function MachineActivityTimeline({ machineId }: { machineId: string | undefined }) {
-    const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
-    const [timelineLoading, setTimelineLoading] = useState(true);
-    const timelineHashRef = useRef("");
-
-    useEffect(() => {
-      if (!machineId) return;
-      let alive = true;
-      timelineHashRef.current = "";
-      setTimeline(null);
-      setTimelineLoading(true);
-
-      async function loadTimeline() {
-        try {
-          const res = await fetch(`/api/recap/${machineId}/timeline?range=1h`, { cache: "no-store" });
-          const json = await res.json().catch(() => null);
-          if (!alive || !res.ok || !json) return;
-          const nextTimeline = json as RecapTimelineResponse;
-          const nextHash = JSON.stringify({
-            start: nextTimeline.range?.start ?? "",
-            end: nextTimeline.range?.end ?? "",
-            hasData: nextTimeline.hasData,
-            segments: nextTimeline.segments.map((segment) => ({
-              type: segment.type,
-              startMs: segment.startMs,
-              endMs: segment.endMs,
-            })),
-          });
-          if (timelineHashRef.current === nextHash) return;
-          timelineHashRef.current = nextHash;
-          setTimeline(nextTimeline);
-        } finally {
-          if (alive) setTimelineLoading(false);
-        }
-      }
-
-      void loadTimeline();
-      const timer = window.setInterval(() => {
-        void loadTimeline();
-      }, 30000);
-
-      return () => {
-        alive = false;
-        window.clearInterval(timer);
-      };
-    }, [machineId]);
-
-    const hasData = timeline?.hasData ?? false;
-    const startMs = timeline ? new Date(timeline.range.start).getTime() : Date.now() - 60 * 60 * 1000;
-    const endMs = timeline ? new Date(timeline.range.end).getTime() : Date.now();
-    const totalMs = Math.max(1, endMs - startMs);
-    const normalized = useMemo(() => {
-      if (!timeline || !hasData) return [] as RecapTimelineSegment[];
-      return normalizeTimelineSegments(timeline.segments, startMs, endMs);
-    }, [timeline, hasData, startMs, endMs]);
-    const widths = useMemo(() => computeWidths(normalized, totalMs, 1.5), [normalized, totalMs]);
-
-    return (
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold text-white">{t("machine.detail.activity.title")}</div>
-            <div className="mt-1 text-xs text-zinc-400">{t("machine.detail.activity.subtitle")}</div>
-          </div>
-          <div className="text-xs text-zinc-400">1h</div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
-          {(["production", "mold-change", "macrostop", "microstop", "idle"] as const).map((type) => (
-            <div key={type} className="flex items-center gap-2">
-              <span className={`h-2.5 w-2.5 rounded-full ${TIMELINE_COLORS[type]}`} />
-              <span>
-                {type === "production" ? t("recap.timeline.type.production") : null}
-                {type === "mold-change" ? t("recap.timeline.type.moldChange") : null}
-                {type === "macrostop" ? t("recap.timeline.type.macrostop") : null}
-                {type === "microstop" ? t("recap.timeline.type.microstop") : null}
-                {type === "idle" ? t("recap.timeline.type.idle") : null}
-              </span>
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-          <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
-            <span>{timelineLoading ? t("common.loading") : formatTime(startMs, locale)}</span>
-            <span>{formatTime(endMs, locale)}</span>
-          </div>
-
-          <div className="flex h-14 w-full overflow-hidden rounded-2xl">
-            {!hasData ? (
-              <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
-                {t("machine.detail.activity.noData")}
-              </div>
-            ) : (
-              normalized.map((segment, idx) => {
-                const widthPct = widths[idx] ?? 0;
-                const typeLabel =
-                  segment.type === "production"
-                    ? t("recap.timeline.type.production")
-                    : segment.type === "mold-change"
-                      ? t("recap.timeline.type.moldChange")
-                      : segment.type === "macrostop"
-                        ? t("recap.timeline.type.macrostop")
-                        : segment.type === "microstop" || segment.type === "slow-cycle"
-                          ? t("recap.timeline.type.microstop")
-                          : t("recap.timeline.type.idle");
-                const title = `${typeLabel} · ${formatDuration(segment.startMs, segment.endMs)}`;
-
-                return (
-                  <div
-                    key={`${segment.type}:${segment.startMs}:${segment.endMs}:${idx}`}
-                    title={title}
-                    className={`h-full ${TIMELINE_COLORS[segment.type]}`}
-                    style={{ width: `${Math.max(0, widthPct)}%` }}
-                  />
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   function Modal({
     open,
     onClose,
@@ -1115,7 +1118,7 @@ export default function MachineDetailClient() {
           </div>
 
           <div className="mt-6">
-            <MachineActivityTimeline machineId={machineId} />
+            <MachineActivityTimeline machineId={machineId} locale={locale} t={t} />
           </div>
           {!screenlessMode && (
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">

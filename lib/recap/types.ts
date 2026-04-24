@@ -211,9 +211,12 @@ export type RecapMachineDetail = {
 export type RecapDetailResponse = {
   generatedAt: string;
   range: {
+    requestedMode?: RecapRangeMode;
     mode: RecapRangeMode;
     start: string;
     end: string;
+    shiftAvailable?: boolean;
+    fallbackReason?: "shift-unavailable" | "shift-inactive";
   };
   machine: RecapMachineDetail;
 };

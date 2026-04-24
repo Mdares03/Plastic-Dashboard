@@ -42,7 +42,12 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
   const [customStart, setCustomStart] = useState(toInputDate(initialData.range.start));
   const [customEnd, setCustomEnd] = useState(toInputDate(initialData.range.end));
 
-  const selectedRange = (searchParams.get("range") as RecapRangeMode | null) ?? initialData.range.mode;
+  const requestedRange =
+    (searchParams.get("range") as RecapRangeMode | null) ?? initialData.range.requestedMode ?? initialData.range.mode;
+  const selectedRange = requestedRange;
+  const shiftAvailable = initialData.range.shiftAvailable ?? true;
+  const shiftFallbackReason = initialData.range.fallbackReason;
+  const shiftFallbackActive = selectedRange === "shift" && initialData.range.mode !== "shift";
 
   function pushRange(nextRange: RecapRangeMode, start?: string, end?: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -123,7 +128,9 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
             <button
               key={range}
               type="button"
+              disabled={range === "shift" && !shiftAvailable}
               onClick={() => {
+                if (range === "shift" && !shiftAvailable) return;
                 if (range === "custom") {
                   pushRange("custom", normalizeInputDate(customStart) ?? undefined, normalizeInputDate(customEnd) ?? undefined);
                   return;
@@ -134,7 +141,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
                 selectedRange === range
                   ? "border-emerald-300/60 bg-emerald-500/20 text-emerald-100"
                   : "border-white/10 bg-black/40 text-zinc-200"
-              }`}
+              } ${range === "shift" && !shiftAvailable ? "cursor-not-allowed opacity-60" : ""}`}
             >
               {range === "24h" ? t("recap.range.24h") : null}
               {range === "shift" ? t("recap.range.shiftCurrent") : null}
@@ -144,6 +151,18 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
           ))}
         </div>
       </div>
+
+      {!shiftAvailable ? (
+        <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          {t("recap.range.shiftUnavailable")}
+        </div>
+      ) : null}
+
+      {shiftFallbackActive ? (
+        <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-xs text-amber-100">
+          {shiftFallbackReason === "shift-inactive" ? t("recap.range.shiftFallbackInactive") : t("recap.range.shiftFallbackUnavailable")}
+        </div>
+      ) : null}
 
       {selectedRange === "custom" ? (
         <div className="mb-4 flex flex-wrap gap-2 text-sm">
@@ -184,6 +203,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
         goodParts={machine.goodParts}
         totalStops={Math.round(machine.stopMinutes)}
         scrapParts={machine.scrap}
+        rangeMode={initialData.range.mode}
       />
 
       <div className="mt-4">

@@ -389,7 +389,12 @@ async function resolveCurrentShiftRange(params: { orgId: string; now: Date }) {
   });
 
   const enabledShifts = shifts.filter((shift) => shift.enabled !== false);
-  if (!enabledShifts.length) return null;
+  if (!enabledShifts.length) {
+    return {
+      hasEnabledShifts: false,
+      range: null,
+    } as const;
+  }
 
   const timeZone = settings?.timezone || "UTC";
   const local = getLocalParts(params.now, timeZone);
@@ -447,57 +452,125 @@ async function resolveCurrentShiftRange(params: { orgId: string; now: Date }) {
     if (end <= start) continue;
 
     return {
-      start,
-      end,
+      hasEnabledShifts: true,
+      range: {
+        start,
+        end,
+      },
     };
   }
 
-  return null;
+  return {
+    hasEnabledShifts: true,
+    range: null,
+  } as const;
 }
 
 async function resolveDetailRange(params: { orgId: string; input: DetailRangeInput }) {
   const now = new Date();
-  const mode = normalizedRangeMode(params.input.mode);
+  const requestedMode = normalizedRangeMode(params.input.mode);
+  const shiftEnabledCount = await prisma.orgShift.count({
+    where: {
+      orgId: params.orgId,
+      enabled: { not: false },
+    },
+  });
+  const shiftAvailable = shiftEnabledCount > 0;
 
-  if (mode === "custom") {
+  if (requestedMode === "custom") {
     const start = parseDate(params.input.start);
     const end = parseDate(params.input.end);
     if (start && end && end > start) {
-      return { mode, start, end };
-    }
-  }
-
-  if (mode === "yesterday") {
-    const end = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-    const start = new Date(end.getTime() - 24 * 60 * 60 * 1000);
-    return { mode, start, end };
-  }
-
-  if (mode === "shift") {
-    const shiftRange = await resolveCurrentShiftRange({ orgId: params.orgId, now });
-    if (shiftRange) {
       return {
-        mode,
-        start: shiftRange.start,
-        end: shiftRange.end,
-      };
+        requestedMode,
+        mode: requestedMode,
+        start,
+        end,
+        shiftAvailable,
+      } as const;
     }
+  }
+
+  if (requestedMode === "yesterday") {
+    const settings = await prisma.orgSettings.findUnique({
+      where: { orgId: params.orgId },
+      select: { timezone: true },
+    });
+    const timeZone = settings?.timezone || "America/Mexico_City";
+    const localNow = getLocalParts(now, timeZone);
+    const today = { year: localNow.year, month: localNow.month, day: localNow.day };
+    const yesterday = addDays(today, -1);
+    const start = zonedToUtcDate({
+      ...yesterday,
+      hours: 0,
+      minutes: 0,
+      timeZone,
+    });
+    const end = zonedToUtcDate({
+      ...today,
+      hours: 0,
+      minutes: 0,
+      timeZone,
+    });
+    return {
+      requestedMode,
+      mode: requestedMode,
+      start,
+      end,
+      shiftAvailable,
+    } as const;
+  }
+
+  if (requestedMode === "shift") {
+    const shiftRange = await resolveCurrentShiftRange({ orgId: params.orgId, now });
+    if (shiftRange.range) {
+      return {
+        requestedMode,
+        mode: requestedMode,
+        start: shiftRange.range.start,
+        end: shiftRange.range.end,
+        shiftAvailable,
+      } as const;
+    }
+    if (!shiftRange.hasEnabledShifts) {
+      return {
+        requestedMode,
+        mode: "24h" as const,
+        start: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+        end: now,
+        shiftAvailable,
+        fallbackReason: "shift-unavailable" as const,
+      } as const;
+    }
+    return {
+      requestedMode,
+      mode: "24h" as const,
+      start: new Date(now.getTime() - 24 * 60 * 60 * 1000),
+      end: now,
+      shiftAvailable,
+      fallbackReason: "shift-inactive" as const,
+    } as const;
   }
 
   return {
+    requestedMode,
     mode: "24h" as const,
     start: new Date(now.getTime() - 24 * 60 * 60 * 1000),
     end: now,
-  };
+    shiftAvailable,
+  } as const;
 }
 
 async function computeRecapMachineDetail(params: {
   orgId: string;
   machineId: string;
   range: {
+    requestedMode: RecapRangeMode;
     mode: RecapRangeMode;
     start: Date;
     end: Date;
+    shiftAvailable: boolean;
+    fallbackReason?: "shift-unavailable" | "shift-inactive";
   };
 }) {
   const { range } = params;
@@ -571,9 +644,12 @@ async function computeRecapMachineDetail(params: {
   const response: RecapDetailResponse = {
     generatedAt: new Date().toISOString(),
     range: {
+      requestedMode: range.requestedMode,
       mode: range.mode,
       start: range.start.toISOString(),
       end: range.end.toISOString(),
+      shiftAvailable: range.shiftAvailable,
+      fallbackReason: range.fallbackReason,
     },
     machine: machineDetail,
   };
@@ -588,7 +664,10 @@ function summaryCacheKey(params: { orgId: string; hours: number }) {
 function detailCacheKey(params: {
   orgId: string;
   machineId: string;
+  requestedMode: RecapRangeMode;
   mode: RecapRangeMode;
+  shiftAvailable: boolean;
+  fallbackReason?: "shift-unavailable" | "shift-inactive";
   startMs: number;
   endMs: number;
 }) {
@@ -596,7 +675,10 @@ function detailCacheKey(params: {
     "recap-detail-v1",
     params.orgId,
     params.machineId,
+    params.requestedMode,
     params.mode,
+    params.shiftAvailable ? "shift-on" : "shift-off",
+    params.fallbackReason ?? "",
     String(Math.trunc(params.startMs / 60000)),
     String(Math.trunc(params.endMs / 60000)),
   ];
@@ -657,15 +739,21 @@ export async function getRecapMachineDetailCached(params: {
         orgId: params.orgId,
         machineId: params.machineId,
         range: {
+          requestedMode: resolved.requestedMode,
           mode: resolved.mode,
           start: resolved.start,
           end: resolved.end,
+          shiftAvailable: resolved.shiftAvailable,
+          fallbackReason: resolved.fallbackReason,
         },
       }),
     detailCacheKey({
       orgId: params.orgId,
       machineId: params.machineId,
+      requestedMode: resolved.requestedMode,
       mode: resolved.mode,
+      shiftAvailable: resolved.shiftAvailable,
+      fallbackReason: resolved.fallbackReason,
       startMs: resolved.start.getTime(),
       endMs: resolved.end.getTime(),
     }),
