@@ -1,5 +1,4 @@
 import { unstable_cache } from "next/cache";
-import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeShiftOverrides, type ShiftOverrideDay } from "@/lib/settings";
 import type { RecapMachine, RecapQuery, RecapResponse } from "@/lib/recap/types";
@@ -28,7 +27,6 @@ const STOP_TYPES = new Set(["microstop", "macrostop"]);
 const STOP_STATUS = new Set(["STOP", "DOWN", "OFFLINE"]);
 const CACHE_TTL_SEC = 60;
 const MOLD_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
-let workOrderCountersAvailable: boolean | null = null;
 
 function safeNum(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -229,10 +227,6 @@ function moldStartMs(data: unknown, fallbackTs: Date) {
   return Math.trunc(safeNum(inner.start_ms) ?? safeNum(inner.startMs) ?? fallbackTs.getTime());
 }
 
-type WorkOrderCounterColumnRow = {
-  column_name: string;
-};
-
 type WorkOrderCounterRow = {
   machineId: string;
   workOrderId: string;
@@ -249,55 +243,27 @@ type WorkOrderCounterRow = {
 async function loadWorkOrderCounterRows(params: {
   orgId: string;
   machineIds: string[];
-  start: Date;
-  end: Date;
 }) {
   if (!params.machineIds.length) return [] as WorkOrderCounterRow[];
 
-  try {
-    if (workOrderCountersAvailable == null) {
-      const columns = await prisma.$queryRaw<WorkOrderCounterColumnRow[]>`
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public'
-          AND table_name = 'machine_work_orders'
-          AND column_name IN ('good_parts', 'scrap_parts', 'cycle_count')
-      `;
-      const availableColumns = new Set(columns.map((row) => row.column_name));
-      workOrderCountersAvailable =
-        availableColumns.has("good_parts") &&
-        availableColumns.has("scrap_parts") &&
-        availableColumns.has("cycle_count");
-    }
-
-    if (!workOrderCountersAvailable) {
-      return null;
-    }
-
-    const machineIdList = Prisma.join(params.machineIds.map((id) => Prisma.sql`${id}`));
-    const rows = await prisma.$queryRaw<WorkOrderCounterRow[]>(Prisma.sql`
-      SELECT
-        "machineId",
-        "workOrderId",
-        sku,
-        "targetQty",
-        status,
-        "createdAt",
-        "updatedAt",
-        COALESCE(good_parts, 0)::int AS "goodParts",
-        COALESCE(scrap_parts, 0)::int AS "scrapParts",
-        COALESCE(cycle_count, 0)::int AS "cycleCount"
-      FROM "machine_work_orders"
-      WHERE "orgId" = ${params.orgId}
-        AND "machineId" IN (${machineIdList})
-        AND "updatedAt" >= ${params.start}
-        AND "updatedAt" <= ${params.end}
-    `);
-
-    return rows;
-  } catch {
-    return null;
-  }
+  return prisma.machineWorkOrder.findMany({
+    where: {
+      orgId: params.orgId,
+      machineId: { in: params.machineIds },
+    },
+    select: {
+      machineId: true,
+      workOrderId: true,
+      sku: true,
+      targetQty: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      goodParts: true,
+      scrapParts: true,
+      cycleCount: true,
+    },
+  });
 }
 
 export function parseRecapQuery(input: {
@@ -435,8 +401,6 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       loadWorkOrderCounterRows({
         orgId: params.orgId,
         machineIds,
-        start: params.start,
-        end: params.end,
       }),
       prisma.machineHeartbeat.findMany({
         where: {
@@ -605,41 +569,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       scrap: number;
       target: number | null;
     };
-    const skuMap = new Map<string, SkuAggregate>();
-    const rangeByWorkOrder = new Map<string, { goodParts: number; scrapParts: number; firstTs: Date | null; lastTs: Date | null }>();
-    const kpiLatestByWorkOrder = new Map<string, { good: number; scrap: number; ts: Date; sku: string | null }>();
     let latestTelemetry: { ts: Date; workOrderId: string | null; sku: string | null } | null = null;
-    let goodParts = 0;
-    let scrapParts = 0;
-
-    const ensureSkuRow = (skuInput: string | null) => {
-      const skuToken = normalizeToken(skuInput) || "N/A";
-      const key = skuKey(skuToken);
-      const existing = skuMap.get(key);
-      if (existing) return existing;
-      const target = targetBySku.get(key)?.target ?? null;
-      const created: SkuAggregate = {
-        machineName: machine.name,
-        sku: skuToken,
-        good: 0,
-        scrap: 0,
-        target,
-      };
-      skuMap.set(key, created);
-      return created;
-    };
-
-    type KpiRangeAggregate = {
-      workOrderId: string | null;
-      sku: string | null;
-      minGood: number | null;
-      maxGood: number | null;
-      minScrap: number | null;
-      maxScrap: number | null;
-      firstTs: Date | null;
-      lastTs: Date | null;
-    };
-    const kpiRanges = new Map<string, KpiRangeAggregate>();
 
     for (const kpi of dedupedKpis) {
       if (!latestTelemetry || kpi.ts > latestTelemetry.ts) {
@@ -649,79 +579,9 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
           sku: normalizeToken(kpi.sku) || null,
         };
       }
-
-      const workOrderId = normalizeToken(kpi.workOrderId) || null;
-      const sku = normalizeToken(kpi.sku) || null;
-      const goodCounterRaw = safeNum(kpi.goodParts) ?? safeNum(kpi.good);
-      const scrapCounterRaw = safeNum(kpi.scrapParts) ?? safeNum(kpi.scrap);
-      const goodCounter = goodCounterRaw != null ? Math.max(0, Math.trunc(goodCounterRaw)) : null;
-      const scrapCounter = scrapCounterRaw != null ? Math.max(0, Math.trunc(scrapCounterRaw)) : null;
-
-      const woKey = workOrderKey(workOrderId);
-      if (woKey) {
-        const existingLatest = kpiLatestByWorkOrder.get(woKey);
-        if (!existingLatest || kpi.ts > existingLatest.ts) {
-          kpiLatestByWorkOrder.set(woKey, {
-            good: goodCounter ?? 0,
-            scrap: scrapCounter ?? 0,
-            ts: kpi.ts,
-            sku,
-          });
-        }
-      }
-
-      if ((goodCounter == null && scrapCounter == null) || (!workOrderId && !sku)) continue;
-
-      const key = `${woKey || "__none"}::${skuKey(sku) || "__none"}`;
-      const current = kpiRanges.get(key) ?? {
-        workOrderId,
-        sku,
-        minGood: null,
-        maxGood: null,
-        minScrap: null,
-        maxScrap: null,
-        firstTs: null,
-        lastTs: null,
-      };
-
-      if (goodCounter != null) {
-        current.minGood = current.minGood == null ? goodCounter : Math.min(current.minGood, goodCounter);
-        current.maxGood = current.maxGood == null ? goodCounter : Math.max(current.maxGood, goodCounter);
-      }
-      if (scrapCounter != null) {
-        current.minScrap = current.minScrap == null ? scrapCounter : Math.min(current.minScrap, scrapCounter);
-        current.maxScrap = current.maxScrap == null ? scrapCounter : Math.max(current.maxScrap, scrapCounter);
-      }
-      if (!current.firstTs || kpi.ts < current.firstTs) current.firstTs = kpi.ts;
-      if (!current.lastTs || kpi.ts > current.lastTs) current.lastTs = kpi.ts;
-      kpiRanges.set(key, current);
     }
 
-    if (kpiRanges.size > 0) {
-      for (const agg of kpiRanges.values()) {
-        const rangeGood = Math.max(0, (agg.maxGood ?? 0) - (agg.minGood ?? agg.maxGood ?? 0));
-        const rangeScrap = Math.max(0, (agg.maxScrap ?? 0) - (agg.minScrap ?? agg.maxScrap ?? 0));
-        const skuRow = ensureSkuRow(agg.sku);
-        skuRow.good += rangeGood;
-        skuRow.scrap += rangeScrap;
-        goodParts += rangeGood;
-        scrapParts += rangeScrap;
-
-        const woKey = workOrderKey(agg.workOrderId);
-        if (!woKey) continue;
-        const existing = rangeByWorkOrder.get(woKey) ?? {
-          goodParts: 0,
-          scrapParts: 0,
-          firstTs: null,
-          lastTs: null,
-        };
-        existing.goodParts += rangeGood;
-        existing.scrapParts += rangeScrap;
-        if (agg.firstTs && (!existing.firstTs || agg.firstTs < existing.firstTs)) existing.firstTs = agg.firstTs;
-        if (agg.lastTs && (!existing.lastTs || agg.lastTs > existing.lastTs)) existing.lastTs = agg.lastTs;
-        rangeByWorkOrder.set(woKey, existing);
-      }
-    } else {
+    if (!latestTelemetry) {
       for (const cycle of dedupedCycles) {
         if (!latestTelemetry || cycle.ts > latestTelemetry.ts) {
           latestTelemetry = {
@@ -730,95 +590,91 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
             sku: normalizeToken(cycle.sku) || null,
           };
         }
-        const skuRow = ensureSkuRow(normalizeToken(cycle.sku) || null);
-        const good = Math.max(0, Math.trunc(safeNum(cycle.goodDelta) ?? 0));
-        const scrap = Math.max(0, Math.trunc(safeNum(cycle.scrapDelta) ?? 0));
-        skuRow.good += good;
-        skuRow.scrap += scrap;
-        goodParts += good;
-        scrapParts += scrap;
-
-        const woKey = workOrderKey(cycle.workOrderId);
-        if (!woKey) continue;
-        const existing = rangeByWorkOrder.get(woKey) ?? {
-          goodParts: 0,
-          scrapParts: 0,
-          firstTs: null,
-          lastTs: null,
-        };
-        existing.goodParts += good;
-        existing.scrapParts += scrap;
-        if (!existing.firstTs || cycle.ts < existing.firstTs) existing.firstTs = cycle.ts;
-        if (!existing.lastTs || cycle.ts > existing.lastTs) existing.lastTs = cycle.ts;
-        rangeByWorkOrder.set(woKey, existing);
       }
     }
 
     const openWorkOrders = machineWorkOrdersSorted.filter(
       (wo) => String(wo.status).toUpperCase() !== "COMPLETED"
     );
-    for (const wo of openWorkOrders) {
-      ensureSkuRow(normalizeToken(wo.sku) || null);
-    }
-    if (latestTelemetry?.sku) ensureSkuRow(latestTelemetry.sku);
-
-    const hasAuthoritativeWorkOrderCounters = machineWorkOrderCounters.length > 0;
     const authoritativeWorkOrderProgress = new Map<
       string,
       { goodParts: number; scrapParts: number; cycleCount: number; firstTs: Date | null; lastTs: Date | null }
     >();
     const authoritativeSkuMap = new Map<string, SkuAggregate>();
-    let authoritativeGoodParts = 0;
-    let authoritativeScrapParts = 0;
+    let goodParts = 0;
+    let scrapParts = 0;
     let authoritativeCycleCount = 0;
 
-    if (hasAuthoritativeWorkOrderCounters) {
-      for (const row of machineWorkOrderCounters) {
-        const safeGood = Math.max(0, Math.trunc(safeNum(row.goodParts) ?? 0));
-        const safeScrap = Math.max(0, Math.trunc(safeNum(row.scrapParts) ?? 0));
-        const safeCycleCount = Math.max(0, Math.trunc(safeNum(row.cycleCount) ?? 0));
-        const skuToken = normalizeToken(row.sku) || "N/A";
-        const skuTokenKey = skuKey(skuToken);
-        const target = safeNum(row.targetQty);
-
-        const skuAgg = authoritativeSkuMap.get(skuTokenKey) ?? {
-          machineName: machine.name,
-          sku: skuToken,
-          good: 0,
-          scrap: 0,
-          target: target != null && target > 0 ? Math.max(0, Math.trunc(target)) : null,
-        };
-        skuAgg.good += safeGood;
-        skuAgg.scrap += safeScrap;
-        if (target != null && target > 0) {
-          skuAgg.target = (skuAgg.target ?? 0) + Math.max(0, Math.trunc(target));
+    const ensureAuthoritativeSku = (
+      skuInput: string | null,
+      targetInput?: number | null,
+      useFallbackTarget = true
+    ) => {
+      const skuToken = normalizeToken(skuInput) || "N/A";
+      const skuTokenKey = skuKey(skuToken);
+      const targetFallback = useFallbackTarget ? targetBySku.get(skuTokenKey)?.target ?? null : null;
+      const explicitTarget =
+        targetInput != null && targetInput > 0 ? Math.max(0, Math.trunc(targetInput)) : null;
+      const normalizedTarget = explicitTarget ?? targetFallback;
+      const existing = authoritativeSkuMap.get(skuTokenKey);
+      if (existing) {
+        if (explicitTarget != null) {
+          existing.target = (existing.target ?? 0) + explicitTarget;
+        } else if (normalizedTarget != null && existing.target == null) {
+          existing.target = normalizedTarget;
         }
-        authoritativeSkuMap.set(skuTokenKey, skuAgg);
-
-        authoritativeGoodParts += safeGood;
-        authoritativeScrapParts += safeScrap;
-        authoritativeCycleCount += safeCycleCount;
-
-        const woKey = workOrderKey(row.workOrderId);
-        if (!woKey) continue;
-
-        const progress = authoritativeWorkOrderProgress.get(woKey) ?? {
-          goodParts: 0,
-          scrapParts: 0,
-          cycleCount: 0,
-          firstTs: null,
-          lastTs: null,
-        };
-        progress.goodParts += safeGood;
-        progress.scrapParts += safeScrap;
-        progress.cycleCount += safeCycleCount;
-        if (!progress.firstTs || row.createdAt < progress.firstTs) progress.firstTs = row.createdAt;
-        if (!progress.lastTs || row.updatedAt > progress.lastTs) progress.lastTs = row.updatedAt;
-        authoritativeWorkOrderProgress.set(woKey, progress);
+        return existing;
       }
+      const created: SkuAggregate = {
+        machineName: machine.name,
+        sku: skuToken,
+        good: 0,
+        scrap: 0,
+        target: normalizedTarget,
+      };
+      authoritativeSkuMap.set(skuTokenKey, created);
+      return created;
+    };
+
+    for (const row of machineWorkOrderCounters) {
+      const safeGood = Math.max(0, Math.trunc(safeNum(row.goodParts) ?? 0));
+      const safeScrap = Math.max(0, Math.trunc(safeNum(row.scrapParts) ?? 0));
+      const safeCycleCount = Math.max(0, Math.trunc(safeNum(row.cycleCount) ?? 0));
+      const target = safeNum(row.targetQty);
+
+      const skuAgg = ensureAuthoritativeSku(row.sku, target, false);
+      skuAgg.good += safeGood;
+      skuAgg.scrap += safeScrap;
+
+      goodParts += safeGood;
+      scrapParts += safeScrap;
+      authoritativeCycleCount += safeCycleCount;
+
+      const woKey = workOrderKey(row.workOrderId);
+      if (!woKey) continue;
+      const progress = authoritativeWorkOrderProgress.get(woKey) ?? {
+        goodParts: 0,
+        scrapParts: 0,
+        cycleCount: 0,
+        firstTs: null,
+        lastTs: null,
+      };
+      progress.goodParts += safeGood;
+      progress.scrapParts += safeScrap;
+      progress.cycleCount += safeCycleCount;
+      if (!progress.firstTs || row.createdAt < progress.firstTs) progress.firstTs = row.createdAt;
+      if (!progress.lastTs || row.updatedAt > progress.lastTs) progress.lastTs = row.updatedAt;
+      authoritativeWorkOrderProgress.set(woKey, progress);
     }
 
-    const fallbackBySku = [...skuMap.values()]
+    for (const wo of openWorkOrders) {
+      ensureAuthoritativeSku(normalizeToken(wo.sku) || null);
+    }
+    if (latestTelemetry?.sku) {
+      ensureAuthoritativeSku(latestTelemetry.sku);
+    }
+
+    const bySku = [...authoritativeSkuMap.values()]
       .map((row) => {
         const target = row.target ?? targetBySku.get(skuKey(row.sku))?.target ?? null;
         const produced = row.good + row.scrap;
@@ -833,28 +689,6 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
         };
       })
       .sort((a, b) => b.good - a.good);
-
-    const authoritativeBySku = [...authoritativeSkuMap.values()]
-      .map((row) => {
-        const target = row.target ?? targetBySku.get(skuKey(row.sku))?.target ?? null;
-        const produced = row.good + row.scrap;
-        const progressPct = target && target > 0 ? round2((produced / target) * 100) : null;
-        return {
-          machineName: row.machineName,
-          sku: row.sku,
-          good: row.good,
-          scrap: row.scrap,
-          target,
-          progressPct,
-        };
-      })
-      .sort((a, b) => b.good - a.good);
-
-    const bySku = hasAuthoritativeWorkOrderCounters ? authoritativeBySku : fallbackBySku;
-    if (hasAuthoritativeWorkOrderCounters) {
-      goodParts = authoritativeGoodParts;
-      scrapParts = authoritativeScrapParts;
-    }
 
     const sortedKpis = [...dedupedKpis].sort((a, b) => a.ts.getTime() - b.ts.getTime());
     const weightedAvg = (field: "oee" | "availability" | "performance" | "quality") => {
@@ -925,14 +759,13 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       .filter((wo) => String(wo.status).toUpperCase() === "COMPLETED")
       .filter((wo) => wo.updatedAt >= params.start && wo.updatedAt <= params.end)
       .map((wo) => {
-        const fallbackProgress = rangeByWorkOrder.get(workOrderKey(wo.workOrderId)) ?? {
+        const progress = authoritativeWorkOrderProgress.get(workOrderKey(wo.workOrderId)) ?? {
           goodParts: 0,
           scrapParts: 0,
+          cycleCount: 0,
           firstTs: null,
           lastTs: null,
         };
-        const authoritativeProgress = authoritativeWorkOrderProgress.get(workOrderKey(wo.workOrderId)) ?? null;
-        const progress = authoritativeProgress ?? fallbackProgress;
         const durationHrs =
           progress.firstTs && progress.lastTs
             ? round2((progress.lastTs.getTime() - progress.firstTs.getTime()) / 3600000)
@@ -956,36 +789,27 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
     const activeWorkOrderSku =
       normalizeToken(latestTelemetry?.sku) || normalizeToken(activeWo?.sku) || null;
     const activeWorkOrderKey = workOrderKey(activeWorkOrderId);
-    const authoritativeActiveWo =
-      activeWorkOrderKey && hasAuthoritativeWorkOrderCounters
-        ? machineWorkOrderCounters.find((wo) => workOrderKey(wo.workOrderId) === activeWorkOrderKey) ?? null
-        : null;
     const activeTargetSource =
       activeWorkOrderKey
         ? machineWorkOrdersSorted.find((wo) => workOrderKey(wo.workOrderId) === activeWorkOrderKey) ??
-          activeWo ??
-          authoritativeActiveWo
+          activeWo
         : activeWo;
 
     let activeProgressPct: number | null = null;
     let activeStartedAt: string | null = null;
     if (activeWorkOrderId) {
-      const rangeProgress = activeWorkOrderKey ? rangeByWorkOrder.get(activeWorkOrderKey) : null;
       const authoritativeProgress = activeWorkOrderKey
         ? authoritativeWorkOrderProgress.get(activeWorkOrderKey) ?? null
         : null;
-      const cumulativeProgress = activeWorkOrderKey ? kpiLatestByWorkOrder.get(activeWorkOrderKey) : null;
       const producedForProgress = authoritativeProgress
         ? authoritativeProgress.goodParts + authoritativeProgress.scrapParts
-        : cumulativeProgress
-          ? cumulativeProgress.good + cumulativeProgress.scrap
-          : (rangeProgress?.goodParts ?? 0) + (rangeProgress?.scrapParts ?? 0);
+        : 0;
       const targetQty = safeNum(activeTargetSource?.targetQty);
       if (targetQty && targetQty > 0) {
         activeProgressPct = round2((producedForProgress / targetQty) * 100);
       }
       activeStartedAt = toIso(
-        authoritativeProgress?.firstTs ?? rangeProgress?.firstTs ?? activeWo?.createdAt ?? latestTelemetry?.ts ?? null
+        authoritativeProgress?.firstTs ?? activeWo?.createdAt ?? latestTelemetry?.ts ?? null
       );
     }
 
@@ -1024,7 +848,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       production: {
         goodParts,
         scrapParts,
-        totalCycles: hasAuthoritativeWorkOrderCounters ? authoritativeCycleCount : dedupedCycles.length,
+        totalCycles: authoritativeCycleCount,
         bySku,
       },
       oee: {

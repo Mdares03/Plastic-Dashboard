@@ -122,7 +122,7 @@ const TOL = 0.10;
 const DEFAULT_MICRO_MULT = 1.5;
 const DEFAULT_MACRO_MULT = 5;
 const NORMAL_TOL_SEC = 0.1;
-const LIVE_REFRESH_MS = 5000;
+const LIVE_REFRESH_MS = 15000;
 
 const BUCKET = {
   normal: {
@@ -686,17 +686,34 @@ export default function MachineDetailClient() {
   function MachineActivityTimeline({ machineId }: { machineId: string | undefined }) {
     const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
     const [timelineLoading, setTimelineLoading] = useState(true);
+    const timelineHashRef = useRef("");
 
     useEffect(() => {
       if (!machineId) return;
       let alive = true;
+      timelineHashRef.current = "";
+      setTimeline(null);
+      setTimelineLoading(true);
 
       async function loadTimeline() {
         try {
           const res = await fetch(`/api/recap/${machineId}/timeline?range=1h`, { cache: "no-store" });
           const json = await res.json().catch(() => null);
           if (!alive || !res.ok || !json) return;
-          setTimeline(json as RecapTimelineResponse);
+          const nextTimeline = json as RecapTimelineResponse;
+          const nextHash = JSON.stringify({
+            start: nextTimeline.range?.start ?? "",
+            end: nextTimeline.range?.end ?? "",
+            hasData: nextTimeline.hasData,
+            segments: nextTimeline.segments.map((segment) => ({
+              type: segment.type,
+              startMs: segment.startMs,
+              endMs: segment.endMs,
+            })),
+          });
+          if (timelineHashRef.current === nextHash) return;
+          timelineHashRef.current = nextHash;
+          setTimeline(nextTimeline);
         } finally {
           if (alive) setTimelineLoading(false);
         }
@@ -1065,7 +1082,7 @@ export default function MachineDetailClient() {
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-xs text-zinc-400">OEE</div>
+              <div className="text-xs text-zinc-400">{t("machine.detail.kpi.oeeCurrent")}</div>
               {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
                 <div className="mt-2 text-3xl font-bold text-zinc-400">—</div>
               ) : (

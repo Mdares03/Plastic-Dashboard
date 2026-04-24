@@ -272,6 +272,9 @@ model MachineWorkOrder {
   targetQty   Int?
   cycleTime   Float?
   status      String   @default("PENDING")
+  goodParts   Int      @default(0) @map("good_parts")
+  scrapParts  Int      @default(0) @map("scrap_parts")
+  cycleCount  Int      @default(0) @map("cycle_count")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

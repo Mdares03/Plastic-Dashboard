@@ -27,6 +27,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function toFiniteInt(value: unknown): number | null {
+  const parsed = toFiniteNumber(value);
+  if (parsed == null) return null;
+  return Math.trunc(parsed);
+}
+
+function pickFirstNumber(...values: unknown[]) {
+  for (const value of values) {
+    const parsed = toFiniteNumber(value);
+    if (parsed != null) return parsed;
+  }
+  return null;
+}
+
 function readPath(root: unknown, path: string[]): unknown {
   let current = root;
   for (const key of path) {
@@ -160,28 +183,37 @@ export async function POST(req: Request) {
     orgId = machine.orgId;
 
     const woRecord = (body.activeWorkOrder ?? {}) as Record<string, unknown>;
-    const good =
-      typeof woRecord.good === "number"
-        ? woRecord.good
-        : typeof woRecord.goodParts === "number"
-          ? woRecord.goodParts
-          : typeof woRecord.good_parts === "number"
-            ? woRecord.good_parts
-            : null;
-    const scrap =
-      typeof woRecord.scrap === "number"
-        ? woRecord.scrap
-        : typeof woRecord.scrapParts === "number"
-          ? woRecord.scrapParts
-          : typeof woRecord.scrap_parts === "number"
-            ? woRecord.scrap_parts
-            : null;
+    const activeWorkOrderId = woRecord.id != null ? String(woRecord.id).trim() : "";
+    const activeSku = woRecord.sku != null ? String(woRecord.sku).trim() : "";
+    const activeStatus = woRecord.status != null ? String(woRecord.status).trim() : "";
+    const activeTargetQty = toFiniteInt(woRecord.target);
+    const activeCycleTime = toFiniteNumber(woRecord.cycleTime);
+    const good = pickFirstNumber(woRecord.good, woRecord.goodParts, woRecord.good_parts);
+    const scrap = pickFirstNumber(woRecord.scrap, woRecord.scrapParts, woRecord.scrap_parts);
+    const activeGoodParts = Math.max(0, Math.trunc(good ?? 0));
+    const activeScrapParts = Math.max(0, Math.trunc(scrap ?? 0));
+    const activeCycleCount = Math.max(
+      0,
+      toFiniteInt(woRecord.cycleCount ?? woRecord.cycle_count ?? body.cycle_count) ?? 0
+    );
+    const snapshotCycleCount =
+      toFiniteInt(body.cycle_count) ??
+      toFiniteInt(woRecord.cycle_count) ??
+      toFiniteInt(woRecord.cycleCount);
+    const snapshotGoodParts =
+      toFiniteInt(body.good_parts) ??
+      toFiniteInt(woRecord.good_parts) ??
+      toFiniteInt(woRecord.goodParts);
+    const snapshotScrapParts =
+      toFiniteInt(body.scrap_parts) ??
+      toFiniteInt(woRecord.scrap_parts) ??
+      toFiniteInt(woRecord.scrapParts);
     const k = body.kpis ?? {};
     const safeCycleTime =
       typeof body.cycleTime === "number" && body.cycleTime > 0
         ? body.cycleTime
-        : typeof woRecord.cycleTime === "number" && woRecord.cycleTime > 0
-          ? woRecord.cycleTime
+        : activeCycleTime != null && activeCycleTime > 0
+          ? activeCycleTime
           : null;
 
     const safeCavities =
@@ -202,16 +234,16 @@ export async function POST(req: Request) {
         ts: tsDeviceDate, // store device-time in ts; server-time goes to ts_server
 
         // Work order fields
-        workOrderId: woRecord.id != null ? String(woRecord.id) : null,
-        sku: woRecord.sku != null ? String(woRecord.sku) : null,
-        target: typeof woRecord.target === "number" ? Math.trunc(woRecord.target) : null,
+        workOrderId: activeWorkOrderId || null,
+        sku: activeSku || null,
+        target: activeTargetQty,
         good: good != null ? Math.trunc(good) : null,
         scrap: scrap != null ? Math.trunc(scrap) : null,
 
         // Counters
-        cycleCount: typeof body.cycle_count === "number" ? body.cycle_count : null,
-        goodParts: typeof body.good_parts === "number" ? body.good_parts : null,
-        scrapParts: typeof body.scrap_parts === "number" ? body.scrap_parts : null,
+        cycleCount: snapshotCycleCount,
+        goodParts: snapshotGoodParts,
+        scrapParts: snapshotScrapParts,
         cavities: safeCavities,
 
         // Cycle times
@@ -228,6 +260,38 @@ export async function POST(req: Request) {
         productionStarted: typeof body.productionStarted === "boolean" ? body.productionStarted : null,
       },
     });
+
+    if (activeWorkOrderId) {
+      await prisma.machineWorkOrder.upsert({
+        where: {
+          machineId_workOrderId: {
+            machineId: machine.id,
+            workOrderId: activeWorkOrderId,
+          },
+        },
+        create: {
+          orgId: machine.orgId,
+          machineId: machine.id,
+          workOrderId: activeWorkOrderId,
+          sku: activeSku || null,
+          targetQty: activeTargetQty,
+          cycleTime: activeCycleTime,
+          status: activeStatus || "RUNNING",
+          goodParts: activeGoodParts,
+          scrapParts: activeScrapParts,
+          cycleCount: activeCycleCount,
+        },
+        update: {
+          sku: activeSku || undefined,
+          targetQty: activeTargetQty ?? undefined,
+          cycleTime: activeCycleTime ?? undefined,
+          status: activeStatus || undefined,
+          goodParts: activeGoodParts,
+          scrapParts: activeScrapParts,
+          cycleCount: activeCycleCount,
+        },
+      });
+    }
 
     // Optional but useful: update machine "last seen" meta fields
     await prisma.machine.update({
