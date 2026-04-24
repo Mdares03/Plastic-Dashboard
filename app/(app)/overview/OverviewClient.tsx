@@ -232,6 +232,21 @@ export default function OverviewClient({
 
       {loading && <div className="mb-4 text-sm text-zinc-400">{t("overview.loading")}</div>}
 
+      <div className="mb-4 rounded-2xl border border-white/10 bg-black/40 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-sm font-semibold text-white">{t("overview.recap.title")}</div>
+            <div className="text-xs text-zinc-400">{t("overview.recap.subtitle")}</div>
+          </div>
+          <Link
+            href="/recap"
+            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-300 hover:bg-emerald-500/20"
+          >
+            {t("overview.recap.cta")}
+          </Link>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
           <div className="text-xs text-zinc-400">{t("overview.fleetHealth")}</div>

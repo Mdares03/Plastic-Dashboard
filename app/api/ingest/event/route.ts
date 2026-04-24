@@ -439,7 +439,9 @@ export async function POST(req: Request) {
 
     // If the payload carries a `reason`, create the corresponding ReasonEntry.
     // If it doesn't, still create an "UNCLASSIFIED" downtime ReasonEntry for stop events so the dashboard can show coverage.
-    if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged") {
+    if (evRecord.is_update || evRecord.is_auto_ack || dataObj.is_update || dataObj.is_auto_ack){
+  // skip duplicate reasonEntry for refresh/ack 
+    } else if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged"){
       const reasonRaw: Record<string, unknown> =
         evReason ??
         ({

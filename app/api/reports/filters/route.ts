@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { logLine } from "@/lib/logger";
@@ -42,6 +43,10 @@ function pickRange(req: NextRequest) {
   return { start: new Date(now.getTime() - ms), end: now };
 }
 
+function toMs(value?: Date | null) {
+  return value ? value.getTime() : 0;
+}
+
 export async function GET(req: NextRequest) {
   const perfEnabled = PERF_LOGS_ENABLED;
   const totalStart = nowMs();
@@ -67,6 +72,32 @@ export async function GET(req: NextRequest) {
 
   if (perfEnabled) timings.preQuery = elapsedMs(preQueryStart);
 
+  const versionStart = nowMs();
+  const cycleMax = await prisma.machineCycle.aggregate({
+    where: baseWhere,
+    _max: { tsServer: true },
+  });
+  if (perfEnabled) timings.version = elapsedMs(versionStart);
+
+  const versionParts = [
+    session.orgId,
+    range,
+    machineId ?? "",
+    toMs(cycleMax._max.tsServer),
+  ];
+  const etag = `W/"${createHash("sha1").update(versionParts.join("|")).digest("hex")}"`;
+  const responseHeaders = new Headers({
+    "Cache-Control": "private, no-cache, max-age=0, must-revalidate",
+    ETag: etag,
+    "Last-Modified": new Date(toMs(cycleMax._max.tsServer) || 0).toUTCString(),
+    Vary: "Cookie",
+  });
+
+  const ifNoneMatch = req.headers.get("if-none-match");
+  if (ifNoneMatch && ifNoneMatch === etag) {
+    return new NextResponse(null, { status: 304, headers: responseHeaders });
+  }
+
   const workOrdersStart = nowMs();
   const workOrderRows = await prisma.machineCycle.findMany({
     where: { ...baseWhere, workOrderId: { not: null } },
@@ -90,7 +121,6 @@ export async function GET(req: NextRequest) {
 
   const payload = { ok: true, workOrders, skus };
 
-  const responseHeaders = new Headers();
   if (perfEnabled) {
     timings.postQuery = elapsedMs(postQueryStart);
     timings.total = elapsedMs(totalStart);
