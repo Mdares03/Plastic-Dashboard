@@ -27,6 +27,7 @@ const STOP_TYPES = new Set(["microstop", "macrostop"]);
 const STOP_STATUS = new Set(["STOP", "DOWN", "OFFLINE"]);
 const CACHE_TTL_SEC = 60;
 const MOLD_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+const MOLD_ACTIVE_STALE_MS = 12 * 60 * 60 * 1000;
 
 function safeNum(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -822,6 +823,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
         continue;
       }
       if (status === "active" || !status) {
+        if (params.end.getTime() - event.ts.getTime() > MOLD_ACTIVE_STALE_MS) continue;
         moldActiveByIncident.set(key, moldStartMs(event.data, event.ts));
       }
     }

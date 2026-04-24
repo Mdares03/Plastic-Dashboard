@@ -39,4 +39,4 @@ Truncate ReasonEntry (kills 99% of the insanity).
 Fix "Ayer" to be calendar-based.
 Fix KPI row label to reflect selected range.
 If no OrgShift rows exist, show a toast or disable "Turno actual" button instead of silently falling back.
-Improve dual-banner priority (offline > mold-change).
+Improve dual-banner priority (offline > mold-change)

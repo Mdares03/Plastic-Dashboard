@@ -1,6 +1,7 @@
 import type { RecapTimelineSegment } from "@/lib/recap/types";
 
 const ACTIVE_STALE_MS = 2 * 60 * 1000;
+const MOLD_ACTIVE_STALE_MS = 12 * 60 * 60 * 1000;
 const MERGE_GAP_MS = 30 * 1000;
 const MICRO_CLUSTER_GAP_MS = 60 * 1000;
 const ABSORB_SHORT_SEGMENT_MS = 30 * 1000;
@@ -584,6 +585,21 @@ export function buildTimelineSegments(input: {
   }
   if (currentProduction) rawSegments.push(currentProduction);
 
+  // If production evidence appears after a mold-change "active" event, we cap that
+  // mold-change segment at the first production timestamp to avoid stale overwrite.
+  const productionWindows = rawSegments
+    .filter((segment): segment is Extract<RawSegment, { type: "production" }> => segment.type === "production")
+    .map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs }))
+    .sort((a, b) => a.startMs - b.startMs || a.endMs - b.endMs);
+
+  const firstProductionMsAfter = (startMs: number) => {
+    for (const window of productionWindows) {
+      if (window.endMs <= startMs) continue;
+      return Math.max(startMs, window.startMs);
+    }
+    return null;
+  };
+
   const eventEpisodes = new Map<
     string,
     {
@@ -661,8 +677,16 @@ export function buildTimelineSegments(input: {
     let endMs = Math.trunc(episode.endMs ?? episode.lastTsMs);
 
     if (episode.statusActive && !episode.statusResolved) {
-      const isFreshActive = rangeEndMs - episode.lastTsMs <= ACTIVE_STALE_MS;
+      const activeStaleMs = episode.type === "mold-change" ? MOLD_ACTIVE_STALE_MS : ACTIVE_STALE_MS;
+      const isFreshActive = rangeEndMs - episode.lastTsMs <= activeStaleMs;
       endMs = isFreshActive ? rangeEndMs : episode.lastTsMs;
+
+      if (episode.type === "mold-change") {
+        const productionResumeMs = firstProductionMsAfter(startMs);
+        if (productionResumeMs != null) {
+          endMs = Math.min(endMs, productionResumeMs);
+        }
+      }
     } else if (endMs <= startMs && episode.durationSec != null && episode.durationSec > 0) {
       endMs = startMs + episode.durationSec * 1000;
     }
