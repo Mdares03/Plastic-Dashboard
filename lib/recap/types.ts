@@ -60,6 +60,7 @@ export type RecapTimelineSegment =
       type: "production";
       startMs: number;
       endMs: number;
+      durationSec: number;
       workOrderId: string | null;
       sku: string | null;
       label: string;
@@ -78,6 +79,7 @@ export type RecapTimelineSegment =
       startMs: number;
       endMs: number;
       reason: string | null;
+      reasonLabel?: string | null;
       durationSec: number;
       label: string;
     }
@@ -85,6 +87,7 @@ export type RecapTimelineSegment =
       type: "idle";
       startMs: number;
       endMs: number;
+      durationSec: number;
       label: string;
     };
 
@@ -94,6 +97,8 @@ export type RecapTimelineResponse = {
     end: string;
   };
   segments: RecapTimelineSegment[];
+  hasData: boolean;
+  generatedAt: string;
 };
 
 export type RecapResponse = {
@@ -114,4 +119,101 @@ export type RecapQuery = {
   start?: Date;
   end?: Date;
   shift?: string;
+};
+
+export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "offline";
+
+export type RecapSummaryMachine = {
+  machineId: string;
+  name: string;
+  location: string | null;
+  status: RecapMachineStatus;
+  oee: number | null;
+  goodParts: number;
+  scrap: number;
+  stopsCount: number;
+  lastSeenMs: number | null;
+  lastActivityMin: number | null;
+  offlineForMin: number | null;
+  ongoingStopMin: number | null;
+  activeWorkOrderId: string | null;
+  moldChange: {
+    active: boolean;
+    startMs: number | null;
+    elapsedMin: number | null;
+  } | null;
+  miniTimeline: RecapTimelineSegment[];
+};
+
+export type RecapSummaryResponse = {
+  generatedAt: string;
+  range: {
+    start: string;
+    end: string;
+    hours: number;
+  };
+  machines: RecapSummaryMachine[];
+};
+
+export type RecapRangeMode = "24h" | "shift" | "yesterday" | "custom";
+
+export type RecapDowntimeTopRow = {
+  reasonLabel: string;
+  minutes: number;
+  count: number;
+  percent: number;
+};
+
+export type RecapWorkOrders = {
+  completed: Array<{
+    id: string;
+    sku: string | null;
+    goodParts: number;
+    durationHrs: number;
+  }>;
+  active: {
+    id: string;
+    sku: string | null;
+    progressPct: number | null;
+    startedAt: string | null;
+  } | null;
+};
+
+export type RecapMachineDetail = {
+  machineId: string;
+  name: string;
+  location: string | null;
+  status: RecapMachineStatus;
+  oee: number | null;
+  goodParts: number;
+  scrap: number;
+  stopsCount: number;
+  stopMinutes: number;
+  activeWorkOrderId: string | null;
+  lastSeenMs: number | null;
+  offlineForMin: number | null;
+  ongoingStopMin: number | null;
+  moldChange: {
+    active: boolean;
+    startMs: number | null;
+  } | null;
+  timeline: RecapTimelineSegment[];
+  productionBySku: RecapSkuRow[];
+  downtimeTop: RecapDowntimeTopRow[];
+  workOrders: RecapWorkOrders;
+  heartbeat: {
+    lastSeenAt: string | null;
+    uptimePct: number | null;
+    connectionStatus: "online" | "offline";
+  };
+};
+
+export type RecapDetailResponse = {
+  generatedAt: string;
+  range: {
+    mode: RecapRangeMode;
+    start: string;
+    end: string;
+  };
+  machine: RecapMachineDetail;
 };

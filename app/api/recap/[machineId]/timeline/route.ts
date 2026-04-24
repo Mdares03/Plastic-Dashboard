@@ -8,12 +8,14 @@ function bad(status: number, error: string) {
   return NextResponse.json({ ok: false, error }, { status });
 }
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ machineId: string }> }
+) {
   const session = await requireSession();
   if (!session) return bad(401, "Unauthorized");
 
-  const url = new URL(req.url);
-  const machineId = url.searchParams.get("machineId");
+  const { machineId } = await params;
   if (!machineId) return bad(400, "machineId is required");
 
   const machine = await prisma.machine.findFirst({
@@ -22,6 +24,7 @@ export async function GET(req: NextRequest) {
   });
   if (!machine) return bad(404, "Machine not found");
 
+  const url = new URL(req.url);
   const { start, end, maxSegments } = parseRecapTimelineRange(url.searchParams);
   const response = await getRecapTimelineForMachine({
     orgId: session.orgId,

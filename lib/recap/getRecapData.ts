@@ -1,4 +1,5 @@
 import { unstable_cache } from "next/cache";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { normalizeShiftOverrides, type ShiftOverrideDay } from "@/lib/settings";
 import type { RecapMachine, RecapQuery, RecapResponse } from "@/lib/recap/types";
@@ -25,8 +26,9 @@ const WEEKDAY_KEY_MAP: Record<string, ShiftOverrideDay> = {
 
 const STOP_TYPES = new Set(["microstop", "macrostop"]);
 const STOP_STATUS = new Set(["STOP", "DOWN", "OFFLINE"]);
-const CACHE_TTL_SEC = 180;
+const CACHE_TTL_SEC = 60;
 const MOLD_LOOKBACK_MS = 14 * 24 * 60 * 60 * 1000;
+let workOrderCountersAvailable: boolean | null = null;
 
 function safeNum(value: unknown) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -35,6 +37,17 @@ function safeNum(value: unknown) {
     if (Number.isFinite(n)) return n;
   }
   return null;
+}
+
+function safeBool(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return false;
+    return normalized === "true" || normalized === "1" || normalized === "yes";
+  }
+  return false;
 }
 
 function normalizeToken(value: unknown) {
@@ -194,6 +207,14 @@ function eventStatus(data: unknown) {
   return String(inner.status ?? "").trim().toLowerCase();
 }
 
+function isRealStopEvent(data: unknown) {
+  const inner = extractEventData(data);
+  const status = String(inner.status ?? "").trim().toLowerCase();
+  const isUpdate = safeBool(inner.is_update ?? inner.isUpdate);
+  const isAutoAck = safeBool(inner.is_auto_ack ?? inner.isAutoAck);
+  return status !== "active" && !isUpdate && !isAutoAck;
+}
+
 function eventIncidentKey(data: unknown, eventType: string, ts: Date) {
   const inner = extractEventData(data);
   const direct = String(inner.incidentKey ?? inner.incident_key ?? "").trim();
@@ -208,9 +229,75 @@ function moldStartMs(data: unknown, fallbackTs: Date) {
   return Math.trunc(safeNum(inner.start_ms) ?? safeNum(inner.startMs) ?? fallbackTs.getTime());
 }
 
-function avg(sum: number, count: number) {
-  if (!count) return null;
-  return round2(sum / count);
+type WorkOrderCounterColumnRow = {
+  column_name: string;
+};
+
+type WorkOrderCounterRow = {
+  machineId: string;
+  workOrderId: string;
+  sku: string | null;
+  targetQty: number | null;
+  status: string;
+  createdAt: Date;
+  updatedAt: Date;
+  goodParts: number;
+  scrapParts: number;
+  cycleCount: number;
+};
+
+async function loadWorkOrderCounterRows(params: {
+  orgId: string;
+  machineIds: string[];
+  start: Date;
+  end: Date;
+}) {
+  if (!params.machineIds.length) return [] as WorkOrderCounterRow[];
+
+  try {
+    if (workOrderCountersAvailable == null) {
+      const columns = await prisma.$queryRaw<WorkOrderCounterColumnRow[]>`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'machine_work_orders'
+          AND column_name IN ('good_parts', 'scrap_parts', 'cycle_count')
+      `;
+      const availableColumns = new Set(columns.map((row) => row.column_name));
+      workOrderCountersAvailable =
+        availableColumns.has("good_parts") &&
+        availableColumns.has("scrap_parts") &&
+        availableColumns.has("cycle_count");
+    }
+
+    if (!workOrderCountersAvailable) {
+      return null;
+    }
+
+    const machineIdList = Prisma.join(params.machineIds.map((id) => Prisma.sql`${id}`));
+    const rows = await prisma.$queryRaw<WorkOrderCounterRow[]>(Prisma.sql`
+      SELECT
+        "machineId",
+        "workOrderId",
+        sku,
+        "targetQty",
+        status,
+        "createdAt",
+        "updatedAt",
+        COALESCE(good_parts, 0)::int AS "goodParts",
+        COALESCE(scrap_parts, 0)::int AS "scrapParts",
+        COALESCE(cycle_count, 0)::int AS "cycleCount"
+      FROM "machine_work_orders"
+      WHERE "orgId" = ${params.orgId}
+        AND "machineId" IN (${machineIdList})
+        AND "updatedAt" >= ${params.start}
+        AND "updatedAt" <= ${params.end}
+    `);
+
+    return rows;
+  } catch {
+    return null;
+  }
 }
 
 export function parseRecapQuery(input: {
@@ -250,7 +337,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
 
   const machineIds = machines.map((m) => m.id);
   const moldStartLookback = new Date(params.end.getTime() - MOLD_LOOKBACK_MS);
-  const [settings, shifts, cyclesRaw, kpisRaw, eventsRaw, reasonsRaw, workOrdersRaw, hbRangeRaw, hbLatestRaw, moldEventsRaw] =
+  const [settings, shifts, cyclesRaw, kpisRaw, eventsRaw, reasonsRaw, workOrdersRaw, workOrderCounterRowsRaw, hbRangeRaw, hbLatestRaw, moldEventsRaw] =
     await Promise.all([
       prisma.orgSettings.findUnique({
         where: { orgId: params.orgId },
@@ -283,6 +370,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
           machineId: { in: machineIds },
           ts: { gte: params.start, lte: params.end },
         },
+        orderBy: [{ machineId: "asc" }, { ts: "asc" }],
         select: {
           machineId: true,
           ts: true,
@@ -343,6 +431,12 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
           createdAt: true,
           updatedAt: true,
         },
+      }),
+      loadWorkOrderCounterRows({
+        orgId: params.orgId,
+        machineIds,
+        start: params.start,
+        end: params.end,
       }),
       prisma.machineHeartbeat.findMany({
         where: {
@@ -412,6 +506,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
   const eventsByMachine = new Map<string, typeof events>();
   const reasonsByMachine = new Map<string, typeof reasons>();
   const workOrdersByMachine = new Map<string, typeof workOrdersRaw>();
+  const workOrderCountersByMachine = new Map<string, WorkOrderCounterRow[]>();
   const hbRangeByMachine = new Map<string, typeof hbRange>();
   const hbLatestByMachine = new Map(hbLatestRaw.map((row) => [row.machineId, row]));
   const moldEventsByMachine = new Map<string, typeof moldEventsRaw>();
@@ -446,6 +541,12 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
     workOrdersByMachine.set(row.machineId, list);
   }
 
+  for (const row of workOrderCounterRowsRaw ?? []) {
+    const list = workOrderCountersByMachine.get(row.machineId) ?? [];
+    list.push(row);
+    workOrderCountersByMachine.set(row.machineId, list);
+  }
+
   for (const row of hbRange) {
     const list = hbRangeByMachine.get(row.machineId) ?? [];
     list.push(row);
@@ -464,6 +565,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
     const machineEvents = eventsByMachine.get(machine.id) ?? [];
     const machineReasons = reasonsByMachine.get(machine.id) ?? [];
     const machineWorkOrders = workOrdersByMachine.get(machine.id) ?? [];
+    const machineWorkOrderCounters = workOrderCountersByMachine.get(machine.id) ?? [];
     const machineHbRange = hbRangeByMachine.get(machine.id) ?? [];
     const latestHb = hbLatestByMachine.get(machine.id) ?? null;
     const machineMoldEvents = moldEventsByMachine.get(machine.id) ?? [];
@@ -660,7 +762,63 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
     }
     if (latestTelemetry?.sku) ensureSkuRow(latestTelemetry.sku);
 
-    const bySku = [...skuMap.values()]
+    const hasAuthoritativeWorkOrderCounters = machineWorkOrderCounters.length > 0;
+    const authoritativeWorkOrderProgress = new Map<
+      string,
+      { goodParts: number; scrapParts: number; cycleCount: number; firstTs: Date | null; lastTs: Date | null }
+    >();
+    const authoritativeSkuMap = new Map<string, SkuAggregate>();
+    let authoritativeGoodParts = 0;
+    let authoritativeScrapParts = 0;
+    let authoritativeCycleCount = 0;
+
+    if (hasAuthoritativeWorkOrderCounters) {
+      for (const row of machineWorkOrderCounters) {
+        const safeGood = Math.max(0, Math.trunc(safeNum(row.goodParts) ?? 0));
+        const safeScrap = Math.max(0, Math.trunc(safeNum(row.scrapParts) ?? 0));
+        const safeCycleCount = Math.max(0, Math.trunc(safeNum(row.cycleCount) ?? 0));
+        const skuToken = normalizeToken(row.sku) || "N/A";
+        const skuTokenKey = skuKey(skuToken);
+        const target = safeNum(row.targetQty);
+
+        const skuAgg = authoritativeSkuMap.get(skuTokenKey) ?? {
+          machineName: machine.name,
+          sku: skuToken,
+          good: 0,
+          scrap: 0,
+          target: target != null && target > 0 ? Math.max(0, Math.trunc(target)) : null,
+        };
+        skuAgg.good += safeGood;
+        skuAgg.scrap += safeScrap;
+        if (target != null && target > 0) {
+          skuAgg.target = (skuAgg.target ?? 0) + Math.max(0, Math.trunc(target));
+        }
+        authoritativeSkuMap.set(skuTokenKey, skuAgg);
+
+        authoritativeGoodParts += safeGood;
+        authoritativeScrapParts += safeScrap;
+        authoritativeCycleCount += safeCycleCount;
+
+        const woKey = workOrderKey(row.workOrderId);
+        if (!woKey) continue;
+
+        const progress = authoritativeWorkOrderProgress.get(woKey) ?? {
+          goodParts: 0,
+          scrapParts: 0,
+          cycleCount: 0,
+          firstTs: null,
+          lastTs: null,
+        };
+        progress.goodParts += safeGood;
+        progress.scrapParts += safeScrap;
+        progress.cycleCount += safeCycleCount;
+        if (!progress.firstTs || row.createdAt < progress.firstTs) progress.firstTs = row.createdAt;
+        if (!progress.lastTs || row.updatedAt > progress.lastTs) progress.lastTs = row.updatedAt;
+        authoritativeWorkOrderProgress.set(woKey, progress);
+      }
+    }
+
+    const fallbackBySku = [...skuMap.values()]
       .map((row) => {
         const target = row.target ?? targetBySku.get(skuKey(row.sku))?.target ?? null;
         const produced = row.good + row.scrap;
@@ -676,44 +834,52 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       })
       .sort((a, b) => b.good - a.good);
 
-    let oeeSum = 0;
-    let oeeCount = 0;
-    let availabilitySum = 0;
-    let availabilityCount = 0;
-    let performanceSum = 0;
-    let performanceCount = 0;
-    let qualitySum = 0;
-    let qualityCount = 0;
+    const authoritativeBySku = [...authoritativeSkuMap.values()]
+      .map((row) => {
+        const target = row.target ?? targetBySku.get(skuKey(row.sku))?.target ?? null;
+        const produced = row.good + row.scrap;
+        const progressPct = target && target > 0 ? round2((produced / target) * 100) : null;
+        return {
+          machineName: row.machineName,
+          sku: row.sku,
+          good: row.good,
+          scrap: row.scrap,
+          target,
+          progressPct,
+        };
+      })
+      .sort((a, b) => b.good - a.good);
 
-    for (const kpi of dedupedKpis) {
-      const oee = safeNum(kpi.oee);
-      const availability = safeNum(kpi.availability);
-      const performance = safeNum(kpi.performance);
-      const quality = safeNum(kpi.quality);
-
-      if (oee != null) {
-        oeeSum += oee;
-        oeeCount += 1;
-      }
-      if (availability != null) {
-        availabilitySum += availability;
-        availabilityCount += 1;
-      }
-      if (performance != null) {
-        performanceSum += performance;
-        performanceCount += 1;
-      }
-      if (quality != null) {
-        qualitySum += quality;
-        qualityCount += 1;
-      }
+    const bySku = hasAuthoritativeWorkOrderCounters ? authoritativeBySku : fallbackBySku;
+    if (hasAuthoritativeWorkOrderCounters) {
+      goodParts = authoritativeGoodParts;
+      scrapParts = authoritativeScrapParts;
     }
+
+    const sortedKpis = [...dedupedKpis].sort((a, b) => a.ts.getTime() - b.ts.getTime());
+    const weightedAvg = (field: "oee" | "availability" | "performance" | "quality") => {
+      if (!sortedKpis.length) return null;
+      let totalMs = 0;
+      let weightedSum = 0;
+
+      for (let i = 0; i < sortedKpis.length; i += 1) {
+        const current = sortedKpis[i];
+        const nextTsMs = (sortedKpis[i + 1]?.ts ?? params.end).getTime();
+        const dt = Math.max(0, nextTsMs - current.ts.getTime());
+        if (dt <= 0) continue;
+        weightedSum += (safeNum(current[field]) ?? 0) * dt;
+        totalMs += dt;
+      }
+
+      return totalMs > 0 ? round2(weightedSum / totalMs) : null;
+    };
 
     let stopDurSecFromEvents = 0;
     let stopsCount = 0;
     for (const event of machineEvents) {
       const type = String(event.eventType || "").toLowerCase();
       if (!STOP_TYPES.has(type)) continue;
+      if (!isRealStopEvent(event.data)) continue;
       stopsCount += 1;
       stopDurSecFromEvents += eventDurationSec(event.data);
     }
@@ -759,12 +925,14 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       .filter((wo) => String(wo.status).toUpperCase() === "COMPLETED")
       .filter((wo) => wo.updatedAt >= params.start && wo.updatedAt <= params.end)
       .map((wo) => {
-        const progress = rangeByWorkOrder.get(workOrderKey(wo.workOrderId)) ?? {
+        const fallbackProgress = rangeByWorkOrder.get(workOrderKey(wo.workOrderId)) ?? {
           goodParts: 0,
           scrapParts: 0,
           firstTs: null,
           lastTs: null,
         };
+        const authoritativeProgress = authoritativeWorkOrderProgress.get(workOrderKey(wo.workOrderId)) ?? null;
+        const progress = authoritativeProgress ?? fallbackProgress;
         const durationHrs =
           progress.firstTs && progress.lastTs
             ? round2((progress.lastTs.getTime() - progress.firstTs.getTime()) / 3600000)
@@ -788,24 +956,37 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
     const activeWorkOrderSku =
       normalizeToken(latestTelemetry?.sku) || normalizeToken(activeWo?.sku) || null;
     const activeWorkOrderKey = workOrderKey(activeWorkOrderId);
+    const authoritativeActiveWo =
+      activeWorkOrderKey && hasAuthoritativeWorkOrderCounters
+        ? machineWorkOrderCounters.find((wo) => workOrderKey(wo.workOrderId) === activeWorkOrderKey) ?? null
+        : null;
     const activeTargetSource =
       activeWorkOrderKey
-        ? machineWorkOrdersSorted.find((wo) => workOrderKey(wo.workOrderId) === activeWorkOrderKey) ?? activeWo
+        ? machineWorkOrdersSorted.find((wo) => workOrderKey(wo.workOrderId) === activeWorkOrderKey) ??
+          activeWo ??
+          authoritativeActiveWo
         : activeWo;
 
     let activeProgressPct: number | null = null;
     let activeStartedAt: string | null = null;
     if (activeWorkOrderId) {
       const rangeProgress = activeWorkOrderKey ? rangeByWorkOrder.get(activeWorkOrderKey) : null;
+      const authoritativeProgress = activeWorkOrderKey
+        ? authoritativeWorkOrderProgress.get(activeWorkOrderKey) ?? null
+        : null;
       const cumulativeProgress = activeWorkOrderKey ? kpiLatestByWorkOrder.get(activeWorkOrderKey) : null;
-      const producedForProgress = cumulativeProgress
-        ? cumulativeProgress.good + cumulativeProgress.scrap
-        : (rangeProgress?.goodParts ?? 0) + (rangeProgress?.scrapParts ?? 0);
+      const producedForProgress = authoritativeProgress
+        ? authoritativeProgress.goodParts + authoritativeProgress.scrapParts
+        : cumulativeProgress
+          ? cumulativeProgress.good + cumulativeProgress.scrap
+          : (rangeProgress?.goodParts ?? 0) + (rangeProgress?.scrapParts ?? 0);
       const targetQty = safeNum(activeTargetSource?.targetQty);
       if (targetQty && targetQty > 0) {
         activeProgressPct = round2((producedForProgress / targetQty) * 100);
       }
-      activeStartedAt = toIso(rangeProgress?.firstTs ?? activeWo?.createdAt ?? latestTelemetry?.ts ?? null);
+      activeStartedAt = toIso(
+        authoritativeProgress?.firstTs ?? rangeProgress?.firstTs ?? activeWo?.createdAt ?? latestTelemetry?.ts ?? null
+      );
     }
 
     const moldActiveByIncident = new Map<string, number>();
@@ -843,14 +1024,14 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       production: {
         goodParts,
         scrapParts,
-        totalCycles: dedupedCycles.length,
+        totalCycles: hasAuthoritativeWorkOrderCounters ? authoritativeCycleCount : dedupedCycles.length,
         bySku,
       },
       oee: {
-        avg: avg(oeeSum, oeeCount),
-        availability: avg(availabilitySum, availabilityCount),
-        performance: avg(performanceSum, performanceCount),
-        quality: avg(qualitySum, qualityCount),
+        avg: weightedAvg("oee"),
+        availability: weightedAvg("availability"),
+        performance: weightedAvg("performance"),
+        quality: weightedAvg("quality"),
       },
       downtime: {
         totalMin,

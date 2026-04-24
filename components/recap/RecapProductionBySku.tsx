@@ -12,34 +12,37 @@ export default function RecapProductionBySku({ rows }: Props) {
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-      <div className="mb-3 text-sm font-semibold text-white">{t("recap.production.title")}</div>
+      <div className="mb-3 text-sm font-semibold text-white">{t("recap.production.bySku")}</div>
+
       {rows.length === 0 ? (
         <div className="text-sm text-zinc-400">{t("recap.empty.production")}</div>
       ) : (
-        <div className="space-y-2">
-          <div className="grid grid-cols-6 gap-2 border-b border-white/10 pb-2 text-xs uppercase tracking-wide text-zinc-400">
-            <div>Maquina</div>
-            <div>SKU</div>
-            <div>{t("recap.production.good")}</div>
-            <div>{t("recap.production.scrap")}</div>
-            <div>{t("recap.production.target")}</div>
-            <div>{t("recap.production.progress")}</div>
-          </div>
-          {rows.slice(0, 8).map((row) => {
-            const pct = row.progressPct == null ? "--" : `${Math.round(row.progressPct)}%`;
-            return (
-              <div key={`${row.machineName}:${row.sku}`} className="grid grid-cols-6 gap-2 text-sm text-zinc-200">
-                <div className="truncate text-zinc-400">{row.machineName}</div>
-                <div className="truncate">{row.sku}</div>
-                <div>{row.good}</div>
-                <div className={row.scrap > 0 ? "text-red-400" : "text-zinc-200"}>{row.scrap}</div>
-                <div>{row.target ?? "--"}</div>
-                <div>
-                  <span className="text-emerald-400">{pct}</span>
-                </div>
-              </div>
-            );
-          })}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm text-zinc-200">
+            <thead>
+              <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-zinc-400">
+                <th className="py-2 pr-3">{t("recap.production.sku")}</th>
+                <th className="py-2 pr-3">{t("recap.production.good")}</th>
+                <th className="py-2 pr-3">{t("recap.production.scrap")}</th>
+                <th className="py-2 pr-3">{t("recap.production.target")}</th>
+                <th className="py-2">{t("recap.production.progress")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.slice(0, 10).map((row) => {
+                const progress = row.progressPct == null ? "--" : `${Math.round(row.progressPct)}%`;
+                return (
+                  <tr key={`${row.sku}:${row.machineName}`} className="border-b border-white/5">
+                    <td className="py-2 pr-3">{row.sku}</td>
+                    <td className="py-2 pr-3">{row.good}</td>
+                    <td className={`py-2 pr-3 ${row.scrap > 0 ? "text-red-300" : ""}`}>{row.scrap}</td>
+                    <td className="py-2 pr-3">{row.target ?? "--"}</td>
+                    <td className="py-2 text-emerald-300">{progress}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

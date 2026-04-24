@@ -1,0 +1,154 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
+import type { RecapSummaryMachine, RecapTimelineResponse } from "@/lib/recap/types";
+import RecapMiniTimeline from "@/components/recap/RecapMiniTimeline";
+
+type Props = {
+  machine: RecapSummaryMachine;
+  rangeStart: string;
+  rangeEnd: string;
+};
+
+const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
+  running: "bg-emerald-400",
+  "mold-change": "bg-amber-400",
+  stopped: "bg-red-500",
+  offline: "bg-zinc-500",
+};
+
+function statusLabel(status: RecapSummaryMachine["status"], t: (key: string) => string) {
+  if (status === "running") return t("recap.status.running");
+  if (status === "mold-change") return t("recap.status.moldChange");
+  if (status === "stopped") return t("recap.status.stopped");
+  return t("recap.status.offline");
+}
+
+function toInt(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.round(value));
+}
+
+export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Props) {
+  const { t, locale } = useI18n();
+  const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  const zeroActivity = machine.goodParts === 0 && machine.scrap === 0 && machine.stopsCount === 0;
+  const primaryMetric = machine.oee == null ? "—" : `${machine.oee.toFixed(1)}%`;
+  const timelineSegments = timeline?.segments ?? machine.miniTimeline;
+  const timelineStart = timeline?.range.start ?? rangeStart;
+  const timelineEnd = timeline?.range.end ?? rangeEnd;
+  const hasTimelineData = timeline?.hasData ?? timelineSegments.length > 0;
+  const staleHeartbeat = machine.lastSeenMs == null ? true : nowMs - machine.lastSeenMs > 5 * 60 * 1000;
+
+  const lastSeenLabel =
+    machine.lastActivityMin == null
+      ? t("common.never")
+      : t("recap.card.lastActivity", { min: toInt(machine.lastActivityMin) });
+
+  const footerText = machine.activeWorkOrderId
+    ? t("recap.card.activeWorkOrder", { id: machine.activeWorkOrderId })
+    : lastSeenLabel;
+
+  const moldMinutes = machine.moldChange?.active ? machine.moldChange.elapsedMin : null;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
+
+    async function loadTimeline() {
+      try {
+        const res = await fetch(
+          `/api/recap/${machine.machineId}/timeline?range=24h&compact=1&maxSegments=30`,
+          { cache: "no-store" }
+        );
+        const json = await res.json().catch(() => null);
+        if (!alive || !res.ok || !json) return;
+        setTimeline(json as RecapTimelineResponse);
+      } catch {
+      }
+    }
+
+    void loadTimeline();
+    const timer = window.setInterval(() => {
+      void loadTimeline();
+    }, 60000);
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [machine.machineId]);
+
+  return (
+    <Link
+      href={`/recap/${machine.machineId}`}
+      className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="truncate text-lg font-semibold text-white">{machine.name}</div>
+          <div className="mt-1 truncate text-xs text-zinc-400">{machine.location || t("common.na")}</div>
+        </div>
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 px-2 py-1 text-xs text-zinc-200">
+          <span
+            className={`inline-block h-2.5 w-2.5 rounded-full ${STATUS_DOT[machine.status]}`}
+            aria-label={statusLabel(machine.status, t)}
+          />
+          {statusLabel(machine.status, t)}
+        </span>
+      </div>
+
+      <div className="mt-4 flex items-baseline gap-2">
+        <div className={`text-3xl font-semibold ${machine.oee == null ? "text-zinc-400" : "text-white"}`}>{primaryMetric}</div>
+        <div className="text-xs uppercase tracking-wide text-zinc-400">{t("recap.card.oee")}</div>
+      </div>
+      {machine.oee == null ? <div className="mt-1 text-xs text-zinc-500">{t("recap.kpi.noData")}</div> : null}
+
+      {zeroActivity ? <div className="mt-1 text-xs text-zinc-500">{t("recap.card.noProduction")}</div> : null}
+
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300">
+        <span>{t("recap.card.good")}: {machine.goodParts}</span>
+        <span>{t("recap.card.scrap")}: {machine.scrap}</span>
+        <span>{t("recap.card.stops")}: {machine.stopsCount}</span>
+      </div>
+
+      <div className="mt-3">
+        <RecapMiniTimeline
+          rangeStart={timelineStart}
+          rangeEnd={timelineEnd}
+          segments={timelineSegments}
+          locale={locale}
+          hasData={hasTimelineData}
+          muted={zeroActivity}
+        />
+      </div>
+
+      {machine.moldChange?.active ? (
+        <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
+          {t("recap.card.moldChangeActive", { min: toInt(moldMinutes) })}
+        </div>
+      ) : null}
+
+      {machine.offlineForMin != null && machine.offlineForMin > 10 ? (
+        <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
+          {t("recap.banner.offline", { min: toInt(machine.offlineForMin) })}
+        </div>
+      ) : null}
+      {staleHeartbeat ? (
+        <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
+          {t("recap.card.desynced")}
+        </div>
+      ) : null}
+
+      <div className="mt-3 text-xs text-zinc-400">{footerText}</div>
+    </Link>
+  );
+}

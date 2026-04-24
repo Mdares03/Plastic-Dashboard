@@ -20,6 +20,14 @@ import {
 } from "recharts";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
+import type { RecapTimelineResponse, RecapTimelineSegment } from "@/lib/recap/types";
+import {
+  computeWidths,
+  formatDuration,
+  formatTime,
+  normalizeTimelineSegments,
+  TIMELINE_COLORS,
+} from "@/components/recap/timelineRender";
 
 type Heartbeat = {
   ts: string;
@@ -86,20 +94,6 @@ type Thresholds = {
 };
 
 type TimelineState = "normal" | "slow" | "microstop" | "macrostop";
-
-type TimelineSeg = {
-  start: number;
-  end: number;
-  durationSec: number;
-  state: TimelineState;
-};
-
-type ActiveStoppage = {
-  state: "microstop" | "macrostop";
-  startedAt: string;
-  durationSec: number;
-  theoreticalCycleTime: number;
-};
 
 type UploadState = {
   status: "idle" | "parsing" | "uploading" | "success" | "error";
@@ -324,7 +318,6 @@ export default function MachineDetailClient() {
   const [error, setError] = useState<string | null>(null);
   const [cycles, setCycles] = useState<CycleRow[]>([]);
   const [thresholds, setThresholds] = useState<Thresholds | null>(null);
-  const [activeStoppage, setActiveStoppage] = useState<ActiveStoppage | null>(null);
   const [open, setOpen] = useState<null | "events" | "deviation" | "impact">(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
@@ -372,7 +365,6 @@ export default function MachineDetailClient() {
         setEventsCountAll(typeof json.eventsCountAll === "number" ? json.eventsCountAll : null);
         setCycles(json.cycles ?? []);
         setThresholds(json.thresholds ?? null);
-        setActiveStoppage(json.activeStoppage ?? null);
         setError(null);
         if (initial) setLoading(false);
       } catch {
@@ -691,84 +683,45 @@ export default function MachineDetailClient() {
     );
   }
 
-  function MachineActivityTimeline({
-    cycles,
-    cycleTarget,
-    thresholds,
-    activeStoppage,
-  }: {
-    cycles: CycleRow[];
-    cycleTarget: number | null;
-    thresholds: Thresholds | null;
-    activeStoppage: ActiveStoppage | null;
-  }) {
-    const [nowMs, setNowMs] = useState(() => Date.now());
+  function MachineActivityTimeline({ machineId }: { machineId: string | undefined }) {
+    const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
+    const [timelineLoading, setTimelineLoading] = useState(true);
 
     useEffect(() => {
-      const timer = setInterval(() => setNowMs(Date.now()), 1000);
-      return () => clearInterval(timer);
-    }, []);
+      if (!machineId) return;
+      let alive = true;
 
-    const timeline = useMemo(() => {
-      const rows = cycles ?? [];
-      const windowSec = rows.length < 1 ? 10800 : 3600;
-      const end = nowMs;
-      const start = end - windowSec * 1000;
-
-      if (rows.length < 1) {
-        return {
-          windowSec,
-          segments: [] as TimelineSeg[],
-          start,
-          end,
-        };
-      }
-
-      const segs: TimelineSeg[] = [];
-
-      for (const cycle of rows) {
-        const ideal = (cycle.ideal ?? cycleTarget ?? 0) as number;
-        const actual = cycle.actual ?? 0;
-        if (!ideal || ideal <= 0 || !actual || actual <= 0) continue;
-
-        const cycleEnd = cycle.t;
-        const cycleStart = cycleEnd - actual * 1000;
-        if (cycleEnd <= start || cycleStart >= end) continue;
-
-        const segStart = Math.max(cycleStart, start);
-        const segEnd = Math.min(cycleEnd, end);
-        if (segEnd <= segStart) continue;
-
-        const state = classifyCycleDuration(actual, ideal, thresholds);
-
-        segs.push({
-          start: segStart,
-          end: segEnd,
-          durationSec: (segEnd - segStart) / 1000,
-          state,
-        });
-      }
-
-      if (activeStoppage?.startedAt) {
-        const stoppageStart = new Date(activeStoppage.startedAt).getTime();
-        const segStart = Math.max(stoppageStart, start);
-        const segEnd = Math.min(end, nowMs);
-        if (segEnd > segStart) {
-          segs.push({
-            start: segStart,
-            end: segEnd,
-            durationSec: (segEnd - segStart) / 1000,
-            state: activeStoppage.state,
-          });
+      async function loadTimeline() {
+        try {
+          const res = await fetch(`/api/recap/${machineId}/timeline?range=1h`, { cache: "no-store" });
+          const json = await res.json().catch(() => null);
+          if (!alive || !res.ok || !json) return;
+          setTimeline(json as RecapTimelineResponse);
+        } finally {
+          if (alive) setTimelineLoading(false);
         }
       }
 
-      segs.sort((a, b) => a.start - b.start);
+      void loadTimeline();
+      const timer = window.setInterval(() => {
+        void loadTimeline();
+      }, 30000);
 
-      return { windowSec, segments: segs, start, end };
-    }, [activeStoppage, cycles, cycleTarget, nowMs, thresholds]);
+      return () => {
+        alive = false;
+        window.clearInterval(timer);
+      };
+    }, [machineId]);
 
-    const { segments, windowSec } = timeline;
+    const hasData = timeline?.hasData ?? false;
+    const startMs = timeline ? new Date(timeline.range.start).getTime() : Date.now() - 60 * 60 * 1000;
+    const endMs = timeline ? new Date(timeline.range.end).getTime() : Date.now();
+    const totalMs = Math.max(1, endMs - startMs);
+    const normalized = useMemo(() => {
+      if (!timeline || !hasData) return [] as RecapTimelineSegment[];
+      return normalizeTimelineSegments(timeline.segments, startMs, endMs);
+    }, [timeline, hasData, startMs, endMs]);
+    const widths = useMemo(() => computeWidths(normalized, totalMs, 1.5), [normalized, totalMs]);
 
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -777,49 +730,56 @@ export default function MachineDetailClient() {
             <div className="text-sm font-semibold text-white">{t("machine.detail.activity.title")}</div>
             <div className="mt-1 text-xs text-zinc-400">{t("machine.detail.activity.subtitle")}</div>
           </div>
-          <div className="text-xs text-zinc-400">{windowSec}s</div>
+          <div className="text-xs text-zinc-400">1h</div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
-          {(["normal", "slow", "microstop", "macrostop"] as const).map((key) => (
-            <div key={key} className="flex items-center gap-2">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: BUCKET[key].dot }} />
-              <span>{t(BUCKET[key].labelKey)}</span>
+          {(["production", "mold-change", "macrostop", "microstop", "idle"] as const).map((type) => (
+            <div key={type} className="flex items-center gap-2">
+              <span className={`h-2.5 w-2.5 rounded-full ${TIMELINE_COLORS[type]}`} />
+              <span>
+                {type === "production" ? t("recap.timeline.type.production") : null}
+                {type === "mold-change" ? t("recap.timeline.type.moldChange") : null}
+                {type === "macrostop" ? t("recap.timeline.type.macrostop") : null}
+                {type === "microstop" ? t("recap.timeline.type.microstop") : null}
+                {type === "idle" ? t("recap.timeline.type.idle") : null}
+              </span>
             </div>
           ))}
         </div>
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
           <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
-            <span>0s</span>
-            <span>1h</span>
+            <span>{timelineLoading ? t("common.loading") : formatTime(startMs, locale)}</span>
+            <span>{formatTime(endMs, locale)}</span>
           </div>
 
           <div className="flex h-14 w-full overflow-hidden rounded-2xl">
-            {segments.length === 0 ? (
+            {!hasData ? (
               <div className="flex h-full w-full items-center justify-center text-xs text-zinc-400">
                 {t("machine.detail.activity.noData")}
               </div>
             ) : (
-              segments.map((seg, idx) => {
-                const wPct = Math.max(0, (seg.durationSec / windowSec) * 100);
-                const meta = BUCKET[seg.state];
-                const glow =
-                  seg.state === "microstop" || seg.state === "macrostop"
-                    ? `0 0 22px ${meta.glow}`
-                    : `0 0 12px ${meta.glow}`;
+              normalized.map((segment, idx) => {
+                const widthPct = widths[idx] ?? 0;
+                const typeLabel =
+                  segment.type === "production"
+                    ? t("recap.timeline.type.production")
+                    : segment.type === "mold-change"
+                      ? t("recap.timeline.type.moldChange")
+                      : segment.type === "macrostop"
+                        ? t("recap.timeline.type.macrostop")
+                        : segment.type === "microstop" || segment.type === "slow-cycle"
+                          ? t("recap.timeline.type.microstop")
+                          : t("recap.timeline.type.idle");
+                const title = `${typeLabel} · ${formatDuration(segment.startMs, segment.endMs)}`;
 
                 return (
                   <div
-                    key={`${seg.start}-${seg.end}-${idx}`}
-                    title={`${t(meta.labelKey)}: ${seg.durationSec.toFixed(1)}s`}
-                    className="h-full"
-                    style={{
-                      width: `${wPct}%`,
-                      background: meta.dot,
-                      boxShadow: glow,
-                      opacity: 0.95,
-                    }}
+                    key={`${segment.type}:${segment.startMs}:${segment.endMs}:${idx}`}
+                    title={title}
+                    className={`h-full ${TIMELINE_COLORS[segment.type]}`}
+                    style={{ width: `${Math.max(0, widthPct)}%` }}
                   />
                 );
               })
@@ -1106,12 +1066,19 @@ export default function MachineDetailClient() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="text-xs text-zinc-400">OEE</div>
-              <div className="mt-2 text-3xl font-bold text-emerald-300">{fmtPct(kpi?.oee)}</div>
+              {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
+                <div className="mt-2 text-3xl font-bold text-zinc-400">—</div>
+              ) : (
+                <div className="mt-2 text-3xl font-bold text-emerald-300">{fmtPct(kpi?.oee)}</div>
+              )}
               <div className="mt-1 text-xs text-zinc-400">
                 {t("machine.detail.kpi.updated", {
                   time: kpi?.ts ? timeAgo(kpi.ts) : t("common.never"),
                 })}
               </div>
+              {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
+                <div className="mt-1 text-xs text-zinc-500">{t("recap.kpi.noData")}</div>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -1131,12 +1098,7 @@ export default function MachineDetailClient() {
           </div>
 
           <div className="mt-6">
-            <MachineActivityTimeline
-              cycles={cycles}
-              cycleTarget={cycleTarget}
-              thresholds={thresholds}
-              activeStoppage={activeStoppage}
-            />
+            <MachineActivityTimeline machineId={machineId} />
           </div>
           {!screenlessMode && (
             <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
