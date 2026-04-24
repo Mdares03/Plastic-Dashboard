@@ -244,6 +244,7 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
 
   for (const ev of events) {
     const eventType = String(ev.eventType ?? "").toLowerCase();
+    if (eventType === "mold-change") continue;
     const { blob, inner } = parseBlob(ev.data);
     const status = String(blob?.status ?? inner?.status ?? "").toLowerCase();
     const severity = String(ev.severity ?? "").toLowerCase();

@@ -20,9 +20,10 @@ export async function GET(req: Request) {
 
   const machineId = url.searchParams.get("machineId"); // optional
   const kind = (url.searchParams.get("kind") || "downtime").toLowerCase();
+  const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
 
-  if (kind !== "downtime" && kind !== "scrap") {
-    return bad(400, "Invalid kind (downtime|scrap)");
+  if (kind !== "downtime" && kind !== "scrap" && kind !== "planned-downtime") {
+    return bad(400, "Invalid kind (downtime|scrap|planned-downtime)");
   }
 
   // ✅ If machineId provided, verify it belongs to this org
@@ -40,7 +41,9 @@ export async function GET(req: Request) {
     where: {
       orgId,
       ...(machineId ? { machineId } : {}),
-      kind,
+      kind: kind === "planned-downtime" ? "downtime" : kind,
+      ...(kind === "downtime" && !includeMoldChange ? { reasonCode: { not: "MOLD_CHANGE" } } : {}),
+      ...(kind === "planned-downtime" ? { reasonCode: "MOLD_CHANGE" } : {}),
       capturedAt: { gte: start },
     },
     _sum: {
@@ -53,7 +56,7 @@ export async function GET(req: Request) {
   const itemsRaw = grouped
     .map((g) => {
       const value =
-        kind === "downtime"
+        kind === "downtime" || kind === "planned-downtime"
           ? Math.round(((g._sum.durationSeconds ?? 0) / 60) * 10) / 10 // minutes, 1 decimal
           : g._sum.scrapQty ?? 0;
 
@@ -64,7 +67,9 @@ export async function GET(req: Request) {
         count: g._count._all,
       };
     })
-    .filter((x) => (kind === "downtime" ? x.value > 0 || x.count > 0 : x.value > 0));
+    .filter((x) =>
+      kind === "downtime" || kind === "planned-downtime" ? x.value > 0 || x.count > 0 : x.value > 0
+    );
 
   itemsRaw.sort((a, b) => b.value - a.value);
 
@@ -83,7 +88,7 @@ export async function GET(req: Request) {
     return {
       reasonCode: x.reasonCode,
       reasonLabel: x.reasonLabel,
-      minutesLost: kind === "downtime" ? x.value : undefined,
+      minutesLost: kind === "downtime" || kind === "planned-downtime" ? x.value : undefined,
       scrapQty: kind === "scrap" ? x.value : undefined,
       pctOfTotal,
       cumulativePct,
@@ -106,9 +111,10 @@ export async function GET(req: Request) {
     orgId,
     machineId: machineId ?? null,
     kind,
+    includeMoldChange,
     range,       // ✅ now defined correctly
     start,       // ✅ now defined correctly
-    totalMinutesLost: kind === "downtime" ? total : undefined,
+    totalMinutesLost: kind === "downtime" || kind === "planned-downtime" ? total : undefined,
     totalScrap: kind === "scrap" ? total : undefined,
     rows,
     top3,

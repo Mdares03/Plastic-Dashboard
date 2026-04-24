@@ -40,6 +40,7 @@ const CANON_TYPE: Record<string, string> = {
   "down": "stop",
   "downtime-acknowledged": "downtime-acknowledged",
   "scrap-manual-entry": "scrap-manual-entry",
+  "mold-change": "mold-change",
 };
 
 const ALLOWED_TYPES = new Set([
@@ -54,6 +55,7 @@ const ALLOWED_TYPES = new Set([
   "predictive-oee-decline",
   "downtime-acknowledged",
   "scrap-manual-entry",
+  "mold-change",
 ]);
 
 const machineIdSchema = z.string().uuid();
@@ -441,9 +443,26 @@ export async function POST(req: Request) {
     // If it doesn't, still create an "UNCLASSIFIED" downtime ReasonEntry for stop events so the dashboard can show coverage.
     if (evRecord.is_update || evRecord.is_auto_ack || dataObj.is_update || dataObj.is_auto_ack){
   // skip duplicate reasonEntry for refresh/ack 
-    } else if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged"){
+    } else if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged" || finalType === "mold-change"){
+      const moldIncidentKey =
+        clampText(evData.incidentKey ?? dataObj.incidentKey, 128) ??
+        (numberFrom(evData.start_ms ?? dataObj.start_ms) != null
+          ? `mold-change:${Math.trunc(numberFrom(evData.start_ms ?? dataObj.start_ms) as number)}`
+          : null);
       const reasonRaw: Record<string, unknown> =
         evReason ??
+        (finalType === "mold-change"
+          ? ({
+              type: "downtime",
+              categoryId: "cambio-molde",
+              detailId: "cambio-molde",
+              categoryLabel: "Cambio molde",
+              detailLabel: "Cambio molde",
+              reasonCode: "MOLD_CHANGE",
+              reasonText: "Cambio molde",
+              incidentKey: moldIncidentKey ?? row.id,
+            } as Record<string, unknown>)
+          :
         ({
           type: "downtime",
           categoryId: "unclassified",
@@ -453,7 +472,7 @@ export async function POST(req: Request) {
           reasonCode: "UNCLASSIFIED",
           reasonText: "Unclassified",
           incidentKey: row.id,
-        } as Record<string, unknown>);
+        } as Record<string, unknown>));
 
       const inferredKind: ReasonCatalogKind =
         String(reasonRaw.type ?? "").toLowerCase() === "scrap" || finalType === "scrap-manual-entry"
@@ -506,11 +525,13 @@ export async function POST(req: Request) {
           const incidentKey = clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id;
           const durationSeconds =
             numberFrom(evDowntime?.durationSeconds) ??
+            numberFrom(evData.duration_sec) ??
             numberFrom(evData.stoppage_duration_seconds) ??
             numberFrom(evData.stop_duration_seconds) ??
             (stopSecForReason != null ? stopSecForReason : null) ??
             null;
           const episodeEndTsMs =
+            numberFrom(evData.end_ms) ??
             numberFrom(evDowntime?.episodeEndTsMs) ??
             numberFrom(evDowntime?.acknowledgedAtMs) ??
             null;

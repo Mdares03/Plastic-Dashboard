@@ -30,13 +30,13 @@ type NavItem = {
 };
 
 const items: NavItem[] = [
+  { href: "/recap", labelKey: "nav.recap", icon: Sunrise },
   { href: "/overview", labelKey: "nav.overview", icon: LayoutGrid },
   { href: "/machines", labelKey: "nav.machines", icon: Wrench },
   { href: "/reports", labelKey: "nav.reports", icon: BarChart3 },
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
   { href: "/financial", labelKey: "nav.financial", icon: DollarSign, ownerOnly: true },
   { href: "/downtime", labelKey: "nav.downtime", icon: BarChart3 },
-  { href: "/recap", labelKey: "nav.recap", icon: Sunrise },
 ];
 const settingsItem: NavItem = { href: "/settings", labelKey: "nav.settings", icon: Settings };
 

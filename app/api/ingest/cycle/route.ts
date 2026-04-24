@@ -68,7 +68,8 @@ function normalizeCycleInput(raw: unknown): Record<string, unknown> | null {
     cycle_count: fromRowOrData(["cycle_count", "cycleCount"]),
     work_order_id: fromRowOrData(["work_order_id", "workOrderId"]),
     good_delta: fromRowOrData(["good_delta", "goodDelta"]),
-    scrap_delta: fromRowOrData(["scrap_delta", "scrapDelta", "scrap_total"]),
+    // `scrap_total` is cumulative and should not be persisted as per-cycle delta.
+    scrap_delta: fromRowOrData(["scrap_delta", "scrapDelta"]),
     timestamp: fromRowOrData(["timestamp", "tsMs"]),
     ts: fromRowOrData(["ts", "tsMs"]),
     event_timestamp: fromRowOrData(["event_timestamp", "eventTimestamp"]),

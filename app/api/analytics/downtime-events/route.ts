@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
+import type { Prisma } from "@prisma/client";
 
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
@@ -24,6 +25,7 @@ export async function GET(req: Request) {
 
   const machineId = url.searchParams.get("machineId"); // optional
   const reasonCode = url.searchParams.get("reasonCode"); // optional
+  const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
 
   const limitRaw = url.searchParams.get("limit");
   const limit = Math.min(Math.max(Number(limitRaw || 200), 1), 500);
@@ -44,10 +46,11 @@ export async function GET(req: Request) {
 
   // ✅ Query ReasonEntry as the "episode" table for downtime
   // We only return rows that have an episodeId (true downtime episodes)
-  const where: any = {
+  const where: Prisma.ReasonEntryWhereInput = {
     orgId,
     kind: "downtime",
     episodeId: { not: null },
+    ...(includeMoldChange ? {} : { reasonCode: { not: "MOLD_CHANGE" } }),
     capturedAt: {
       gte: start,
       ...(beforeDate ? { lt: beforeDate } : {}),
@@ -122,6 +125,7 @@ export async function GET(req: Request) {
     start,
     machineId: machineId ?? null,
     reasonCode: reasonCode ?? null,
+    includeMoldChange,
     limit,
     before: before ?? null,
     nextBefore, // pass this back for pagination

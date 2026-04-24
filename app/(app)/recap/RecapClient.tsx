@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
-import type { RecapMachine, RecapResponse } from "@/lib/recap/types";
+import type { RecapMachine, RecapResponse, RecapTimelineResponse } from "@/lib/recap/types";
 import RecapKpiRow from "@/components/recap/RecapKpiRow";
 import RecapProductionBySku from "@/components/recap/RecapProductionBySku";
 import RecapDowntimeTop from "@/components/recap/RecapDowntimeTop";
 import RecapWorkOrderStatus from "@/components/recap/RecapWorkOrderStatus";
 import RecapMachineStatus from "@/components/recap/RecapMachineStatus";
+import RecapTimeline from "@/components/recap/RecapTimeline";
 
 type Props = {
   initialData: RecapResponse;
@@ -46,6 +47,25 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
     return "24h";
   });
   const [loading, setLoading] = useState(false);
+  const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
+
+  const shiftOptions = useMemo(
+    () =>
+      data.availableShifts?.length
+        ? data.availableShifts
+        : [
+            { id: "shift1", name: t("recap.shift.1") },
+            { id: "shift2", name: t("recap.shift.2") },
+            { id: "shift3", name: t("recap.shift.3") },
+          ],
+    [data.availableShifts, t]
+  );
+
+  useEffect(() => {
+    if (mode !== "shift") return;
+    if (shiftOptions.some((option) => option.id === shift)) return;
+    setShift(shiftOptions[0]?.id ?? "shift1");
+  }, [mode, shift, shiftOptions]);
 
   useEffect(() => {
     let alive = true;
@@ -108,6 +128,41 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
     return data.machines.find((m) => m.machineId === machineId) ?? data.machines[0];
   }, [data.machines, machineId]);
 
+  useEffect(() => {
+    let alive = true;
+
+    async function loadTimeline() {
+      if (mode !== "24h") {
+        if (alive) setTimeline(null);
+        return;
+      }
+      if (!selectedMachine?.machineId) {
+        if (alive) setTimeline(null);
+        return;
+      }
+
+      const qs = new URLSearchParams({
+        machineId: selectedMachine.machineId,
+        hours: "24",
+        start: data.range.start,
+        end: data.range.end,
+      });
+      const res = await fetch(`/api/recap/timeline?${qs.toString()}`, { cache: "no-cache" });
+      const json = await res.json().catch(() => null);
+      if (!alive) return;
+      if (res.ok && json && json.segments) {
+        setTimeline(json as RecapTimelineResponse);
+      } else {
+        setTimeline(null);
+      }
+    }
+
+    void loadTimeline();
+    return () => {
+      alive = false;
+    };
+  }, [mode, selectedMachine?.machineId, data.range.start, data.range.end]);
+
   const fleet = useMemo(() => {
     let good = 0;
     let scrap = 0;
@@ -132,6 +187,11 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
   }, [data.machines]);
 
   const bannerMold = selectedMachine?.workOrders.moldChangeInProgress;
+  const moldStartMs = selectedMachine?.workOrders.moldChangeStartMs ?? null;
+  const moldStartLabel = moldStartMs
+    ? new Date(moldStartMs).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })
+    : "--:--";
+  const moldElapsedMin = moldStartMs ? Math.max(0, Math.floor((Date.now() - moldStartMs) / 60000)) : null;
   const bannerStop = (selectedMachine?.downtime.ongoingStopMin ?? 0) > 0;
 
   return (
@@ -174,9 +234,11 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
                 onChange={(event) => setShift(event.target.value)}
                 className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-zinc-200"
               >
-                <option value="shift1">{t("recap.shift.1")}</option>
-                <option value="shift2">{t("recap.shift.2")}</option>
-                <option value="shift3">{t("recap.shift.3")}</option>
+                {shiftOptions.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name}
+                  </option>
+                ))}
               </select>
             ) : null}
 
@@ -202,7 +264,8 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
 
       {bannerMold ? (
         <div className="mb-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
-          {t("recap.banner.mold")} {selectedMachine?.workOrders.active?.startedAt ? new Date(selectedMachine.workOrders.active.startedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) : "--:--"}
+          {t("recap.banner.mold")} {moldStartLabel}
+          {moldElapsedMin != null ? ` · ${moldElapsedMin} min` : ""}
         </div>
       ) : null}
       {bannerStop ? (
@@ -212,6 +275,15 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
       ) : null}
 
       {loading ? <div className="mb-3 text-sm text-zinc-400">{t("common.loading")}</div> : null}
+
+      {timeline ? (
+        <RecapTimeline
+          rangeStart={timeline.range.start}
+          rangeEnd={timeline.range.end}
+          segments={timeline.segments}
+          locale={locale}
+        />
+      ) : null}
 
       <RecapKpiRow oeeAvg={fleet.oeeAvg} goodParts={fleet.good} totalStops={fleet.stops} scrapParts={fleet.scrap} />
 
@@ -227,6 +299,7 @@ export default function RecapClient({ initialData, initialFilters }: Props) {
               completed: [],
               active: null,
               moldChangeInProgress: false,
+              moldChangeStartMs: null,
             }
           }
         />
