@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatRecapProgressPercent } from "@/lib/recap/progressDisplay";
 import type { RecapSkuRow } from "@/lib/recap/types";
 
 type Props = {
@@ -8,7 +9,7 @@ type Props = {
 };
 
 export default function RecapProductionBySku({ rows }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
@@ -30,7 +31,8 @@ export default function RecapProductionBySku({ rows }: Props) {
             </thead>
             <tbody>
               {rows.slice(0, 10).map((row) => {
-                const progress = row.progressPct == null ? "--" : `${Math.round(row.progressPct)}%`;
+                const progress =
+                  row.progressPct == null ? "—" : formatRecapProgressPercent(row.progressPct, locale);
                 return (
                   <tr key={`${row.sku}:${row.machineName}`} className="border-b border-white/5">
                     <td className="py-2 pr-3">{row.sku}</td>

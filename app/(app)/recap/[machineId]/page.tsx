@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { notFound, redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/requireSession";
 import { getRecapMachineDetailCached, parseRecapDetailRangeInput } from "@/lib/recap/redesign";
+import { RecapDetailPageSkeleton } from "../RecapPageSkeletons";
 import RecapDetailClient from "./RecapDetailClient";
 
-export default async function RecapMachineDetailPage({
+async function RecapDetailData({
   params,
   searchParams,
 }: {
@@ -31,5 +33,19 @@ export default async function RecapMachineDetailPage({
       machineId={machineId}
       initialData={initialData}
     />
+  );
+}
+
+export default function RecapMachineDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ machineId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  return (
+    <Suspense fallback={<RecapDetailPageSkeleton />}>
+      <RecapDetailData params={params} searchParams={searchParams} />
+    </Suspense>
   );
 }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type { RecapSummaryMachine, RecapTimelineResponse } from "@/lib/recap/types";
 import RecapMiniTimeline from "@/components/recap/RecapMiniTimeline";
 
@@ -42,7 +43,8 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
   const timelineStart = timeline?.range.start ?? rangeStart;
   const timelineEnd = timeline?.range.end ?? rangeEnd;
   const hasTimelineData = timeline?.hasData ?? timelineSegments.length > 0;
-  const staleHeartbeat = machine.lastSeenMs == null ? true : nowMs - machine.lastSeenMs > 5 * 60 * 1000;
+  const staleHeartbeat =
+    machine.lastSeenMs == null ? true : nowMs - machine.lastSeenMs > RECAP_HEARTBEAT_STALE_MS;
 
   const lastSeenLabel =
     machine.lastActivityMin == null

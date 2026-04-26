@@ -271,8 +271,6 @@ export async function POST(req: Request) {
 
   const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  const bodySeq = parseSeqToBigInt(bodyRecord.seq);
-  const bodySchemaVersion = clampText(bodyRecord.schemaVersion, 16);
   const orgSettings = await prisma.orgSettings.findUnique({
     where: { orgId: machine.orgId },
     select: { stoppageMultiplier: true, macroStoppageMultiplier: true, defaultsJson: true },
@@ -473,7 +471,7 @@ export async function POST(req: Request) {
           machineId: machine.id, 
           seq: evSeq,
         },
-        orderBy: { ts: "asc" },
+        orderBy: { ts_server: "asc" },
       });
     } else {
       // Sin seq, buscar por ts (fallback compatibilidad con eventos viejos)
@@ -484,7 +482,7 @@ export async function POST(req: Request) {
           ts,
           eventType: finalType,
         },
-        orderBy: { ts: "desc" },
+        orderBy: { ts_server: "desc" },
       });
     }
 

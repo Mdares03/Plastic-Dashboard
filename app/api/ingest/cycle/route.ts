@@ -172,11 +172,35 @@ export async function POST(req: Request) {
     };
   });
 
+  const result = await prisma.machineCycle.createMany({
+    data: rows,
+    skipDuplicates: true,
+  });
+
   if (rows.length === 1) {
-    const row = await prisma.machineCycle.create({ data: rows[0] });
-    return NextResponse.json({ ok: true, id: row.id, ts: row.ts });
+    const row = await prisma.machineCycle.findFirst({
+      where: {
+        orgId: machine.orgId,
+        machineId: machine.id,
+        ts: rows[0].ts,
+        cycleCount: rows[0].cycleCount ?? null,
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, ts: true },
+    });
+    return NextResponse.json({
+      ok: true,
+      id: row?.id,
+      ts: row?.ts,
+      inserted: result.count,
+      duplicate: result.count === 0,
+    });
   }
 
-  const result = await prisma.machineCycle.createMany({ data: rows });
-  return NextResponse.json({ ok: true, count: result.count });
+  return NextResponse.json({
+    ok: true,
+    inserted: result.count,
+    requested: rows.length,
+    count: result.count,
+  });
 }

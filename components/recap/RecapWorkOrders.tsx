@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatRecapProgressPercent, progressBarWidthPercent } from "@/lib/recap/progressDisplay";
 import type { RecapWorkOrders as RecapWorkOrdersType } from "@/lib/recap/types";
 
 type Props = {
@@ -41,10 +42,14 @@ export default function RecapWorkOrders({ workOrders }: Props) {
             <div className="mt-2 rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-zinc-200">
               <div className="font-medium text-white">{workOrders.active.id}</div>
               <div className="text-zinc-400">{t("recap.workOrders.sku")}: {workOrders.active.sku || "--"}</div>
+              <div className="mt-1 text-xs text-zinc-300">
+                {t("recap.production.progress")}:{" "}
+                {formatRecapProgressPercent(workOrders.active.progressPct, locale)}
+              </div>
               <div className="mt-2 h-2 rounded-full bg-white/10">
                 <div
-                  className="h-2 rounded-full bg-emerald-400"
-                  style={{ width: `${Math.max(0, Math.min(100, workOrders.active.progressPct ?? 0))}%` }}
+                  className="h-2 rounded-full bg-emerald-400 transition-[width]"
+                  style={{ width: `${progressBarWidthPercent(workOrders.active.progressPct)}%` }}
                 />
               </div>
               <div className="mt-2 text-xs text-zinc-400">

@@ -8,65 +8,61 @@ datasource db {
 }
 
 model Org {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  createdAt DateTime @default(now())
-
-  members         OrgUser[]
-  sessions        Session[]
-  machines        Machine[]
-  heartbeats      MachineHeartbeat[]
-  kpiSnapshots    MachineKpiSnapshot[]
-  events          MachineEvent[]
-  workOrders      MachineWorkOrder[]
-  settings        OrgSettings?
-  shifts          OrgShift[]
-  machineSettings MachineSettings[]
-  settingsAudits  SettingsAudit[]
-  invites         OrgInvite[]
-  alertPolicies   AlertPolicy[]
-  alertContacts   AlertContact[]
-  alertNotifications AlertNotification[]
-  financialProfile OrgFinancialProfile?
+  id                         String                      @id @default(uuid())
+  name                       String
+  slug                       String                      @unique
+  createdAt                  DateTime                    @default(now())
+  machines                   Machine[]
+  events                     MachineEvent[]
+  heartbeats                 MachineHeartbeat[]
+  kpiSnapshots               MachineKpiSnapshot[]
+  members                    OrgUser[]
+  reasonEntries              ReasonEntry[]
+  sessions                   Session[]
+  alertContacts              AlertContact[]
+  alertNotifications         AlertNotification[]
+  alertPolicies              AlertPolicy?
+  downtimeActions            DowntimeAction[]
   locationFinancialOverrides LocationFinancialOverride[]
-  machineFinancialOverrides MachineFinancialOverride[]
-  productCostOverrides ProductCostOverride[]
-  reasonEntries ReasonEntry[]
-  downtimeActions DowntimeAction[]
-
+  machineFinancialOverrides  MachineFinancialOverride[]
+  machineSettings            MachineSettings[]
+  workOrders                 MachineWorkOrder[]
+  financialProfile           OrgFinancialProfile?
+  invites                    OrgInvite[]
+  settings                   OrgSettings?
+  shifts                     OrgShift[]
+  productCostOverrides       ProductCostOverride[]
+  settingsAudits             SettingsAudit[]
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  name         String?
-  phone        String?  @map("phone")
-  passwordHash String
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  emailVerifiedAt           DateTime? @map("email_verified_at")
-  emailVerificationToken    String?   @unique @map("email_verification_token")
-  emailVerificationExpiresAt DateTime? @map("email_verification_expires_at")
-
-  orgs        OrgUser[]
-  sessions    Session[]
-  sentInvites OrgInvite[] @relation("OrgInviteInviter")
-  alertContacts AlertContact[]
-  alertNotifications AlertNotification[]
-  downtimeActionsOwned DowntimeAction[] @relation("DowntimeActionOwner")
-  downtimeActionsCreated DowntimeAction[] @relation("DowntimeActionCreator")
+  id                         String              @id @default(uuid())
+  email                      String              @unique
+  name                       String?
+  passwordHash               String
+  isActive                   Boolean             @default(true)
+  createdAt                  DateTime            @default(now())
+  emailVerificationExpiresAt DateTime?           @map("email_verification_expires_at")
+  emailVerificationToken     String?             @unique @map("email_verification_token")
+  emailVerifiedAt            DateTime?           @map("email_verified_at")
+  phone                      String?             @map("phone")
+  orgs                       OrgUser[]
+  sessions                   Session[]
+  alertContacts              AlertContact[]
+  alertNotifications         AlertNotification[]
+  downtimeActionsCreated     DowntimeAction[]    @relation("DowntimeActionCreator")
+  downtimeActionsOwned       DowntimeAction[]    @relation("DowntimeActionOwner")
+  sentInvites                OrgInvite[]         @relation("OrgInviteInviter")
 }
 
 model OrgUser {
   id        String   @id @default(uuid())
   orgId     String
   userId    String
-  role      String   @default("MEMBER") // OWNER | ADMIN | MEMBER
+  role      String   @default("MEMBER")
   createdAt DateTime @default(now())
-
-  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, userId])
   @@index([userId])
@@ -74,19 +70,18 @@ model OrgUser {
 }
 
 model OrgInvite {
-  id         String   @id @default(uuid())
-  orgId      String   @map("org_id")
+  id         String    @id @default(uuid())
+  orgId      String    @map("org_id")
   email      String
-  role       String   @default("MEMBER") // OWNER | ADMIN | MEMBER
-  token      String   @unique
-  invitedBy  String?  @map("invited_by")
-  createdAt  DateTime @default(now()) @map("created_at")
-  expiresAt  DateTime @map("expires_at")
+  role       String    @default("MEMBER")
+  token      String    @unique
+  invitedBy  String?   @map("invited_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  expiresAt  DateTime  @map("expires_at")
   acceptedAt DateTime? @map("accepted_at")
   revokedAt  DateTime? @map("revoked_at")
-
-  org     Org   @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  inviter User? @relation("OrgInviteInviter", fields: [invitedBy], references: [id], onDelete: SetNull)
+  inviter    User?     @relation("OrgInviteInviter", fields: [invitedBy], references: [id])
+  org        Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@index([orgId, email])
@@ -95,7 +90,7 @@ model OrgInvite {
 }
 
 model Session {
-  id         String    @id @default(uuid()) // cookie value
+  id         String    @id @default(uuid())
   orgId      String
   userId     String
   createdAt  DateTime  @default(now())
@@ -104,9 +99,8 @@ model Session {
   revokedAt  DateTime?
   ip         String?
   userAgent  String?
-
-  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org        Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([orgId])
@@ -114,39 +108,36 @@ model Session {
 }
 
 model Machine {
-  id            String   @id @default(uuid())
-  orgId         String
-  name          String
-  apiKey        String?  @unique
-  code          String?
-  location      String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  tsDevice      DateTime @default(now()) @map("ts")
-  tsServer      DateTime @default(now()) @map("ts_server")
-  schemaVersion String?  @map("schema_version")
-  seq           BigInt?  @map("seq")
-  pairingCode   String?  @unique @map("pairing_code")
-  pairingCodeExpiresAt DateTime? @map("pairing_code_expires_at")
-  pairingCodeUsedAt DateTime? @map("pairing_code_used_at")
-
-  org            Org                  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  heartbeats     MachineHeartbeat[]
-  kpiSnapshots   MachineKpiSnapshot[]
-  events         MachineEvent[]
-  cycles         MachineCycle[]
-  workOrders     MachineWorkOrder[]
-  settings       MachineSettings?
-  settingsAudits SettingsAudit[]
-  alertNotifications AlertNotification[]
-  financialOverrides MachineFinancialOverride[]
-  reasonEntries ReasonEntry[]
-  downtimeActions DowntimeAction[]
-
+  id                   String                     @id @default(uuid())
+  orgId                String
+  name                 String
+  code                 String?
+  createdAt            DateTime                   @default(now())
+  location             String?
+  updatedAt            DateTime                   @updatedAt
+  apiKey               String?                    @unique
+  schemaVersion        String?                    @map("schema_version")
+  seq                  BigInt?                    @map("seq")
+  tsDevice             DateTime                   @default(now()) @map("ts")
+  tsServer             DateTime                   @default(now()) @map("ts_server")
+  pairingCode          String?                    @unique @map("pairing_code")
+  pairingCodeExpiresAt DateTime?                  @map("pairing_code_expires_at")
+  pairingCodeUsedAt    DateTime?                  @map("pairing_code_used_at")
+  org                  Org                        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  cycles               MachineCycle[]
+  events               MachineEvent[]
+  heartbeats           MachineHeartbeat[]
+  kpiSnapshots         MachineKpiSnapshot[]
+  reasonEntries        ReasonEntry[]
+  alertNotifications   AlertNotification[]
+  downtimeActions      DowntimeAction[]
+  financialOverrides   MachineFinancialOverride[]
+  settings             MachineSettings?
+  workOrders           MachineWorkOrder[]
+  settingsAudits       SettingsAudit[]
 
   @@unique([orgId, name])
   @@index([orgId])
-  @@index([orgId, createdAt])
 }
 
 model MachineHeartbeat {
@@ -154,111 +145,97 @@ model MachineHeartbeat {
   orgId         String
   machineId     String
   ts            DateTime @default(now())
-  tsServer      DateTime @default(now()) @map("ts_server")
+  status        String
+  message       String?
+  ip            String?
+  fwVersion     String?
   schemaVersion String?  @map("schema_version")
   seq           BigInt?  @map("seq")
-
-  status    String
-  message   String?
-  ip        String?
-  fwVersion String?
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  tsServer      DateTime @default(now()) @map("ts_server")
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, machineId, ts])
-  @@index([orgId, machineId, tsServer])
 }
 
 model MachineKpiSnapshot {
-  id        String   @id @default(uuid())
-  orgId     String
-  machineId String
-  ts        DateTime @default(now())
-
-  workOrderId String?
-  sku         String?
-
-  target      Int?
-  good        Int?
-  scrap       Int?
-  cycleCount  Int?
-  goodParts   Int?
-  scrapParts  Int?
-  cavities    Int?
-  cycleTime   Float? // theoretical/target
-  actualCycle Float? // if you want (optional)
-
-  availability Float?
-  performance  Float?
-  quality      Float?
-  oee          Float?
-
+  id                String   @id @default(uuid())
+  orgId             String
+  machineId         String
+  ts                DateTime @default(now())
+  workOrderId       String?
+  sku               String?
+  target            Int?
+  good              Int?
+  scrap             Int?
+  cycleCount        Int?
+  goodParts         Int?
+  scrapParts        Int?
+  cavities          Int?
+  cycleTime         Float?
+  actualCycle       Float?
+  availability      Float?
+  performance       Float?
+  quality           Float?
+  oee               Float?
   trackingEnabled   Boolean?
   productionStarted Boolean?
-  tsServer          DateTime @default(now()) @map("ts_server")
   schemaVersion     String?  @map("schema_version")
   seq               BigInt?  @map("seq")
+  tsServer          DateTime @default(now()) @map("ts_server")
+  machine           Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org               Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-
+  @@unique([orgId, machineId, seq], map: "uq_kpi_org_machine_seq")
   @@index([orgId, machineId, ts])
 }
 
 model MachineEvent {
-  id        String   @id @default(uuid())
-  orgId     String
-  machineId String
-  ts        DateTime @default(now())
-
-  topic         String // "anomaly-detected"
-  eventType     String // "slow-cycle"
-  severity      String // "critical"
+  id            String   @id @default(uuid())
+  orgId         String
+  machineId     String
+  ts            DateTime @default(now())
+  topic         String
+  eventType     String
+  severity      String
   requiresAck   Boolean  @default(false)
   title         String
   description   String?
-  tsServer      DateTime @default(now()) @map("ts_server")
+  data          Json?
+  workOrderId   String?
+  sku           String?
   schemaVersion String?  @map("schema_version")
   seq           BigInt?  @map("seq")
+  tsServer      DateTime @default(now()) @map("ts_server")
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  // store the raw data blob so we don't lose fields
-  data Json?
-
-  workOrderId String?
-  sku         String?
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-
+  @@unique([orgId, machineId, seq], map: "uq_event_org_machine_seq")
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, eventType, ts])
 }
 
 model MachineCycle {
-  id        String   @id @default(uuid())
-  orgId     String
-  machineId String
-  ts        DateTime @default(now())
-
+  id                   String   @id @default(uuid())
+  orgId                String
+  machineId            String
+  ts                   DateTime @default(now())
   cycleCount           Int?
   actualCycleTime      Float
   theoreticalCycleTime Float?
+  workOrderId          String?
+  sku                  String?
+  cavities             Int?
+  goodDelta            Int?
+  scrapDelta           Int?
+  createdAt            DateTime @default(now())
+  schemaVersion        String?  @map("schema_version")
+  seq                  BigInt?  @map("seq")
+  tsServer             DateTime @default(now()) @map("ts_server")
+  machine              Machine  @relation(fields: [machineId], references: [id])
 
-  workOrderId String?
-  sku         String?
-
-  cavities      Int?
-  goodDelta     Int?
-  scrapDelta    Int?
-  tsServer      DateTime @default(now()) @map("ts_server")
-  schemaVersion String?  @map("schema_version")
-  seq           BigInt?  @map("seq")
-
-  createdAt DateTime @default(now())
-
-  machine Machine @relation(fields: [machineId], references: [id])
-
+  @@unique([orgId, machineId, ts, cycleCount])
+  @@unique([orgId, machineId, seq], map: "uq_cycle_org_machine_seq")
   @@index([orgId, machineId, ts])
   @@index([orgId, machineId, cycleCount])
 }
@@ -272,14 +249,13 @@ model MachineWorkOrder {
   targetQty   Int?
   cycleTime   Float?
   status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
   goodParts   Int      @default(0) @map("good_parts")
   scrapParts  Int      @default(0) @map("scrap_parts")
   cycleCount  Int      @default(0) @map("cycle_count")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  machine     Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([machineId, workOrderId])
   @@index([orgId, machineId])
@@ -296,14 +272,13 @@ model IngestLog {
   seq           BigInt?
   tsDevice      DateTime?
   tsServer      DateTime  @default(now())
-
-  ok        Boolean
-  status    Int
-  errorCode String?
-  errorMsg  String?
-  body      Json?
-  ip        String?
-  userAgent String?
+  ok            Boolean
+  status        Int
+  errorCode     String?
+  errorMsg      String?
+  body          Json?
+  ip            String?
+  userAgent     String?
 
   @@index([endpoint, tsServer])
   @@index([machineId, tsServer])
@@ -311,44 +286,42 @@ model IngestLog {
 }
 
 model OrgSettings {
-  orgId                   String   @id @map("org_id")
-  timezone                String   @default("UTC")
-  shiftChangeCompMin      Int      @default(10) @map("shift_change_comp_min")
-  lunchBreakMin           Int      @default(30) @map("lunch_break_min")
-  shiftScheduleOverridesJson Json? @map("shift_schedule_overrides_json")
-  stoppageMultiplier      Float    @default(1.5) @map("stoppage_multiplier")
-  oeeAlertThresholdPct    Float    @default(90) @map("oee_alert_threshold_pct")
-  macroStoppageMultiplier Float    @default(5) @map("macro_stoppage_multiplier")
-  performanceThresholdPct Float    @default(85) @map("performance_threshold_pct")
-  qualitySpikeDeltaPct    Float    @default(5) @map("quality_spike_delta_pct")
-  alertsJson              Json?    @map("alerts_json")
-  defaultsJson            Json?    @map("defaults_json")
-  version                 Int      @default(1)
-  updatedAt               DateTime @updatedAt @map("updated_at")
-  updatedBy               String?  @map("updated_by")
-
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId                      String   @id @map("org_id")
+  timezone                   String   @default("UTC")
+  shiftChangeCompMin         Int      @default(10) @map("shift_change_comp_min")
+  lunchBreakMin              Int      @default(30) @map("lunch_break_min")
+  stoppageMultiplier         Float    @default(1.5) @map("stoppage_multiplier")
+  oeeAlertThresholdPct       Float    @default(90) @map("oee_alert_threshold_pct")
+  macroStoppageMultiplier    Float    @default(5) @map("macro_stoppage_multiplier")
+  performanceThresholdPct    Float    @default(85) @map("performance_threshold_pct")
+  qualitySpikeDeltaPct       Float    @default(5) @map("quality_spike_delta_pct")
+  alertsJson                 Json?    @map("alerts_json")
+  defaultsJson               Json?    @map("defaults_json")
+  version                    Int      @default(1)
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+  updatedBy                  String?  @map("updated_by")
+  shiftScheduleOverridesJson Json?    @map("shift_schedule_overrides_json")
+  org                        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_settings")
 }
 
 model OrgFinancialProfile {
-  orgId                   String   @id @map("org_id")
-  defaultCurrency         String   @default("USD") @map("default_currency")
-  machineCostPerMin       Float?   @map("machine_cost_per_min")
-  operatorCostPerMin      Float?   @map("operator_cost_per_min")
-  ratedRunningKw          Float?   @map("rated_running_kw")
-  idleKw                  Float?   @map("idle_kw")
-  kwhRate                 Float?   @map("kwh_rate")
-  energyMultiplier        Float    @default(1.0) @map("energy_multiplier")
-  energyCostPerMin        Float?   @map("energy_cost_per_min")
-  scrapCostPerUnit        Float?   @map("scrap_cost_per_unit")
-  rawMaterialCostPerUnit  Float?   @map("raw_material_cost_per_unit")
-  createdAt               DateTime @default(now()) @map("created_at")
-  updatedAt               DateTime @updatedAt @map("updated_at")
-  updatedBy               String?  @map("updated_by")
-
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId                  String   @id @map("org_id")
+  defaultCurrency        String   @default("USD") @map("default_currency")
+  machineCostPerMin      Float?   @map("machine_cost_per_min")
+  operatorCostPerMin     Float?   @map("operator_cost_per_min")
+  ratedRunningKw         Float?   @map("rated_running_kw")
+  idleKw                 Float?   @map("idle_kw")
+  kwhRate                Float?   @map("kwh_rate")
+  energyMultiplier       Float    @default(1.0) @map("energy_multiplier")
+  energyCostPerMin       Float?   @map("energy_cost_per_min")
+  scrapCostPerUnit       Float?   @map("scrap_cost_per_unit")
+  rawMaterialCostPerUnit Float?   @map("raw_material_cost_per_unit")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  updatedBy              String?  @map("updated_by")
+  org                    Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_financial_profiles")
 }
@@ -370,8 +343,7 @@ model LocationFinancialOverride {
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
   updatedBy              String?  @map("updated_by")
-
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org                    Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, location])
   @@index([orgId])
@@ -395,9 +367,8 @@ model MachineFinancialOverride {
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
   updatedBy              String?  @map("updated_by")
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  machine                Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org                    Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, machineId])
   @@index([orgId])
@@ -405,16 +376,15 @@ model MachineFinancialOverride {
 }
 
 model ProductCostOverride {
-  id                    String   @id @default(uuid())
-  orgId                 String   @map("org_id")
-  sku                   String
-  currency              String?
-  rawMaterialCostPerUnit Float?  @map("raw_material_cost_per_unit")
-  createdAt             DateTime @default(now()) @map("created_at")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  updatedBy             String?  @map("updated_by")
-
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id                     String   @id @default(uuid())
+  orgId                  String   @map("org_id")
+  sku                    String
+  currency               String?
+  rawMaterialCostPerUnit Float?   @map("raw_material_cost_per_unit")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  updatedBy              String?  @map("updated_by")
+  org                    Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, sku])
   @@index([orgId])
@@ -423,33 +393,30 @@ model ProductCostOverride {
 
 model AlertPolicy {
   id         String   @id @default(uuid())
-  orgId      String   @map("org_id")
+  orgId      String   @unique @map("org_id")
   policyJson Json     @map("policy_json")
   updatedAt  DateTime @updatedAt @map("updated_at")
   updatedBy  String?  @map("updated_by")
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
-
-  @@unique([orgId])
   @@index([orgId])
   @@map("alert_policies")
 }
 
 model AlertContact {
-  id        String   @id @default(uuid())
-  orgId     String   @map("org_id")
-  userId    String?  @map("user_id")
-  name      String
-  roleScope String   @map("role_scope") // MEMBER | ADMIN | OWNER | CUSTOM
-  email     String?
-  phone     String?
-  eventTypes Json?   @map("event_types") // optional allowlist (array of strings)
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  org  Org  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  id            String              @id @default(uuid())
+  orgId         String              @map("org_id")
+  userId        String?             @map("user_id")
+  name          String
+  roleScope     String              @map("role_scope")
+  email         String?
+  phone         String?
+  eventTypes    Json?               @map("event_types")
+  isActive      Boolean             @default(true) @map("is_active")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+  org           Org                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user          User?               @relation(fields: [userId], references: [id])
   notifications AlertNotification[]
 
   @@unique([orgId, userId])
@@ -459,24 +426,23 @@ model AlertContact {
 }
 
 model AlertNotification {
-  id        String   @id @default(uuid())
-  orgId     String   @map("org_id")
-  machineId String   @map("machine_id")
-  eventId   String   @map("event_id")
-  eventType String   @map("event_type")
-  ruleId    String   @map("rule_id")
+  id        String        @id @default(uuid())
+  orgId     String        @map("org_id")
+  machineId String        @map("machine_id")
+  eventId   String        @map("event_id")
+  eventType String        @map("event_type")
+  ruleId    String        @map("rule_id")
   role      String
   channel   String
-  contactId String?  @map("contact_id")
-  userId    String?  @map("user_id")
-  sentAt    DateTime @default(now()) @map("sent_at")
+  contactId String?       @map("contact_id")
+  userId    String?       @map("user_id")
+  sentAt    DateTime      @default(now()) @map("sent_at")
   status    String
   error     String?
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  contact AlertContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  contact   AlertContact? @relation(fields: [contactId], references: [id])
+  machine   Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org       Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user      User?         @relation(fields: [userId], references: [id])
 
   @@index([orgId, machineId, sentAt])
   @@index([orgId, eventId, role, channel])
@@ -493,8 +459,7 @@ model OrgShift {
   endTime   String  @map("end_time")
   sortOrder Int     @map("sort_order")
   enabled   Boolean @default(true)
-
-  org Org @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org       Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@index([orgId, sortOrder])
@@ -507,9 +472,8 @@ model MachineSettings {
   overridesJson Json?    @map("overrides_json")
   updatedAt     DateTime @updatedAt @map("updated_at")
   updatedBy     String?  @map("updated_by")
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId])
   @@map("machine_settings")
@@ -523,9 +487,8 @@ model SettingsAudit {
   source      String
   payloadJson Json     @map("payload_json")
   createdAt   DateTime @default(now()) @map("created_at")
-
-  org     Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  machine     Machine? @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, createdAt])
   @@index([machineId, createdAt])
@@ -533,75 +496,58 @@ model SettingsAudit {
 }
 
 model ReasonEntry {
-  id            String   @id @default(uuid())
-  orgId         String
-  machineId     String
-
-  // idempotency key from Edge (rsn_<ulid>)
-  reasonId      String   @unique
-
-  // "downtime" | "scrap"
-  kind          String
-
-  // For downtime reasons
+  id              String    @id @default(uuid())
+  orgId           String
+  machineId       String
+  reasonId        String    @unique
+  kind            String
   episodeId       String?
   durationSeconds Int?
   episodeEndTs    DateTime?
+  scrapEntryId    String?
+  scrapQty        Int?
+  scrapUnit       String?
+  reasonCode      String
+  reasonLabel     String?
+  reasonText      String?
+  capturedAt      DateTime
+  workOrderId     String?
+  meta            Json?
+  schemaVersion   Int       @default(1)
+  createdAt       DateTime  @default(now())
+  machine         Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org             Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  // For scrap reasons
-  scrapEntryId String?
-  scrapQty     Int?
-  scrapUnit    String?
-
-  // Required reason
-  reasonCode   String
-  reasonLabel  String?
-  reasonText   String?
-
-  capturedAt    DateTime
-  workOrderId   String?
-  meta          Json?
-  schemaVersion Int @default(1)
-
-  createdAt DateTime @default(now())
-
-  org     Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine Machine @relation(fields: [machineId], references: [id], onDelete: Cascade)
-
-  @@index([orgId, machineId, capturedAt])
-  @@index([orgId, kind, capturedAt])
   @@unique([orgId, kind, episodeId])
   @@unique([orgId, kind, scrapEntryId])
+  @@index([orgId, machineId, capturedAt])
+  @@index([orgId, kind, capturedAt])
 }
 
 model DowntimeAction {
-  id        String   @id @default(uuid())
-  orgId     String   @map("org_id")
-  machineId String?  @map("machine_id")
-  reasonCode String? @map("reason_code")
-  hmDay     Int?     @map("hm_day")
-  hmHour    Int?     @map("hm_hour")
-
-  title     String
-  notes     String?
-  status    String   @default("open")
-  priority  String   @default("medium")
-  dueDate   DateTime? @map("due_date")
-  reminderAt DateTime? @map("reminder_at")
+  id             String    @id @default(uuid())
+  orgId          String    @map("org_id")
+  machineId      String?   @map("machine_id")
+  reasonCode     String?   @map("reason_code")
+  hmDay          Int?      @map("hm_day")
+  hmHour         Int?      @map("hm_hour")
+  title          String
+  notes          String?
+  status         String    @default("open")
+  priority       String    @default("medium")
+  dueDate        DateTime? @map("due_date")
+  reminderAt     DateTime? @map("reminder_at")
   lastReminderAt DateTime? @map("last_reminder_at")
-  reminderStage String? @map("reminder_stage")
-  completedAt DateTime? @map("completed_at")
-
-  ownerUserId String? @map("owner_user_id")
-  createdBy   String? @map("created_by")
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  org       Org     @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  machine   Machine? @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  ownerUser User?   @relation("DowntimeActionOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  creator   User?   @relation("DowntimeActionCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  completedAt    DateTime? @map("completed_at")
+  ownerUserId    String?   @map("owner_user_id")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  reminderStage  String?   @map("reminder_stage")
+  creator        User?     @relation("DowntimeActionCreator", fields: [createdBy], references: [id])
+  machine        Machine?  @relation(fields: [machineId], references: [id])
+  org            Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  ownerUser      User?     @relation("DowntimeActionOwner", fields: [ownerUserId], references: [id])
 
   @@index([orgId])
   @@index([orgId, machineId])

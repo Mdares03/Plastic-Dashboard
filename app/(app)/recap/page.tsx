@@ -1,9 +1,11 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/requireSession";
 import { getRecapSummaryCached } from "@/lib/recap/redesign";
 import RecapGridClient from "./RecapGridClient";
+import { RecapGridPageSkeleton } from "./RecapPageSkeletons";
 
-export default async function RecapPage() {
+async function RecapGridData() {
   const session = await requireSession();
   if (!session) redirect("/login?next=/recap");
 
@@ -13,4 +15,12 @@ export default async function RecapPage() {
   });
 
   return <RecapGridClient initialData={initialData} />;
+}
+
+export default function RecapPage() {
+  return (
+    <Suspense fallback={<RecapGridPageSkeleton />}>
+      <RecapGridData />
+    </Suspense>
+  );
 }

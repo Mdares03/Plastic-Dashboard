@@ -218,6 +218,8 @@ function eventIncidentKey(data: unknown, eventType: string, ts: Date) {
   const inner = extractEventData(data);
   const direct = String(inner.incidentKey ?? inner.incident_key ?? "").trim();
   if (direct) return direct;
+  const alertId = String(inner.alert_id ?? inner.alertId ?? "").trim();
+  if (alertId) return `${eventType}:${alertId}`;
   const startMs = safeNum(inner.start_ms) ?? safeNum(inner.startMs);
   if (startMs != null) return `${eventType}:${Math.trunc(startMs)}`;
   return `${eventType}:${ts.getTime()}`;
@@ -291,7 +293,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
   const machines = await prisma.machine.findMany({
     where: { orgId: params.orgId, ...machineFilter },
     orderBy: { name: "asc" },
-    select: { id: true, name: true, location: true },
+    select: { id: true, name: true, location: true, tsServer: true },
   });
 
   if (!machines.length) {
@@ -421,9 +423,9 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
         where: {
           orgId: params.orgId,
           machineId: { in: machineIds },
-          ts: { lte: params.end },
+          tsServer: { lte: params.end },
         },
-        orderBy: [{ machineId: "asc" }, { ts: "desc" }],
+        orderBy: [{ machineId: "asc" }, { tsServer: "desc" }],
         distinct: ["machineId"],
         select: {
           machineId: true,
@@ -814,8 +816,36 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       );
     }
 
+    const firstProductionMsAfterMoldStart = (startMs: number) => {
+      let best: number | null = null;
+      for (const cycle of dedupedCycles) {
+        const t = cycle.ts.getTime();
+        if (t <= startMs) continue;
+        const g = safeNum(cycle.goodDelta) ?? 0;
+        const s = safeNum(cycle.scrapDelta) ?? 0;
+        if (g > 0 || s > 0) {
+          if (best == null || t < best) best = t;
+        }
+      }
+      for (const kpi of dedupedKpis) {
+        const t = kpi.ts.getTime();
+        if (t <= startMs) continue;
+        const g = safeNum(kpi.good) ?? safeNum(kpi.goodParts) ?? 0;
+        const s = safeNum(kpi.scrap) ?? safeNum(kpi.scrapParts) ?? 0;
+        if (g > 0 || s > 0) {
+          if (best == null || t < best) best = t;
+        }
+      }
+      return best;
+    };
+
     const moldActiveByIncident = new Map<string, number>();
     for (const event of machineMoldEvents) {
+      const inner = extractEventData(event.data);
+      const isUpdate = safeBool(inner.is_update ?? inner.isUpdate);
+      const isAutoAck = safeBool(inner.is_auto_ack ?? inner.isAutoAck);
+      if (isUpdate || isAutoAck) continue;
+
       const key = eventIncidentKey(event.data, "mold-change", event.ts);
       const status = eventStatus(event.data);
       if (status === "resolved") {
@@ -825,6 +855,12 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
       if (status === "active" || !status) {
         if (params.end.getTime() - event.ts.getTime() > MOLD_ACTIVE_STALE_MS) continue;
         moldActiveByIncident.set(key, moldStartMs(event.data, event.ts));
+      }
+    }
+    for (const [k, startMs] of [...moldActiveByIncident.entries()]) {
+      const resumeMs = firstProductionMsAfterMoldStart(startMs);
+      if (resumeMs != null && resumeMs <= params.end.getTime()) {
+        moldActiveByIncident.delete(k);
       }
     }
     let moldChangeStartMs: number | null = null;
@@ -879,7 +915,14 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
         moldChangeStartMs,
       },
       heartbeat: {
-        lastSeenAt: toIso(latestTs),
+        lastSeenAt: toIso(
+          (() => {
+            const hbMs = latestHb ? (latestHb.tsServer ?? latestHb.ts).getTime() : null;
+            const machineMs = machine.tsServer.getTime();
+            if (hbMs != null) return new Date(Math.max(hbMs, machineMs));
+            return machine.tsServer;
+          })()
+        ),
         uptimePct,
       },
     };

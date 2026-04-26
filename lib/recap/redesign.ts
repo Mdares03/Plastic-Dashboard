@@ -9,6 +9,7 @@ import {
   type TimelineCycleRow,
   type TimelineEventRow,
 } from "@/lib/recap/timeline";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type {
   RecapDetailResponse,
   RecapMachine,
@@ -25,7 +26,7 @@ type DetailRangeInput = {
   end?: string | null;
 };
 
-const OFFLINE_THRESHOLD_MS = 10 * 60 * 1000;
+const OFFLINE_THRESHOLD_MS = RECAP_HEARTBEAT_STALE_MS;
 const TIMELINE_EVENT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
 const RECAP_CACHE_TTL_SEC = 60;
 const WEEKDAY_KEYS: ShiftOverrideDay[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];

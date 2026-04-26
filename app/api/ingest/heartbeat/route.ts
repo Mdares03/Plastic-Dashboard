@@ -97,26 +97,38 @@ export async function POST(req: Request) {
     // 5) Store heartbeat
     // Keep your legacy fields, but store meta fields too.
     const tsServerNow = new Date();
-    const hb = await prisma.machineHeartbeat.create({
-      data: {
-        orgId,
-        machineId: machine.id,
+    const hbRow = {
+      orgId,
+      machineId: machine.id,
+      schemaVersion,
+      seq,
+      ts: tsDeviceDate,
+      tsServer: tsServerNow,
+      status: body.status ? String(body.status) : (body.online ? "RUN" : "STOP"),
+      message: body.message ? String(body.message) : null,
+      ip: body.ip ? String(body.ip) : null,
+      fwVersion: body.fwVersion ? String(body.fwVersion) : null,
+    };
 
-        // Phase 0 meta
-        schemaVersion,
-        seq,
-        ts: tsDeviceDate,
-        tsServer: tsServerNow,
-
-        // Legacy payload compatibility
-        status: body.status ? String(body.status) : (body.online ? "RUN" : "STOP"),
-        message: body.message ? String(body.message) : null,
-        ip: body.ip ? String(body.ip) : null,
-        fwVersion: body.fwVersion ? String(body.fwVersion) : null,
-      },
+    const insertHb = await prisma.machineHeartbeat.createMany({
+      data: [hbRow],
+      skipDuplicates: true,
     });
 
-    // Optional: update machine last seen (same as KPI)
+    const hb = await prisma.machineHeartbeat.findFirst({
+      where: {
+        orgId,
+        machineId: machine.id,
+        ts: tsDeviceDate,
+      },
+      orderBy: { tsServer: "asc" },
+    });
+
+    if (!hb) {
+      return NextResponse.json({ ok: false, error: "Server error", detail: "Heartbeat row missing" }, { status: 500 });
+    }
+
+    // Optional: update machine last seen (same as KPI) — also on duplicate HB so lastSeen is fresh
     await prisma.machine.update({
       where: { id: machine.id },
       data: {
@@ -132,6 +144,7 @@ export async function POST(req: Request) {
       id: hb.id,
       tsDevice: hb.ts,
       tsServer: hb.tsServer,
+      duplicate: insertHb.count === 0,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";

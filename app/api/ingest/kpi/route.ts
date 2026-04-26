@@ -222,44 +222,42 @@ export async function POST(req: Request) {
         : typeof woRecord.cavities === "number" && woRecord.cavities > 0
           ? woRecord.cavities
           : null;
-    // Write snapshot (ts = tsDevice; tsServer auto)
-    const row = await prisma.machineKpiSnapshot.create({
-      data: {
-        orgId,
-        machineId: machine.id,
-
-        // Phase 0 meta
-        schemaVersion,
-        seq,
-        ts: tsDeviceDate, // store device-time in ts; server-time goes to ts_server
-
-        // Work order fields
-        workOrderId: activeWorkOrderId || null,
-        sku: activeSku || null,
-        target: activeTargetQty,
-        good: good != null ? Math.trunc(good) : null,
-        scrap: scrap != null ? Math.trunc(scrap) : null,
-
-        // Counters
-        cycleCount: snapshotCycleCount,
-        goodParts: snapshotGoodParts,
-        scrapParts: snapshotScrapParts,
-        cavities: safeCavities,
-
-        // Cycle times
-        cycleTime: safeCycleTime,
-        actualCycle: typeof body.actualCycleTime === "number" ? body.actualCycleTime : null,
-
-        // KPIs (0..100)
-        availability: typeof k.availability === "number" ? k.availability : null,
-        performance: typeof k.performance === "number" ? k.performance : null,
-        quality: typeof k.quality === "number" ? k.quality : null,
-        oee: typeof k.oee === "number" ? k.oee : null,
-
-        trackingEnabled: typeof body.trackingEnabled === "boolean" ? body.trackingEnabled : null,
-        productionStarted: typeof body.productionStarted === "boolean" ? body.productionStarted : null,
-      },
+    // Write snapshot (ts = tsDevice; tsServer auto). Idempotent on (org, machine, ts) to absorb retries.
+    const kpiData = {
+      orgId,
+      machineId: machine.id,
+      schemaVersion,
+      seq,
+      ts: tsDeviceDate,
+      workOrderId: activeWorkOrderId || null,
+      sku: activeSku || null,
+      target: activeTargetQty,
+      good: good != null ? Math.trunc(good) : null,
+      scrap: scrap != null ? Math.trunc(scrap) : null,
+      cycleCount: snapshotCycleCount,
+      goodParts: snapshotGoodParts,
+      scrapParts: snapshotScrapParts,
+      cavities: safeCavities,
+      cycleTime: safeCycleTime,
+      actualCycle: typeof body.actualCycleTime === "number" ? body.actualCycleTime : null,
+      availability: typeof k.availability === "number" ? k.availability : null,
+      performance: typeof k.performance === "number" ? k.performance : null,
+      quality: typeof k.quality === "number" ? k.quality : null,
+      oee: typeof k.oee === "number" ? k.oee : null,
+      trackingEnabled: typeof body.trackingEnabled === "boolean" ? body.trackingEnabled : null,
+      productionStarted: typeof body.productionStarted === "boolean" ? body.productionStarted : null,
+    };
+    const insertKpi = await prisma.machineKpiSnapshot.createMany({
+      data: [kpiData],
+      skipDuplicates: true,
     });
+    const row = await prisma.machineKpiSnapshot.findFirst({
+      where: { orgId, machineId: machine.id, ts: tsDeviceDate },
+      orderBy: { tsServer: "asc" },
+    });
+    if (!row) {
+      return NextResponse.json({ ok: false, error: "Server error", detail: "KPI snapshot row missing" }, { status: 500 });
+    }
 
     if (activeWorkOrderId) {
       await prisma.machineWorkOrder.upsert({
@@ -330,6 +328,7 @@ export async function POST(req: Request) {
       id: row.id,
       tsDevice: row.ts,
       tsServer: row.tsServer,
+      duplicate: insertKpi.count === 0,
       trace: traceEnabled ? trace : undefined,
     });
   } catch (err: unknown) {
