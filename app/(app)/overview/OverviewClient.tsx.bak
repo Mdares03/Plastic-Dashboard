@@ -5,7 +5,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import type { EventRow, Heartbeat, MachineRow } from "./types";
 
-const OFFLINE_MS = 10 * 60 * 1000; // 10 min (sincronizado con RECAP_HEARTBEAT_STALE_MS)
+const OFFLINE_MS = 30000;
 const MAX_EVENT_MACHINES = 6;
 const OverviewTimeline = lazy(() => import("./OverviewTimeline"));
 

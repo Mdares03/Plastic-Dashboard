@@ -75,6 +75,36 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mis-control-tower-reminders.timer
 ```
 
+## Downtime Reason Backfill
+
+Control-Tower now preserves manual downtime reasons from `downtime-acknowledged` events when later default stop events (`PENDIENTE` / `UNCLASSIFIED`) arrive for the same incident.
+
+If historical rows were already overwritten, run the one-time backfill:
+
+1) Dry run (default lookback: 30 days):
+
+```bash
+npm run backfill:downtime-reasons -- --dry-run --since 30d
+```
+
+2) Apply updates:
+
+```bash
+npm run backfill:downtime-reasons -- --since 30d
+```
+
+Optional filters:
+
+```bash
+npm run backfill:downtime-reasons -- --dry-run --since 14d --org-id <orgId> --machine-id <machineId>
+```
+
+Quick verification query (shows recent incidents with reason + source):
+
+```bash
+node -e 'const {PrismaClient}=require("@prisma/client");const p=new PrismaClient();(async()=>{const rows=await p.reasonEntry.findMany({where:{kind:"downtime"},orderBy:{capturedAt:"desc"},take:30,select:{id:true,orgId:true,machineId:true,episodeId:true,reasonCode:true,reasonLabel:true,capturedAt:true,meta:true}});console.log(JSON.stringify(rows,(_,v)=>typeof v==="bigint"?v.toString():v,2));})().finally(()=>p.$disconnect());'
+```
+
 ## Production build and deploy
 
 **Dev uses Turbopack, production build uses Webpack.** Next.js 16 defaults to Turbopack for both, but Turbopack production builds have known issues. This project uses:

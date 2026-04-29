@@ -7,6 +7,7 @@ import {
   formatTime,
   LABEL_MIN_WIDTH_PCT,
   normalizeTimelineSegments,
+  SEGMENT_MIN_WIDTH_PCT,
   TIMELINE_COLORS,
 } from "@/components/recap/timelineRender";
 import { useI18n } from "@/lib/i18n/useI18n";
@@ -17,28 +18,47 @@ type Props = {
   segments: RecapTimelineSegment[];
   locale: string;
   hasData?: boolean;
+  loading?: boolean;
 };
 
-const MIN_SEGMENT_PCT = 1.5;
-
-export default function RecapFullTimeline({ rangeStart, rangeEnd, segments, locale, hasData = true }: Props) {
+export default function RecapFullTimeline({
+  rangeStart,
+  rangeEnd,
+  segments,
+  locale,
+  hasData = false,
+  loading = false,
+}: Props) {
   const { t } = useI18n();
   const startMs = new Date(rangeStart).getTime();
   const endMs = new Date(rangeEnd).getTime();
   const totalMs = Math.max(1, endMs - startMs);
 
-  const normalized = normalizeTimelineSegments(segments, startMs, endMs);
-  const widths = computeWidths(normalized, totalMs, MIN_SEGMENT_PCT);
+  const normalized = hasData ? normalizeTimelineSegments(segments, startMs, endMs) : [];
+  const widths = computeWidths(normalized, totalMs, SEGMENT_MIN_WIDTH_PCT);
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
       <div className="mb-3 text-sm font-semibold text-white">{t("recap.timeline.title")}</div>
-      {!hasData ? (
+      {loading ? (
+        <div className="overflow-x-auto">
+          <div className="min-w-[560px]">
+            <div className="flex h-14 w-full animate-pulse overflow-hidden rounded-xl bg-white/5">
+              <div className="h-full w-[12%] bg-zinc-700/70" />
+              <div className="h-full w-[8%] bg-orange-500/60" />
+              <div className="h-full w-[14%] bg-zinc-700/70" />
+              <div className="h-full w-[7%] bg-red-500/60" />
+              <div className="h-full w-[59%] bg-zinc-700/70" />
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!loading && !hasData ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
           {t("recap.timeline.noData")}
         </div>
       ) : null}
-      {hasData ? (
+      {!loading && hasData ? (
         <div className="overflow-x-auto">
           <div className="min-w-[560px]">
             <div className="flex h-14 w-full overflow-hidden rounded-xl">

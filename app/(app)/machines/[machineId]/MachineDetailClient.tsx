@@ -26,6 +26,7 @@ import {
   formatDuration,
   formatTime,
   normalizeTimelineSegments,
+  SEGMENT_MIN_WIDTH_PCT,
   TIMELINE_COLORS,
 } from "@/components/recap/timelineRender";
 
@@ -106,6 +107,9 @@ type WorkOrderUpload = {
   sku?: string;
   targetQty?: number;
   cycleTime?: number;
+  mold?: string;
+  cavitiesTotal?: number;
+  cavitiesActive?: number;
 };
 
 type WorkOrderRow = Record<string, string | number | boolean>;
@@ -192,7 +196,30 @@ const WORK_ORDER_KEYS = {
     "theoretical_cycle_time",
   ]),
   target: new Set(["targetquantity", "targetqty", "target", "target_qty"]),
+  mold: new Set(["mold", "molde", "moldid", "mold_id"]),
+  cavitiesTotal: new Set([
+    "totalcavities",
+    "cavitiestotal",
+    "cavities_total",
+    "total_cavities",
+  ]),
+  cavitiesActive: new Set([
+    "activecavities",
+    "cavitiesactive",
+    "cavities_active",
+    "active_cavities",
+  ]),
 };
+
+const WORK_ORDER_TEMPLATE_HEADERS = [
+  "Work Order ID",
+  "SKU",
+  "Theoretical Cycle Time (Seconds)",
+  "Target Quantity",
+  "Mold",
+  "Total Cavities",
+  "Active Cavities",
+] as const;
 
 function normalizeKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -278,7 +305,26 @@ function rowsToWorkOrders(rows: WorkOrderRow[]): WorkOrderUpload[] {
     const targetQty = Number.isFinite(Number(targetRaw)) ? Math.trunc(Number(targetRaw)) : undefined;
     const cycleTime = Number.isFinite(Number(cycleRaw)) ? Number(cycleRaw) : undefined;
 
-    out.push({ workOrderId, sku: sku || undefined, targetQty, cycleTime });
+    const moldRaw = pickRowValue(row, WORK_ORDER_KEYS.mold);
+    const mold = String(moldRaw ?? "").trim();
+    const totalCavRaw = pickRowValue(row, WORK_ORDER_KEYS.cavitiesTotal);
+    const activeCavRaw = pickRowValue(row, WORK_ORDER_KEYS.cavitiesActive);
+    const cavitiesTotal = Number.isFinite(Number(totalCavRaw))
+      ? Math.trunc(Number(totalCavRaw))
+      : undefined;
+    const cavitiesActive = Number.isFinite(Number(activeCavRaw))
+      ? Math.trunc(Number(activeCavRaw))
+      : undefined;
+
+    out.push({
+      workOrderId,
+      sku: sku || undefined,
+      targetQty,
+      cycleTime,
+      mold: mold || undefined,
+      cavitiesTotal,
+      cavitiesActive,
+    });
   });
 
   return out;
@@ -308,6 +354,14 @@ type MachineActivityTimelineProps = {
   t: (key: string, vars?: Record<string, string | number>) => string;
 };
 
+function getMinuteFlooredOneHourRange(referenceMs = Date.now()) {
+  const endMs = Math.floor(referenceMs / 60000) * 60000;
+  return {
+    startMs: endMs - 60 * 60 * 1000,
+    endMs,
+  };
+}
+
 function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimelineProps) {
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(true);
@@ -321,11 +375,18 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
 
     async function loadTimeline() {
       try {
-        const res = await fetch(`/api/recap/${machineId}/timeline?range=1h`, { cache: "no-store" });
+        const range = getMinuteFlooredOneHourRange();
+        const params = new URLSearchParams({
+          start: String(range.startMs),
+          end: String(range.endMs),
+        });
+        const res = await fetch(`/api/recap/${machineId}/timeline?${params.toString()}`, { cache: "no-store" });
         const json = await res.json().catch(() => null);
         if (!alive || !res.ok || !json) return;
         const nextTimeline = json as RecapTimelineResponse;
         const nextHash = JSON.stringify({
+          start: nextTimeline.range.start,
+          end: nextTimeline.range.end,
           hasData: nextTimeline.hasData,
           segments: nextTimeline.segments.map((segment) => ({
             type: segment.type,
@@ -353,14 +414,18 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
   }, [machineId]);
 
   const hasData = timeline?.hasData ?? false;
-  const startMs = timeline ? new Date(timeline.range.start).getTime() : Date.now() - 60 * 60 * 1000;
-  const endMs = timeline ? new Date(timeline.range.end).getTime() : Date.now();
+  const fallbackRange = getMinuteFlooredOneHourRange();
+  const startMs = timeline ? new Date(timeline.range.start).getTime() : fallbackRange.startMs;
+  const endMs = timeline ? new Date(timeline.range.end).getTime() : fallbackRange.endMs;
   const totalMs = Math.max(1, endMs - startMs);
   const normalized = useMemo(() => {
     if (!timeline || !hasData) return [] as RecapTimelineSegment[];
     return normalizeTimelineSegments(timeline.segments, startMs, endMs);
   }, [timeline, hasData, startMs, endMs]);
-  const widths = useMemo(() => computeWidths(normalized, totalMs, 1.5), [normalized, totalMs]);
+  const widths = useMemo(
+    () => computeWidths(normalized, totalMs, SEGMENT_MIN_WIDTH_PCT),
+    [normalized, totalMs]
+  );
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
@@ -584,6 +649,23 @@ export default function MachineDetailClient() {
     }
 
     return null;
+  }
+
+  async function downloadWorkOrderTemplate() {
+    const xlsx = await import("xlsx");
+    const wb = xlsx.utils.book_new();
+    const ws = xlsx.utils.aoa_to_sheet([Array.from(WORK_ORDER_TEMPLATE_HEADERS)]);
+    xlsx.utils.book_append_sheet(wb, ws, "Work Orders");
+    const wbout = xlsx.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "work-orders-template.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   async function handleWorkOrderUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -1005,6 +1087,13 @@ export default function MachineDetailClient() {
               className="hidden"
               onChange={handleWorkOrderUpload}
             />
+            <button
+              type="button"
+              onClick={() => void downloadWorkOrderTemplate()}
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white transition hover:bg-white/10 sm:w-auto"
+            >
+              {t("machine.detail.workOrders.downloadTemplate")}
+            </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}

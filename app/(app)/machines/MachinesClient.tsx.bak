@@ -31,7 +31,7 @@ function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
 
 function isOffline(ts?: string) {
   if (!ts) return true;
-  return Date.now() - new Date(ts).getTime() > 10 * 60 * 1000; // 10 min (sincronizado con RECAP_HEARTBEAT_STALE_MS)
+  return Date.now() - new Date(ts).getTime() > 30000; // 30s threshold
 }
 
 function normalizeStatus(status?: string) {

@@ -37,6 +37,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
+  const [timelineLoading, setTimelineLoading] = useState(true);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   const [customStart, setCustomStart] = useState(toInputDate(initialData.range.start));
@@ -78,11 +79,13 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
   const freshAgeSec = Number.isFinite(generatedAtMs) ? Math.max(0, Math.floor((nowMs - generatedAtMs) / 1000)) : null;
   const timelineStart = timeline?.range.start ?? initialData.range.start;
   const timelineEnd = timeline?.range.end ?? initialData.range.end;
-  const timelineSegments = timeline?.segments ?? machine.timeline;
-  const timelineHasData = timeline?.hasData ?? true;
+  const timelineSegments = timeline?.segments ?? [];
+  const timelineHasData = timeline?.hasData ?? false;
 
   useEffect(() => {
     let alive = true;
+    setTimeline(null);
+    setTimelineLoading(true);
 
     async function loadTimeline() {
       try {
@@ -95,6 +98,8 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
         if (!alive || !res.ok || !json) return;
         setTimeline(json as RecapTimelineResponse);
       } catch {
+      } finally {
+        if (alive) setTimelineLoading(false);
       }
     }
 
@@ -212,6 +217,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
           rangeEnd={timelineEnd}
           segments={timelineSegments}
           hasData={timelineHasData}
+          loading={timelineLoading}
           locale={locale}
         />
       </div>

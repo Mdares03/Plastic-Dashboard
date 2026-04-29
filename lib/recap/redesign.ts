@@ -468,7 +468,7 @@ async function resolveCurrentShiftRange(params: { orgId: string; now: Date }) {
 }
 
 async function resolveDetailRange(params: { orgId: string; input: DetailRangeInput }) {
-  const now = new Date();
+  const now = new Date(Math.floor(Date.now() / 60000) * 60000);
   const requestedMode = normalizedRangeMode(params.input.mode);
   const shiftEnabledCount = await prisma.orgShift.count({
     where: {

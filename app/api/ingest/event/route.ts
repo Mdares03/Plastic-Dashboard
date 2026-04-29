@@ -63,7 +63,12 @@ const MAX_EVENTS = 100;
 
 //when no cycle time is configed
 const DEFAULT_MACROSTOP_SEC = 300;
+const NON_AUTHORITATIVE_REASON_CODES = new Set(["PENDIENTE", "UNCLASSIFIED"]);
 
+function isNonAuthoritativeReasonCode(code: unknown) {
+  const normalized = clampText(code, 64)?.toUpperCase();
+  return !!normalized && NON_AUTHORITATIVE_REASON_CODES.has(normalized);
+}
 
 function clampText(value: unknown, maxLen: number) {
   if (value === null || value === undefined) return null;
@@ -271,8 +276,10 @@ export async function POST(req: Request) {
 
   const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
   const bodySeq = parseSeqToBigInt(bodyRecord.seq);
   const bodySchemaVersion = clampText(bodyRecord.schemaVersion, 16);
+
   const orgSettings = await prisma.orgSettings.findUnique({
     where: { orgId: machine.orgId },
     select: { stoppageMultiplier: true, macroStoppageMultiplier: true, defaultsJson: true },
@@ -602,6 +609,62 @@ export async function POST(req: Request) {
             numberFrom(evDowntime?.acknowledgedAtMs) ??
             null;
 
+          let guardedWrite = commonWrite;
+          const incomingIsNonAuthoritative = isNonAuthoritativeReasonCode(resolved.reasonCode);
+          const isManualAckEvent = finalType === "downtime-acknowledged";
+          if (!isManualAckEvent && incomingIsNonAuthoritative) {
+            const existingEpisode = await prisma.reasonEntry.findFirst({
+              where: {
+                orgId: machine.orgId,
+                kind: "downtime",
+                episodeId: incidentKey,
+              },
+              select: {
+                reasonCode: true,
+                reasonLabel: true,
+                reasonText: true,
+                meta: true,
+              },
+            });
+            if (existingEpisode && !isNonAuthoritativeReasonCode(existingEpisode.reasonCode)) {
+              const existingMeta = asRecord(existingEpisode.meta);
+              const existingMetaReason = asRecord(existingMeta?.reason);
+              guardedWrite = {
+                ...commonWrite,
+                reasonCode: existingEpisode.reasonCode,
+                reasonLabel: existingEpisode.reasonLabel ?? existingEpisode.reasonCode,
+                reasonText:
+                  existingEpisode.reasonText ??
+                  existingEpisode.reasonLabel ??
+                  existingEpisode.reasonCode,
+                meta: toJsonValue({
+                  source: "ingest:event",
+                  eventId: row.id,
+                  eventType: row.eventType,
+                  incidentKey: clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128),
+                  anomalyType:
+                    clampText(evRecord.anomalyType, 64) ??
+                    clampText(evDowntime?.anomalyType, 64) ??
+                    clampText(evRecord.anomaly_type, 64),
+                  reason: existingMetaReason ?? {
+                    type: resolved.type,
+                    categoryId: resolved.categoryId,
+                    categoryLabel: resolved.categoryLabel,
+                    detailId: resolved.detailId,
+                    detailLabel: resolved.detailLabel,
+                    reasonText:
+                      existingEpisode.reasonText ??
+                      existingEpisode.reasonLabel ??
+                      existingEpisode.reasonCode,
+                    catalogVersion: resolved.catalogVersion,
+                  },
+                  reasonPreservedFromManual: true,
+                  incomingReasonCode: resolved.reasonCode,
+                }),
+              };
+            }
+          }
+
           await prisma.reasonEntry.upsert({
             where: { reasonId },
             create: {
@@ -612,14 +675,14 @@ export async function POST(req: Request) {
               episodeId: incidentKey,
               durationSeconds: durationSeconds != null ? Math.max(0, Math.trunc(durationSeconds)) : null,
               episodeEndTs: episodeEndTsMs != null ? new Date(episodeEndTsMs) : null,
-              ...commonWrite,
+              ...guardedWrite,
             },
             update: {
               kind: "downtime",
               episodeId: incidentKey,
               durationSeconds: durationSeconds != null ? Math.max(0, Math.trunc(durationSeconds)) : null,
               episodeEndTs: episodeEndTsMs != null ? new Date(episodeEndTsMs) : null,
-              ...commonWrite,
+              ...guardedWrite,
             },
           });
         } else {

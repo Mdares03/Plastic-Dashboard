@@ -43,6 +43,9 @@ export async function GET(
       sku: row.sku,
       targetQty: row.targetQty,
       cycleTime: row.cycleTime,
+      mold: row.mold,
+      cavitiesTotal: row.cavitiesTotal,
+      cavitiesActive: row.cavitiesActive,
       status: row.status,
     })),
   });

@@ -12,8 +12,10 @@ function canManage(role?: string | null) {
 const MAX_WORK_ORDERS = 2000;
 const MAX_WORK_ORDER_ID_LENGTH = 64;
 const MAX_SKU_LENGTH = 64;
+const MAX_MOLD_LENGTH = 256;
 const MAX_TARGET_QTY = 2_000_000_000;
 const MAX_CYCLE_TIME = 86_400;
+const MAX_CAVITIES = 100_000;
 const WORK_ORDER_ID_RE = /^[A-Za-z0-9._-]+$/;
 
 const uploadBodySchema = z.object({
@@ -51,6 +53,15 @@ type WorkOrderInput = {
   sku?: string | null;
   targetQty?: number | null;
   cycleTime?: number | null;
+  mold?: string | null;
+  cavitiesTotal?: number | null;
+  cavitiesActive?: number | null;
+};
+
+type RowIssue = {
+  row: number;
+  workOrderId: string | null;
+  errors: string[];
 };
 
 function normalizeWorkOrders(raw: unknown[]) {
@@ -78,15 +89,96 @@ function normalizeWorkOrders(raw: unknown[]) {
     const cycleTime =
       cycleTimeRaw == null ? null : Math.min(Math.max(cycleTimeRaw, 0), MAX_CYCLE_TIME);
 
+    const mold = cleanText(
+      record.mold ?? record.moldId ?? record.mold_id ?? null,
+      MAX_MOLD_LENGTH
+    );
+    const cavitiesTotalRaw = toIntOrNull(
+      record.cavitiesTotal ??
+        record.cavities_total ??
+        record.totalCavities ??
+        record.total_cavities
+    );
+    const cavitiesActiveRaw = toIntOrNull(
+      record.cavitiesActive ??
+        record.cavities_active ??
+        record.activeCavities ??
+        record.active_cavities
+    );
+    const cavitiesTotal =
+      cavitiesTotalRaw == null
+        ? null
+        : Math.min(Math.max(cavitiesTotalRaw, 0), MAX_CAVITIES);
+    const cavitiesActive =
+      cavitiesActiveRaw == null
+        ? null
+        : Math.min(Math.max(cavitiesActiveRaw, 0), MAX_CAVITIES);
+
     cleaned.push({
       workOrderId: idRaw,
       sku: sku ?? null,
       targetQty: targetQty ?? null,
       cycleTime: cycleTime ?? null,
+      mold: mold ?? null,
+      cavitiesTotal: cavitiesTotal ?? null,
+      cavitiesActive: cavitiesActive ?? null,
     });
   }
 
   return cleaned;
+}
+
+// ✨ NUEVO: validación estricta del Excel
+// Cada fila debe tener mold (no vacío), cavitiesTotal (>=1), cavitiesActive (>=1, <=cavitiesTotal)
+// Si UNA SOLA fila falla, se rechaza el archivo completo (Opción A)
+function validateRows(rows: WorkOrderInput[], rawList: unknown[]): RowIssue[] {
+  const issues: RowIssue[] = [];
+
+  // Validar lista cruda primero (si hay duplicados o IDs inválidos no llegaron a `cleaned`)
+  // Pero aquí enfocamos en la validación de mold/cavidades sobre filas ya normalizadas.
+  rows.forEach((row, idx) => {
+    const errors: string[] = [];
+
+    // Mold requerido
+    if (!row.mold || row.mold.length === 0) {
+      errors.push("Mold is required");
+    }
+
+    // Cavities Total requerido y >= 1
+    if (row.cavitiesTotal == null) {
+      errors.push("Total Cavities is required");
+    } else if (row.cavitiesTotal < 1) {
+      errors.push("Total Cavities must be at least 1");
+    }
+
+    // Cavities Active requerido y >= 1
+    if (row.cavitiesActive == null) {
+      errors.push("Active Cavities is required");
+    } else if (row.cavitiesActive < 1) {
+      errors.push("Active Cavities must be at least 1");
+    }
+
+    // Active <= Total
+    if (
+      row.cavitiesActive != null &&
+      row.cavitiesTotal != null &&
+      row.cavitiesActive > row.cavitiesTotal
+    ) {
+      errors.push(
+        `Active Cavities (${row.cavitiesActive}) cannot exceed Total Cavities (${row.cavitiesTotal})`
+      );
+    }
+
+    if (errors.length > 0) {
+      issues.push({
+        row: idx + 1, // 1-indexed para el operador
+        workOrderId: row.workOrderId,
+        errors,
+      });
+    }
+  });
+
+  return issues;
 }
 
 export async function POST(req: NextRequest) {
@@ -138,6 +230,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "No valid work orders provided" }, { status: 400 });
   }
 
+  // ✨ NUEVO: validación estricta de mold/cavidades
+  // Si una sola fila falla, rechazamos el archivo completo
+  const issues = validateRows(cleaned, listRaw);
+  if (issues.length > 0) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Validation failed",
+        summary: `Excel rejected: ${issues.length} of ${cleaned.length} work order(s) have errors. All work orders must include mold name, total cavities, and active cavities. Fix and re-upload.`,
+        issues,
+      },
+      { status: 400 }
+    );
+  }
+
   const created = await prisma.machineWorkOrder.createMany({
     data: cleaned.map((row) => ({
       orgId: session.orgId,
@@ -146,6 +253,9 @@ export async function POST(req: NextRequest) {
       sku: row.sku ?? null,
       targetQty: row.targetQty ?? null,
       cycleTime: row.cycleTime ?? null,
+      mold: row.mold ?? null,
+      cavitiesTotal: row.cavitiesTotal ?? null,
+      cavitiesActive: row.cavitiesActive ?? null,
       status: "PENDING",
     })),
     skipDuplicates: true,

@@ -7,6 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
+    "test:downtime-reason-guard": "node scripts/test-downtime-reason-guard.mjs",
+    "backfill:downtime-reasons": "node scripts/backfill-downtime-reasons.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy"
   },

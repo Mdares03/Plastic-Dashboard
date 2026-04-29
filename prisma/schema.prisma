@@ -254,6 +254,9 @@ model MachineWorkOrder {
   goodParts   Int      @default(0) @map("good_parts")
   scrapParts  Int      @default(0) @map("scrap_parts")
   cycleCount  Int      @default(0) @map("cycle_count")
+  mold        String?
+  cavitiesTotal  Int? @map("cavities_total")
+  cavitiesActive Int? @map("cavities_active")
   machine     Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

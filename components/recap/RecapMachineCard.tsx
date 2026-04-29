@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
-import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type { RecapSummaryMachine, RecapTimelineResponse } from "@/lib/recap/types";
 import RecapMiniTimeline from "@/components/recap/RecapMiniTimeline";
 
@@ -35,7 +34,6 @@ function toInt(value: number | null | undefined) {
 export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Props) {
   const { t, locale } = useI18n();
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
-  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const zeroActivity = machine.goodParts === 0 && machine.scrap === 0 && machine.stopsCount === 0;
   const primaryMetric = machine.oee == null ? "—" : `${machine.oee.toFixed(1)}%`;
@@ -43,8 +41,6 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
   const timelineStart = timeline?.range.start ?? rangeStart;
   const timelineEnd = timeline?.range.end ?? rangeEnd;
   const hasTimelineData = timeline?.hasData ?? timelineSegments.length > 0;
-  const staleHeartbeat =
-    machine.lastSeenMs == null ? true : nowMs - machine.lastSeenMs > RECAP_HEARTBEAT_STALE_MS;
 
   const lastSeenLabel =
     machine.lastActivityMin == null
@@ -56,11 +52,6 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
     : lastSeenLabel;
 
   const moldMinutes = machine.moldChange?.active ? machine.moldChange.elapsedMin : null;
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 60000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -142,11 +133,6 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
       {machine.offlineForMin != null && machine.offlineForMin > 10 ? (
         <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
           {t("recap.banner.offline", { min: toInt(machine.offlineForMin) })}
-        </div>
-      ) : null}
-      {staleHeartbeat ? (
-        <div className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
-          {t("recap.card.desynced")}
         </div>
       ) : null}
 

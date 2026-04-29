@@ -55,7 +55,8 @@ function parseMaxSegments(searchParams: URLSearchParams) {
 }
 
 export function parseRecapTimelineRange(searchParams: URLSearchParams) {
-  const end = parseDateInput(searchParams.get("end")) ?? new Date();
+  const defaultEnd = new Date(Math.floor(Date.now() / 60000) * 60000);
+  const end = parseDateInput(searchParams.get("end")) ?? defaultEnd;
   const startParam = parseDateInput(searchParams.get("start"));
   if (startParam && startParam < end) {
     return {
