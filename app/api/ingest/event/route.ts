@@ -517,6 +517,14 @@ export async function POST(req: Request) {
     if (evRecord.is_update || evRecord.is_auto_ack || dataObj.is_update || dataObj.is_auto_ack){
   // skip duplicate reasonEntry for refresh/ack 
     } else if (evReason || finalType === "microstop" || finalType === "macrostop" || finalType === "downtime-acknowledged" || finalType === "mold-change"){
+      const fallbackIncidentKey =
+        clampText(
+          evData.incidentKey ??
+            dataObj.incidentKey ??
+            evDowntime?.incidentKey ??
+            evReason?.incidentKey,
+          128
+        ) ?? null;
       const moldIncidentKey =
         clampText(evData.incidentKey ?? dataObj.incidentKey, 128) ??
         (numberFrom(evData.start_ms ?? dataObj.start_ms) != null
@@ -533,7 +541,7 @@ export async function POST(req: Request) {
               detailLabel: "Cambio molde",
               reasonCode: "MOLD_CHANGE",
               reasonText: "Cambio molde",
-              incidentKey: moldIncidentKey ?? row.id,
+              incidentKey: moldIncidentKey ?? fallbackIncidentKey ?? row.id,
             } as Record<string, unknown>)
           :
         ({
@@ -544,7 +552,7 @@ export async function POST(req: Request) {
           detailLabel: "Unclassified",
           reasonCode: "UNCLASSIFIED",
           reasonText: "Unclassified",
-          incidentKey: row.id,
+          incidentKey: fallbackIncidentKey ?? row.id,
         } as Record<string, unknown>));
 
       const inferredKind: ReasonCatalogKind =
@@ -554,10 +562,18 @@ export async function POST(req: Request) {
       const resolved = resolveReason(reasonRaw, inferredKind, reasonCatalog, reasonCatalog.version);
 
       if (resolved.reasonCode) {
+        const continuityIncidentKey =
+          inferredKind === "downtime"
+            ? clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey ?? fallbackIncidentKey, 128) ?? row.id
+            : null;
+        const reasonMetaIncidentKey =
+          inferredKind === "downtime"
+            ? continuityIncidentKey
+            : clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128);
         const reasonId =
           clampText(reasonRaw.reasonId, 128) ??
           (inferredKind === "downtime"
-            ? `evt:${machine.id}:downtime:${clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id}`
+            ? `evt:${machine.id}:downtime:${continuityIncidentKey ?? row.id}`
             : `evt:${machine.id}:scrap:${clampText(reasonRaw.scrapEntryId, 128) ?? row.id}`);
 
         const workOrderId =
@@ -577,7 +593,7 @@ export async function POST(req: Request) {
             source: "ingest:event",
             eventId: row.id,
             eventType: row.eventType,
-            incidentKey: clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128),
+            incidentKey: reasonMetaIncidentKey,
             anomalyType:
               clampText(evRecord.anomalyType, 64) ??
               clampText(evDowntime?.anomalyType, 64) ??
@@ -595,7 +611,7 @@ export async function POST(req: Request) {
         };
 
         if (inferredKind === "downtime") {
-          const incidentKey = clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128) ?? row.id;
+          const incidentKey = continuityIncidentKey ?? row.id;
           const durationSeconds =
             numberFrom(evDowntime?.durationSeconds) ??
             numberFrom(evData.duration_sec) ??
@@ -641,7 +657,7 @@ export async function POST(req: Request) {
                   source: "ingest:event",
                   eventId: row.id,
                   eventType: row.eventType,
-                  incidentKey: clampText((reasonRaw as any).incidentKey ?? evDowntime?.incidentKey, 128),
+                  incidentKey: reasonMetaIncidentKey,
                   anomalyType:
                     clampText(evRecord.anomalyType, 64) ??
                     clampText(evDowntime?.anomalyType, 64) ??

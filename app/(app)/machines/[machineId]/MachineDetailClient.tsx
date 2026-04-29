@@ -221,6 +221,16 @@ const WORK_ORDER_TEMPLATE_HEADERS = [
   "Active Cavities",
 ] as const;
 
+const WORK_ORDER_TEMPLATE_EXAMPLE_ROW = [
+  "*borra esta fila al subir excel)",
+  "SKU-12345",
+  35,
+  10000,
+  "MOLD-01",
+  8,
+  8,
+] as const;
+
 function normalizeKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -654,7 +664,10 @@ export default function MachineDetailClient() {
   async function downloadWorkOrderTemplate() {
     const xlsx = await import("xlsx");
     const wb = xlsx.utils.book_new();
-    const ws = xlsx.utils.aoa_to_sheet([Array.from(WORK_ORDER_TEMPLATE_HEADERS)]);
+    const ws = xlsx.utils.aoa_to_sheet([
+      Array.from(WORK_ORDER_TEMPLATE_HEADERS),
+      Array.from(WORK_ORDER_TEMPLATE_EXAMPLE_ROW),
+    ]);
     xlsx.utils.book_append_sheet(wb, ws, "Work Orders");
     const wbout = xlsx.write(wb, { bookType: "xlsx", type: "array" });
     const blob = new Blob([wbout], {

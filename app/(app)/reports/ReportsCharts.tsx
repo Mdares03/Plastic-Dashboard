@@ -21,7 +21,7 @@ type SimpleTooltipProps<T> = {
   label?: string | number;
 };
 
-type ChartPoint = { ts: string; label: string; value: number };
+type ChartPoint = { ts: string; label: string; value: number | null };
 type CycleHistogramRow = {
   label: string;
   count: number;
@@ -135,7 +135,14 @@ export default function ReportsCharts({
                       "OEE",
                     ]}
                   />
-                  <Line type="monotone" dataKey="value" stroke="#34d399" dot={false} strokeWidth={2} />
+                  <Line
+                    type="linear"
+                    dataKey="value"
+                    stroke="#34d399"
+                    dot={false}
+                    strokeWidth={2}
+                    connectNulls={false}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             ) : (

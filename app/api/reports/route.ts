@@ -47,6 +47,10 @@ function safeNum(v: unknown) {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function isProductionSnapshot(trackingEnabled: unknown, productionStarted: unknown) {
+  return trackingEnabled === true && productionStarted === true;
+}
+
 function toMs(value?: Date | null) {
   return value ? value.getTime() : 0;
 }
@@ -137,6 +141,8 @@ export async function GET(req: NextRequest) {
       good: true,
       scrap: true,
       target: true,
+      trackingEnabled: true,
+      productionStarted: true,
       machineId: true,
     },
   });
@@ -151,7 +157,9 @@ export async function GET(req: NextRequest) {
   let qualSum = 0;
   let qualCount = 0;
 
+  // OEE-family summaries are production-only to avoid mixing downtime/off windows.
   for (const k of kpiRows) {
+    if (!isProductionSnapshot(k.trackingEnabled, k.productionStarted)) continue;
     if (safeNum(k.oee) != null) {
       oeeSum += Number(k.oee);
       oeeCount += 1;
@@ -274,7 +282,7 @@ export async function GET(req: NextRequest) {
     else if (type === "oee-drop") oeeDropCount += 1;
   }
 
-  type TrendPoint = { t: string; v: number };
+  type TrendPoint = { t: string; v: number | null };
 
   const trend: {
     oee: TrendPoint[];
@@ -292,10 +300,18 @@ export async function GET(req: NextRequest) {
 
   for (const k of kpiRows) {
     const t = k.ts.toISOString();
-    if (safeNum(k.oee) != null) trend.oee.push({ t, v: Number(k.oee) });
-    if (safeNum(k.availability) != null) trend.availability.push({ t, v: Number(k.availability) });
-    if (safeNum(k.performance) != null) trend.performance.push({ t, v: Number(k.performance) });
-    if (safeNum(k.quality) != null) trend.quality.push({ t, v: Number(k.quality) });
+    if (!isProductionSnapshot(k.trackingEnabled, k.productionStarted)) {
+      // Preserve timeline gaps across non-production windows for OEE-family charting.
+      trend.oee.push({ t, v: null });
+      trend.availability.push({ t, v: null });
+      trend.performance.push({ t, v: null });
+      trend.quality.push({ t, v: null });
+    } else {
+      trend.oee.push({ t, v: safeNum(k.oee) != null ? Number(k.oee) : null });
+      trend.availability.push({ t, v: safeNum(k.availability) != null ? Number(k.availability) : null });
+      trend.performance.push({ t, v: safeNum(k.performance) != null ? Number(k.performance) : null });
+      trend.quality.push({ t, v: safeNum(k.quality) != null ? Number(k.quality) : null });
+    }
 
     const good = safeNum(k.good);
     const scrap = safeNum(k.scrap);

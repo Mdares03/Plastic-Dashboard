@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
+import {
+  applyDowntimeFilters,
+  loadDowntimeShiftContext,
+  normalizeMicrostopLtMin,
+  normalizeShiftFilter,
+  resolvePlannedFilter,
+} from "@/lib/analytics/downtimeFilters";
 
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
@@ -21,6 +28,9 @@ export async function GET(req: Request) {
   const machineId = url.searchParams.get("machineId"); // optional
   const kind = (url.searchParams.get("kind") || "downtime").toLowerCase();
   const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
+  const planned = resolvePlannedFilter(url.searchParams.get("planned"), includeMoldChange);
+  const shift = normalizeShiftFilter(url.searchParams.get("shift"));
+  const microstopLtMin = normalizeMicrostopLtMin(url.searchParams.get("microstopLtMin"));
 
   if (kind !== "downtime" && kind !== "scrap" && kind !== "planned-downtime") {
     return bad(400, "Invalid kind (downtime|scrap|planned-downtime)");
@@ -35,41 +45,82 @@ export async function GET(req: Request) {
     if (!m) return bad(404, "Machine not found");
   }
 
-  // ✅ Scope by orgId (+ machineId if provided)
-  const grouped = await prisma.reasonEntry.groupBy({
-    by: ["reasonCode", "reasonLabel"],
-    where: {
-      orgId,
-      ...(machineId ? { machineId } : {}),
-      kind: kind === "planned-downtime" ? "downtime" : kind,
-      ...(kind === "downtime" && !includeMoldChange ? { reasonCode: { not: "MOLD_CHANGE" } } : {}),
-      ...(kind === "planned-downtime" ? { reasonCode: "MOLD_CHANGE" } : {}),
-      capturedAt: { gte: start },
-    },
-    _sum: {
-      durationSeconds: true,
-      scrapQty: true,
-    },
-    _count: { _all: true },
-  });
+  let itemsRaw: { reasonCode: string; reasonLabel: string; value: number; count: number }[] = [];
 
-  const itemsRaw = grouped
-    .map((g) => {
-      const value =
-        kind === "downtime" || kind === "planned-downtime"
-          ? Math.round(((g._sum.durationSeconds ?? 0) / 60) * 10) / 10 // minutes, 1 decimal
-          : g._sum.scrapQty ?? 0;
+  if (kind === "downtime" || kind === "planned-downtime") {
+    const baseRows = await prisma.reasonEntry.findMany({
+      where: {
+        orgId,
+        ...(machineId ? { machineId } : {}),
+        kind: "downtime",
+        capturedAt: { gte: start },
+      },
+      select: {
+        reasonCode: true,
+        reasonLabel: true,
+        durationSeconds: true,
+        capturedAt: true,
+        meta: true,
+        episodeId: true,
+      },
+    });
 
-      return {
+    const effectivePlanned = kind === "planned-downtime" ? "planned" : planned;
+    const shiftContext = shift === "all" ? null : await loadDowntimeShiftContext(orgId);
+    const filteredRows = applyDowntimeFilters(baseRows, {
+      planned: effectivePlanned,
+      shift,
+      microstopLtMin,
+      shiftContext,
+    });
+
+    const grouped = new Map<string, { reasonCode: string; reasonLabel: string; durationSeconds: number; count: number }>();
+    for (const row of filteredRows) {
+      const key = `${row.reasonCode}:::${row.reasonLabel ?? row.reasonCode}`;
+      const slot =
+        grouped.get(key) ??
+        {
+          reasonCode: row.reasonCode,
+          reasonLabel: row.reasonLabel ?? row.reasonCode,
+          durationSeconds: 0,
+          count: 0,
+        };
+      slot.durationSeconds += Math.max(0, row.durationSeconds ?? 0);
+      slot.count += 1;
+      grouped.set(key, slot);
+    }
+
+    itemsRaw = [...grouped.values()]
+      .map((g) => ({
+        reasonCode: g.reasonCode,
+        reasonLabel: g.reasonLabel,
+        value: Math.round((g.durationSeconds / 60) * 10) / 10,
+        count: g.count,
+      }))
+      .filter((x) => x.value > 0 || x.count > 0);
+  } else {
+    // Scrap path unchanged.
+    const grouped = await prisma.reasonEntry.groupBy({
+      by: ["reasonCode", "reasonLabel"],
+      where: {
+        orgId,
+        ...(machineId ? { machineId } : {}),
+        kind,
+        capturedAt: { gte: start },
+      },
+      _sum: { scrapQty: true },
+      _count: { _all: true },
+    });
+
+    itemsRaw = grouped
+      .map((g) => ({
         reasonCode: g.reasonCode,
         reasonLabel: g.reasonLabel ?? g.reasonCode,
-        value,
+        value: g._sum.scrapQty ?? 0,
         count: g._count._all,
-      };
-    })
-    .filter((x) =>
-      kind === "downtime" || kind === "planned-downtime" ? x.value > 0 || x.count > 0 : x.value > 0
-    );
+      }))
+      .filter((x) => x.value > 0);
+  }
 
   itemsRaw.sort((a, b) => b.value - a.value);
 
@@ -111,6 +162,9 @@ export async function GET(req: Request) {
     orgId,
     machineId: machineId ?? null,
     kind,
+    planned: kind === "downtime" ? planned : kind === "planned-downtime" ? "planned" : "all",
+    shift,
+    microstopLtMin,
     includeMoldChange,
     range,       // ✅ now defined correctly
     start,       // ✅ now defined correctly

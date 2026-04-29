@@ -29,7 +29,7 @@ type ReportDowntime = {
   oeeDropCount: number;
 };
 
-type ReportTrendPoint = { t: string; v: number };
+type ReportTrendPoint = { t: string; v: number | null };
 
 type ReportPayload = {
   summary: ReportSummary;
@@ -78,6 +78,31 @@ function downsample<T>(rows: T[], max: number) {
   return rows.filter((_, idx) => idx % step === 0);
 }
 
+function downsampleTrendPreserveGaps(rows: ReportTrendPoint[], max: number) {
+  if (rows.length <= max) return rows;
+  const step = Math.ceil(rows.length / max);
+  const picked = new Set<number>();
+
+  picked.add(0);
+  picked.add(rows.length - 1);
+  for (let idx = 0; idx < rows.length; idx += step) picked.add(idx);
+
+  // Keep both sides of null/non-null transitions so chart gaps remain visible.
+  for (let idx = 1; idx < rows.length; idx += 1) {
+    const prevIsNull = rows[idx - 1]?.v == null;
+    const currIsNull = rows[idx]?.v == null;
+    if (prevIsNull !== currIsNull) {
+      picked.add(idx - 1);
+      picked.add(idx);
+    }
+  }
+
+  return [...picked]
+    .sort((a, b) => a - b)
+    .map((idx) => rows[idx])
+    .filter((row): row is ReportTrendPoint => row != null);
+}
+
 function formatTickLabel(ts: string, range: RangeKey) {
   const d = new Date(ts);
   if (Number.isNaN(d.getTime())) return ts;
@@ -107,7 +132,7 @@ function ReportsChartsSkeleton() {
 }
 
 function buildCsv(report: ReportPayload, t: Translator) {
-  const rows = new Map<string, Record<string, string | number>>();
+  const rows = new Map<string, Record<string, string | number | null>>();
   const addSeries = (series: ReportTrendPoint[], key: string) => {
     for (const p of series) {
       const row = rows.get(p.t) ?? { timestamp: p.t };
@@ -414,7 +439,7 @@ export default function ReportsPageClient({
 
   const oeeSeries = useMemo(() => {
     const rows = trend?.oee ?? [];
-    const trimmed = downsample(rows, 600);
+    const trimmed = downsampleTrendPreserveGaps(rows, 600);
     return trimmed.map((p) => ({
       ts: p.t,
       label: formatTickLabel(p.t, range),

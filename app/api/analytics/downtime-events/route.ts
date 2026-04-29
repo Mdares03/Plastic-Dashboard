@@ -3,6 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
 import type { Prisma } from "@prisma/client";
+import {
+  applyDowntimeFilters,
+  loadDowntimeShiftContext,
+  normalizeMicrostopLtMin,
+  normalizeShiftFilter,
+  resolvePlannedFilter,
+} from "@/lib/analytics/downtimeFilters";
 
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
@@ -26,6 +33,9 @@ export async function GET(req: Request) {
   const machineId = url.searchParams.get("machineId"); // optional
   const reasonCode = url.searchParams.get("reasonCode"); // optional
   const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
+  const planned = resolvePlannedFilter(url.searchParams.get("planned"), includeMoldChange);
+  const shift = normalizeShiftFilter(url.searchParams.get("shift"));
+  const microstopLtMin = normalizeMicrostopLtMin(url.searchParams.get("microstopLtMin"));
 
   const limitRaw = url.searchParams.get("limit");
   const limit = Math.min(Math.max(Number(limitRaw || 200), 1), 500);
@@ -50,7 +60,6 @@ export async function GET(req: Request) {
     orgId,
     kind: "downtime",
     episodeId: { not: null },
-    ...(includeMoldChange ? {} : { reasonCode: { not: "MOLD_CHANGE" } }),
     capturedAt: {
       gte: start,
       ...(beforeDate ? { lt: beforeDate } : {}),
@@ -59,10 +68,11 @@ export async function GET(req: Request) {
     ...(reasonCode ? { reasonCode } : {}),
   };
 
-  const rows = await prisma.reasonEntry.findMany({
+  const scanTake = Math.min(Math.max(limit * 8, 1000), 5000);
+  const rowsRaw = await prisma.reasonEntry.findMany({
     where,
     orderBy: { capturedAt: "desc" },
-    take: limit,
+    take: scanTake,
     select: {
       id: true,
       episodeId: true,
@@ -79,6 +89,14 @@ export async function GET(req: Request) {
       machine: { select: { name: true } },
     },
   });
+
+  const shiftContext = shift === "all" ? null : await loadDowntimeShiftContext(orgId);
+  const rows = applyDowntimeFilters(rowsRaw, {
+    planned,
+    shift,
+    microstopLtMin,
+    shiftContext,
+  }).slice(0, limit);
 
   const events = rows.map((r) => {
     const startAt = r.capturedAt;
@@ -116,7 +134,11 @@ export async function GET(req: Request) {
   });
 
   const nextBefore =
-    events.length > 0 ? events[events.length - 1]?.capturedAt ?? null : null;
+    events.length > 0
+      ? events[events.length - 1]?.capturedAt ?? null
+      : rowsRaw.length > 0
+      ? toISO(rowsRaw[rowsRaw.length - 1]?.capturedAt)
+      : null;
 
   return NextResponse.json({
     ok: true,
@@ -125,6 +147,9 @@ export async function GET(req: Request) {
     start,
     machineId: machineId ?? null,
     reasonCode: reasonCode ?? null,
+    planned,
+    shift,
+    microstopLtMin,
     includeMoldChange,
     limit,
     before: before ?? null,

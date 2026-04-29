@@ -246,18 +246,6 @@ function buildParetoFromEvents(events: ApiDowntimeEvent[]): ApiParetoRes | null 
 }
 
 
-type ApiCoverageRes = {
-  ok: boolean;
-  error?: string;
-  orgId?: string;
-  machineId?: string | null;
-  range?: "24h" | "7d" | "30d";
-  start?: string;
-  receivedEpisodes?: number;
-  receivedMinutes?: number;
-  note?: string;
-};
-
 type Range = "24h" | "7d" | "30d";
 type Metric = "minutes" | "count";
 
@@ -1297,6 +1285,9 @@ export default function DowntimePageClient() {
   // client-only filters (shareable)
   const metric = ((sp.get("metric") as Metric) || "minutes") as Metric;
   const reasonCode = sp.get("reasonCode") || null;
+  const shift = (sp.get("shift") || "all").toUpperCase();
+  const planned = (sp.get("planned") as "all" | "planned" | "unplanned") || "all";
+  const microstopLtMin = sp.get("microstopLtMin") || "2";
 
   const hmDay = sp.get("hmDay");
   const hmHour = sp.get("hmHour");
@@ -1308,7 +1299,6 @@ export default function DowntimePageClient() {
 
 
   const [pareto, setPareto] = useState<ApiParetoRes | null>(null);
-  const [coverage, setCoverage] = useState<ApiCoverageRes | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [eventsRes, setEventsRes] = useState<ApiDowntimeEventsRes | null>(null);
@@ -1364,38 +1354,25 @@ export default function DowntimePageClient() {
         qs.set("kind", "downtime");
         qs.set("range", range);
         if (machineId) qs.set("machineId", machineId);
+        qs.set("shift", shift);
+        qs.set("planned", planned);
+        qs.set("microstopLtMin", microstopLtMin);
 
-        const [r1, r2] = await Promise.all([
-          fetch(`/api/analytics/pareto?${qs.toString()}`, {
-            cache: "no-cache",
-            credentials: "include",
-            signal: ac.signal,
-          }),
-          fetch(`/api/analytics/coverage?${qs.toString()}`, {
-            cache: "no-cache",
-            credentials: "include",
-            signal: ac.signal,
-          }),
-        ]);
+        const r1 = await fetch(`/api/analytics/pareto?${qs.toString()}`, {
+          cache: "no-cache",
+          credentials: "include",
+          signal: ac.signal,
+        });
 
         const j1raw = (await r1.json().catch(() => ({}))) as ApiParetoRes;
-        const j2 = (await r2.json().catch(() => ({}))) as ApiCoverageRes;
 
         if (!alive) return;
 
         if (!r1.ok || j1raw.ok === false) {
           setErr(j1raw?.error ?? "Failed to load pareto");
           setPareto(null);
-          setCoverage(null);
           setLoading(false);
           return;
-        }
-
-        if (!r2.ok || j2.ok === false) {
-          // coverage is “nice to have” — don’t kill the page
-          setCoverage(null);
-        } else {
-          setCoverage(j2);
         }
 
         setPareto(normalizeParetoRes(j1raw));
@@ -1412,7 +1389,7 @@ export default function DowntimePageClient() {
       alive = false;
       ac.abort();
     };
-  }, [range, machineId]);
+  }, [range, machineId, shift, planned, microstopLtMin]);
 
   useEffect(() => {
     let alive = true;
@@ -1462,6 +1439,9 @@ export default function DowntimePageClient() {
             qs.set("limit", String(eventsLimit));
             if (machineId) qs.set("machineId", machineId);
             if (reasonCode) qs.set("reasonCode", reasonCode);
+            qs.set("shift", shift);
+            qs.set("planned", planned);
+            qs.set("microstopLtMin", microstopLtMin);
             if (eventsBefore) qs.set("before", eventsBefore);
 
             const r = await fetch(`/api/analytics/downtime-events?${qs.toString()}`, {
@@ -1494,7 +1474,7 @@ export default function DowntimePageClient() {
             alive = false;
             ac.abort();
         };
-        }, [range, machineId, reasonCode, eventsLimit, eventsBefore]);
+        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, eventsLimit, eventsBefore]);
 
   // Derived data
   const events = eventsRes?.events ?? [];
@@ -1582,7 +1562,7 @@ const totalDowntimeMin = paretoEffective?.totalMinutesLost ?? 0;
 
 useEffect(() => {
   setEventsBefore(null);
-}, [range, machineId, reasonCode]);
+}, [range, machineId, reasonCode, shift, planned, microstopLtMin]);
 
 const filteredEvents = useMemo(() => {
   let list = events;
@@ -1612,8 +1592,8 @@ const filteredEvents = useMemo(() => {
 
 
 
-// Use distinct episodes as "stops" (best available now)
-const stops = coverage?.receivedEpisodes ?? totalStops;
+// Use filtered pareto totals so top filters always affect the KPI.
+const stops = totalStops;
 
 // Window minutes for MTBF/Availability
 const windowMin =
@@ -1727,11 +1707,6 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
     </div>
   );
   
-
-    const shift = sp.get("shift") || "all";
-    const planned = (sp.get("planned") as "all" | "planned" | "unplanned") || "all";
-    const microstopLtMin = sp.get("microstopLtMin") || "2";
-    
 
     const filtersRow = (
     <div className="mt-4 flex items-center justify-between gap-4">
@@ -2018,7 +1993,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
             <KPI
                 label="Stops count"
                 value={fmtNum(stops, 0)}
-                sub="Distinct episodes (coverage)"
+                sub="Distinct episodes (filtered)"
                 accent="zinc"
             />
             <KPI
@@ -2247,29 +2222,25 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
 
               {/* Coverage mini */}
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold text-white">Coverage received</div>
+                <div className="text-sm font-semibold text-white">Filtered downtime summary</div>
                 <div className="mt-1 text-xs text-zinc-400">
-                  Sync health from Control Tower ingest
+                  Reflects the active range/machine/shift/planned/microstop filters
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3">
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <div className="text-[11px] text-zinc-400">Episodes</div>
                     <div className="mt-1 text-base font-semibold text-white">
-                      {coverage?.receivedEpisodes != null ? fmtNum(coverage.receivedEpisodes, 0) : "—"}
+                      {fmtNum(stops, 0)}
                     </div>
                   </div>
                   <div className="rounded-xl border border-white/10 bg-black/20 p-3">
                     <div className="text-[11px] text-zinc-400">Minutes</div>
                     <div className="mt-1 text-base font-semibold text-white">
-                      {coverage?.receivedMinutes != null ? fmtNum(coverage.receivedMinutes, 1) : "—"}
+                      {fmtNum(totalDowntimeMin, 1)}
                     </div>
                   </div>
                 </div>
-
-                {coverage?.note ? (
-                  <div className="mt-3 text-[11px] text-zinc-500">{coverage.note}</div>
-                ) : null}
               </div>
             </div>
           </div>
