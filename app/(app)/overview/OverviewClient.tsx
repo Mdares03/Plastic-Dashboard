@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type { EventRow, Heartbeat, MachineRow } from "./types";
 
-const OFFLINE_MS = 10 * 60 * 1000; // 10 min (sincronizado con RECAP_HEARTBEAT_STALE_MS)
+const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
 const MAX_EVENT_MACHINES = 6;
 const OverviewTimeline = lazy(() => import("./OverviewTimeline"));
 
@@ -199,20 +200,65 @@ export default function OverviewClient({
       .map((m) => {
         const hb = m.latestHeartbeat;
         const offline = isOffline(heartbeatTime(hb));
+        const status = normalizeStatus(hb?.status);
         const k = m.latestKpi;
         const oee = k?.oee ?? null;
+        const good = k?.good ?? null;
+        const scrap = k?.scrap ?? null;
+        const availability = k?.availability ?? null;
+
+        const reasons: string[] = [];
         let score = 0;
-        if (offline) score += 100;
-        if (oee != null && oee < 75) score += 50;
-        if (oee != null && oee < 85) score += 25;
-        return { machine: m, offline, oee, score };
+
+        // Trigger 1: offline (highest priority — can't tell what's wrong)
+        if (offline) {
+          score += 100;
+          reasons.push(t("overview.attention.offline"));
+        }
+
+        // Trigger 2: stopped right now (and online — operator should act)
+        if (!offline && (status === "STOP" || status === "DOWN")) {
+          score += 60;
+          reasons.push(t("overview.attention.stopped"));
+        }
+
+        // Trigger 3: low OEE
+        if (!offline && oee != null) {
+          if (oee < 50) {
+            score += 50;
+            reasons.push(t("overview.attention.oeeCritical", { value: oee.toFixed(0) }));
+          } else if (oee < 75) {
+            score += 30;
+            reasons.push(t("overview.attention.oeeLow", { value: oee.toFixed(0) }));
+          }
+        }
+
+        // Trigger 4: scrap rate >5% on active WO
+        if (!offline && good != null && scrap != null && good + scrap > 0) {
+          const scrapPct = (scrap / (good + scrap)) * 100;
+          if (scrapPct > 10) {
+            score += 40;
+            reasons.push(t("overview.attention.scrapHigh", { value: scrapPct.toFixed(1) }));
+          } else if (scrapPct > 5) {
+            score += 20;
+            reasons.push(t("overview.attention.scrapMod", { value: scrapPct.toFixed(1) }));
+          }
+        }
+
+        // Trigger 5: availability collapse (often means undeclared stops)
+        if (!offline && availability != null && availability < 60) {
+          score += 25;
+          reasons.push(t("overview.attention.availLow", { value: availability.toFixed(0) }));
+        }
+
+        return { machine: m, offline, oee, score, reasons };
       })
       .filter((x) => x.score > 0)
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
 
     return list;
-  }, [machines]);
+  }, [machines, t]);
 
   return (
     <div className="p-4 sm:p-6">
@@ -346,8 +392,12 @@ export default function OverviewClient({
             <div className="text-sm text-zinc-400">{t("overview.noUrgent")}</div>
           ) : (
             <div className="space-y-3">
-              {attention.map(({ machine, offline, oee }) => (
-                <div key={machine.id} className="rounded-xl border border-white/10 bg-black/20 p-3">
+              {attention.map(({ machine, offline, oee, reasons }) => (
+                <Link
+                  key={machine.id}
+                  href={`/recap/${machine.id}`}
+                  className="block rounded-xl border border-white/10 bg-black/20 p-3 hover:border-white/20 hover:bg-black/30 transition"
+                >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-white">{machine.name}</div>
@@ -359,7 +409,7 @@ export default function OverviewClient({
                       {secondsAgo(heartbeatTime(machine.latestHeartbeat), locale, t("common.never"))}
                     </div>
                   </div>
-                  <div className="mt-2 flex items-center gap-2 text-xs">
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
                     <span
                       className={`rounded-full px-2 py-0.5 ${
                         offline ? "bg-white/10 text-zinc-300" : "bg-emerald-500/15 text-emerald-300"
@@ -367,13 +417,20 @@ export default function OverviewClient({
                     >
                       {offline ? t("overview.status.offline") : t("overview.status.online")}
                     </span>
-                    {oee != null && (
+                    {oee != null && !offline && (
                       <span className="rounded-full bg-yellow-500/15 px-2 py-0.5 text-yellow-300">
                         OEE {fmtPct(oee)}
                       </span>
                     )}
                   </div>
-                </div>
+                  {reasons.length > 0 && (
+                    <ul className="mt-2 space-y-0.5 text-[11px] text-zinc-400">
+                      {reasons.map((r, i) => (
+                        <li key={i}>· {r}</li>
+                      ))}
+                    </ul>
+                  )}
+                </Link>
               ))}
             </div>
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import type { RecapTimelineSegment } from "@/lib/recap/types";
+import type { RecapRangeMode, RecapTimelineSegment } from "@/lib/recap/types";
 import {
   computeWidths,
   formatDuration,
@@ -19,6 +19,7 @@ type Props = {
   locale: string;
   hasData?: boolean;
   loading?: boolean;
+  rangeMode?: RecapRangeMode;
 };
 
 export default function RecapFullTimeline({
@@ -28,6 +29,7 @@ export default function RecapFullTimeline({
   locale,
   hasData = false,
   loading = false,
+  rangeMode,
 }: Props) {
   const { t } = useI18n();
   const startMs = new Date(rangeStart).getTime();
@@ -36,10 +38,19 @@ export default function RecapFullTimeline({
 
   const normalized = hasData ? normalizeTimelineSegments(segments, startMs, endMs) : [];
   const widths = computeWidths(normalized, totalMs, SEGMENT_MIN_WIDTH_PCT);
+  const rangeSuffix =
+    rangeMode === "shift"
+      ? t("recap.range.shiftCurrent")
+      : rangeMode === "yesterday"
+        ? t("recap.range.yesterday")
+        : rangeMode === "custom"
+          ? t("recap.range.custom")
+          : t("recap.range.24h");
+  const titleText = `${t("recap.timeline.title")} · ${rangeSuffix}`;
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
-      <div className="mb-3 text-sm font-semibold text-white">{t("recap.timeline.title")}</div>
+      <div className="mb-3 text-sm font-semibold text-white">{titleText}</div>
       {loading ? (
         <div className="overflow-x-auto">
           <div className="min-w-[560px]">

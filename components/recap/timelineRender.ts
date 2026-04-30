@@ -10,7 +10,7 @@ export const TIMELINE_COLORS: Record<RecapTimelineSegment["type"], string> = {
 };
 
 export const LABEL_MIN_WIDTH_PCT = 5;
-export const SEGMENT_MIN_WIDTH_PCT = 1.5;
+export const SEGMENT_MIN_WIDTH_PCT = 0.3;
 
 export function formatTime(valueMs: number, locale: string) {
   return new Date(valueMs).toLocaleTimeString(locale, {

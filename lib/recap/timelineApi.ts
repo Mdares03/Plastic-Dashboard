@@ -9,6 +9,7 @@ import {
 import type { RecapTimelineResponse } from "@/lib/recap/types";
 
 const TIMELINE_EVENT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const TIMELINE_CYCLE_LOOKBACK_MS = 15 * 60 * 1000;
 const DEFAULT_RANGE_MS = 24 * 60 * 60 * 1000;
 const MIN_RANGE_MS = 60 * 1000;
 const MAX_RANGE_MS = 72 * 60 * 60 * 1000;
@@ -94,7 +95,10 @@ export async function getRecapTimelineForMachine(params: {
       where: {
         orgId: params.orgId,
         machineId: params.machineId,
-        ts: { gte: params.start, lte: params.end },
+        ts: {
+          gte: new Date(params.start.getTime() - TIMELINE_CYCLE_LOOKBACK_MS),
+          lte: params.end,
+        },
       },
       orderBy: { ts: "asc" },
       select: {
@@ -126,7 +130,10 @@ export async function getRecapTimelineForMachine(params: {
       where: {
         orgId: params.orgId,
         machineId: params.machineId,
-        ts: { gte: params.start, lte: params.end },
+        ts: {
+          gte: new Date(params.start.getTime() - TIMELINE_CYCLE_LOOKBACK_MS),
+          lte: params.end,
+        },
       },
     }),
     prisma.machineEvent.count({

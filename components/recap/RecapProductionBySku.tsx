@@ -1,7 +1,6 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/useI18n";
-import { formatRecapProgressPercent } from "@/lib/recap/progressDisplay";
 import type { RecapSkuRow } from "@/lib/recap/types";
 
 type Props = {
@@ -9,7 +8,7 @@ type Props = {
 };
 
 export default function RecapProductionBySku({ rows }: Props) {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
 
   return (
     <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
@@ -24,25 +23,17 @@ export default function RecapProductionBySku({ rows }: Props) {
               <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wide text-zinc-400">
                 <th className="py-2 pr-3">{t("recap.production.sku")}</th>
                 <th className="py-2 pr-3">{t("recap.production.good")}</th>
-                <th className="py-2 pr-3">{t("recap.production.scrap")}</th>
-                <th className="py-2 pr-3">{t("recap.production.target")}</th>
-                <th className="py-2">{t("recap.production.progress")}</th>
+                <th className="py-2">{t("recap.production.scrap")}</th>
               </tr>
             </thead>
             <tbody>
-              {rows.slice(0, 10).map((row) => {
-                const progress =
-                  row.progressPct == null ? "—" : formatRecapProgressPercent(row.progressPct, locale);
-                return (
-                  <tr key={`${row.sku}:${row.machineName}`} className="border-b border-white/5">
-                    <td className="py-2 pr-3">{row.sku}</td>
-                    <td className="py-2 pr-3">{row.good}</td>
-                    <td className={`py-2 pr-3 ${row.scrap > 0 ? "text-red-300" : ""}`}>{row.scrap}</td>
-                    <td className="py-2 pr-3">{row.target ?? "--"}</td>
-                    <td className="py-2 text-emerald-300">{progress}</td>
-                  </tr>
-                );
-              })}
+              {rows.slice(0, 10).map((row) => (
+                <tr key={`${row.sku}:${row.machineName}`} className="border-b border-white/5">
+                  <td className="py-2 pr-3">{row.sku}</td>
+                  <td className="py-2 pr-3">{row.good}</td>
+                  <td className={`py-2 ${row.scrap > 0 ? "text-red-300" : ""}`}>{row.scrap}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -751,22 +751,24 @@ export function compressTimelineSegments(input: {
     const bucketEnd = i === maxSegments - 1 ? rangeEndMs : Math.trunc(rangeStartMs + (i + 1) * bucketMs);
     if (bucketEnd <= bucketStart) continue;
 
-    let winner: RecapTimelineSegment | null = null;
-    let winnerOverlap = -1;
+     let winner: RecapTimelineSegment | null = null;
+     let winnerPriority = -1;
+     let winnerOverlap = -1;
 
-    for (const segment of normalized) {
-      const overlapStart = Math.max(bucketStart, segment.startMs);
-      const overlapEnd = Math.min(bucketEnd, segment.endMs);
-      if (overlapEnd <= overlapStart) continue;
+     for (const segment of normalized) {
+       const overlapStart = Math.max(bucketStart, segment.startMs);
+       const overlapEnd = Math.min(bucketEnd, segment.endMs);
+       if (overlapEnd <= overlapStart) continue;
 
-      const overlap = overlapEnd - overlapStart;
-      const priorityBonus = segmentPriority(segment.type) / 1000;
-      const score = overlap + priorityBonus;
-      if (score > winnerOverlap) {
-        winner = segment;
-        winnerOverlap = score;
-      }
-    }
+       const overlap = overlapEnd - overlapStart;
+       const priority = segmentPriority(segment.type);
+
+       if (priority > winnerPriority || (priority === winnerPriority && overlap > winnerOverlap)) {
+         winner = segment;
+         winnerPriority = priority;
+         winnerOverlap = overlap;
+       }
+     }
 
     if (!winner) {
       buckets.push({

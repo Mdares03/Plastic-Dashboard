@@ -183,7 +183,7 @@
   "recap.banner.offline": "No signal for {min} min",
   "recap.banner.ongoingStop": "Machine stopped for {min} min",
   "recap.banner.stopped": "Machine stopped for {minutes} min",
-  "recap.timeline.title": "24h timeline",
+  "recap.timeline.title": "Timeline",
   "recap.timeline.noData": "No timeline data",
   "recap.timeline.type.production": "Production",
   "recap.timeline.type.moldChange": "Mold change",
@@ -255,6 +255,9 @@
   "machine.detail.bucket.unknown": "Unknown",
   "machine.detail.activity.title": "Machine Activity Timeline",
   "machine.detail.activity.subtitle": "Real-time analysis of production cycles",
+  "machine.detail.activity.windowBadge": "1h",
+  "machine.detail.activity.windowModalTitle": "Timeline window",
+  "machine.detail.activity.windowModalBody": "This timeline always shows the last 1 hour of machine activity.",
   "machine.detail.activity.noData": "No timeline data yet.",
   "machine.detail.tooltip.cycle": "Cycle: {label}",
   "machine.detail.tooltip.duration": "Duration",
@@ -621,5 +624,12 @@
   "settings.modules.subtitle": "Enable/disable UI modules depending on how the plant operates.",
   "settings.modules.screenless.title": "Screenless mode",
   "settings.modules.screenless.helper": "Hide the Downtime module from navigation (for plants without Node-RED reason capture).",
-  "settings.modules.note": "This setting is org-wide."
+  "settings.modules.note": "This setting is org-wide.",
+  "overview.attention.offline": "Offline — no heartbeat",
+  "overview.attention.stopped": "Currently stopped",
+  "overview.attention.oeeCritical": "OEE critical: {value}%",
+  "overview.attention.oeeLow": "OEE low: {value}%",
+  "overview.attention.scrapHigh": "Scrap rate high: {value}%",
+  "overview.attention.scrapMod": "Scrap rate elevated: {value}%",
+  "overview.attention.availLow": "Availability low: {value}%"
 }

@@ -21,6 +21,7 @@ import {
 import { useI18n } from "@/lib/i18n/useI18n";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 import type { RecapTimelineResponse, RecapTimelineSegment } from "@/lib/recap/types";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import {
   computeWidths,
   formatDuration,
@@ -375,6 +376,7 @@ function getMinuteFlooredOneHourRange(referenceMs = Date.now()) {
 function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimelineProps) {
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(true);
+  const [showWindowInfo, setShowWindowInfo] = useState(false);
   const timelineHashRef = useRef("");
 
   useEffect(() => {
@@ -444,7 +446,13 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
           <div className="text-sm font-semibold text-white">{t("machine.detail.activity.title")}</div>
           <div className="mt-1 text-xs text-zinc-400">{t("machine.detail.activity.subtitle")}</div>
         </div>
-        <div className="text-xs text-zinc-400">1h</div>
+        <button
+          type="button"
+          onClick={() => setShowWindowInfo(true)}
+          className="rounded-md border border-white/20 px-2 py-1 text-xs text-zinc-300 hover:border-white/40 hover:text-white"
+        >
+          {t("machine.detail.activity.windowBadge")}
+        </button>
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
@@ -500,6 +508,31 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
           )}
         </div>
       </div>
+
+      {showWindowInfo ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="machine-timeline-window-title"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-zinc-950 p-5">
+            <h3 id="machine-timeline-window-title" className="text-sm font-semibold text-white">
+              {t("machine.detail.activity.windowModalTitle")}
+            </h3>
+            <p className="mt-2 text-sm text-zinc-300">{t("machine.detail.activity.windowModalBody")}</p>
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowWindowInfo(false)}
+                className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-zinc-200 hover:border-white/40 hover:text-white"
+              >
+                {t("common.close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -800,7 +833,7 @@ export default function MachineDetailClient() {
 
   function isOffline(ts?: string) {
     if (!ts) return true;
-    return Date.now() - new Date(ts).getTime() > 30000;
+    return Date.now() - new Date(ts).getTime() > RECAP_HEARTBEAT_STALE_MS;
   }
 
   function normalizeStatus(status?: string) {

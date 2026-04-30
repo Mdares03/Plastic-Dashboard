@@ -28,6 +28,7 @@ type DetailRangeInput = {
 
 const OFFLINE_THRESHOLD_MS = RECAP_HEARTBEAT_STALE_MS;
 const TIMELINE_EVENT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const TIMELINE_CYCLE_LOOKBACK_MS = 15 * 60 * 1000;
 const RECAP_CACHE_TTL_SEC = 60;
 const WEEKDAY_KEYS: ShiftOverrideDay[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
 const WEEKDAY_KEY_MAP: Record<string, ShiftOverrideDay> = {
@@ -213,7 +214,10 @@ async function loadTimelineRowsForMachines(params: {
       where: {
         orgId: params.orgId,
         machineId: { in: params.machineIds },
-        ts: { gte: params.start, lte: params.end },
+        ts: {
+          gte: new Date(params.start.getTime() - TIMELINE_CYCLE_LOOKBACK_MS),
+          lte: params.end,
+        },
       },
       orderBy: [{ machineId: "asc" }, { ts: "asc" }],
       select: {
@@ -338,7 +342,7 @@ async function computeRecapSummary(params: { orgId: string; hours: number }) {
       segments,
       rangeStart: start,
       rangeEnd: end,
-      maxSegments: 30,
+      maxSegments: 60,
     });
 
     return toSummaryMachine({
@@ -443,21 +447,25 @@ async function resolveCurrentShiftRange(params: { orgId: string; now: Date }) {
       minutes: startMin % 60,
       timeZone,
     });
-    const end = zonedToUtcDate({
+     const shiftEndUtc = zonedToUtcDate({
       ...endDate,
       hours: Math.floor(endMin / 60),
       minutes: endMin % 60,
       timeZone,
     });
 
-    if (end <= start) continue;
+    if (shiftEndUtc <= start) continue;
+
+    // Cap end at "now" so we render shift-so-far, not shift-as-planned.
+    // Without cap:
+    //   - timeline fills future minutes with idle (visual lie)
+    //   - offline calc = (shift_end_future - last_seen) = looks 5h offline
+    //     even on a machine producing right now
+    const end = params.now < shiftEndUtc ? params.now : shiftEndUtc;
 
     return {
       hasEnabledShifts: true,
-      range: {
-        start,
-        end,
-      },
+      range: { start, end },
     };
   }
 

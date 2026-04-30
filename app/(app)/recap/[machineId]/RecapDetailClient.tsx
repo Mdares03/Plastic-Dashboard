@@ -219,6 +219,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
           hasData={timelineHasData}
           loading={timelineLoading}
           locale={locale}
+          rangeMode={initialData.range.mode}
         />
       </div>
 

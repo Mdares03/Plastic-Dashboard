@@ -19,7 +19,7 @@ type Props = {
   hasData?: boolean;
 };
 
-const MIN_SEGMENT_PCT = 1.5;
+const MIN_SEGMENT_PCT = 0.5;
 
 export default function RecapMiniTimeline({
   rangeStart,

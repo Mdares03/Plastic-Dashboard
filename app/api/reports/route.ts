@@ -298,25 +298,68 @@ export async function GET(req: NextRequest) {
     scrapRate: [],
   };
 
+   type TsBucket = {
+    oeeSum: number; oeeCount: number;
+    availSum: number; availCount: number;
+    perfSum: number; perfCount: number;
+    qualSum: number; qualCount: number;
+    goodSum: number; scrapSum: number;
+    anyProduction: boolean;
+  };
+  const tsBuckets = new Map<string, TsBucket>();
+
   for (const k of kpiRows) {
     const t = k.ts.toISOString();
-    if (!isProductionSnapshot(k.trackingEnabled, k.productionStarted)) {
-      // Preserve timeline gaps across non-production windows for OEE-family charting.
+    let b = tsBuckets.get(t);
+    if (!b) {
+      b = {
+        oeeSum: 0, oeeCount: 0,
+        availSum: 0, availCount: 0,
+        perfSum: 0, perfCount: 0,
+        qualSum: 0, qualCount: 0,
+        goodSum: 0, scrapSum: 0,
+        anyProduction: false,
+      };
+      tsBuckets.set(t, b);
+    }
+
+    const isProd = isProductionSnapshot(k.trackingEnabled, k.productionStarted);
+    if (isProd) {
+      b.anyProduction = true;
+      const oee = safeNum(k.oee);
+      if (oee != null) { b.oeeSum += Number(oee); b.oeeCount += 1; }
+      const avail = safeNum(k.availability);
+      if (avail != null) { b.availSum += Number(avail); b.availCount += 1; }
+      const perf = safeNum(k.performance);
+      if (perf != null) { b.perfSum += Number(perf); b.perfCount += 1; }
+      const qual = safeNum(k.quality);
+      if (qual != null) { b.qualSum += Number(qual); b.qualCount += 1; }
+    }
+
+    const good = safeNum(k.good);
+    const scrap = safeNum(k.scrap);
+    if (good != null) b.goodSum += Number(good);
+    if (scrap != null) b.scrapSum += Number(scrap);
+  }
+
+  // Iterate sorted ts. kpiRows already orderBy ts asc, but Map insertion
+  // order matches that, so spreading keys preserves order.
+  for (const [t, b] of tsBuckets) {
+    if (!b.anyProduction) {
+      // No machine producing at this ts -> gap, same as before.
       trend.oee.push({ t, v: null });
       trend.availability.push({ t, v: null });
       trend.performance.push({ t, v: null });
       trend.quality.push({ t, v: null });
     } else {
-      trend.oee.push({ t, v: safeNum(k.oee) != null ? Number(k.oee) : null });
-      trend.availability.push({ t, v: safeNum(k.availability) != null ? Number(k.availability) : null });
-      trend.performance.push({ t, v: safeNum(k.performance) != null ? Number(k.performance) : null });
-      trend.quality.push({ t, v: safeNum(k.quality) != null ? Number(k.quality) : null });
+      trend.oee.push({ t, v: b.oeeCount ? b.oeeSum / b.oeeCount : null });
+      trend.availability.push({ t, v: b.availCount ? b.availSum / b.availCount : null });
+      trend.performance.push({ t, v: b.perfCount ? b.perfSum / b.perfCount : null });
+      trend.quality.push({ t, v: b.qualCount ? b.qualSum / b.qualCount : null });
     }
-
-    const good = safeNum(k.good);
-    const scrap = safeNum(k.scrap);
-    if (good != null && scrap != null && good + scrap > 0) {
-      trend.scrapRate.push({ t, v: (scrap / (good + scrap)) * 100 });
+    const total = b.goodSum + b.scrapSum;
+    if (total > 0) {
+      trend.scrapRate.push({ t, v: (b.scrapSum / total) * 100 });
     }
   }
   const cycleRowsStart = nowMs();

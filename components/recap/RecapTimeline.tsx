@@ -17,7 +17,7 @@ const COLORS: Record<RecapTimelineSegment["type"], string> = {
   "slow-cycle": "bg-amber-500 text-black",
   idle: "bg-zinc-600 text-zinc-300",
 };
-const MIN_SEGMENT_PCT = 1.5;
+const MIN_SEGMENT_PCT = 0.3;
 const LABEL_MIN_PCT = 5;
 
 function fmtTime(valueMs: number, locale: string) {

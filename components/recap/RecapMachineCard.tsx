@@ -59,7 +59,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
     async function loadTimeline() {
       try {
         const res = await fetch(
-          `/api/recap/${machine.machineId}/timeline?range=24h&compact=1&maxSegments=30`,
+          `/api/recap/${machine.machineId}/timeline?range=24h&compact=1&maxSegments=60`,
           { cache: "no-store" }
         );
         const json = await res.json().catch(() => null);

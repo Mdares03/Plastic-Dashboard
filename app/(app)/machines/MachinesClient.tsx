@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 
 type MachineRow = {
   id: string;
@@ -20,6 +21,7 @@ type MachineRow = {
   };
 };
 const LIVE_REFRESH_MS = 5000;
+const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
 
 function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
   if (!ts) return fallback;
@@ -31,7 +33,7 @@ function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
 
 function isOffline(ts?: string) {
   if (!ts) return true;
-  return Date.now() - new Date(ts).getTime() > 10 * 60 * 1000; // 10 min (sincronizado con RECAP_HEARTBEAT_STALE_MS)
+  return Date.now() - new Date(ts).getTime() > OFFLINE_MS;
 }
 
 function normalizeStatus(status?: string) {
