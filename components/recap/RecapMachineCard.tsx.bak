@@ -37,8 +37,6 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
 
   const zeroActivity = machine.goodParts === 0 && machine.scrap === 0 && machine.stopsCount === 0;
   const primaryMetric = machine.oee == null ? "—" : `${machine.oee.toFixed(1)}%`;
-  const ongoingStopMin = machine.ongoingStopMin ?? 0;
-  const isUrgent = machine.status === "stopped" && ongoingStopMin >= 5;
   const timelineSegments = timeline?.segments ?? machine.miniTimeline;
   const timelineStart = timeline?.range.start ?? rangeStart;
   const timelineEnd = timeline?.range.end ?? rangeEnd;
@@ -85,11 +83,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
   return (
     <Link
       href={`/recap/${machine.machineId}`}
-      className={`rounded-2xl border p-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80 ${
-        isUrgent
-          ? "border-red-500/60 bg-red-500/10 hover:bg-red-500/15 ring-2 ring-red-500/40 animate-pulse"
-          : "border-white/10 bg-white/5 hover:bg-white/10"
-      }`}
+      className="rounded-2xl border border-white/10 bg-white/5 p-4 transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/80"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -142,12 +136,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
         </div>
       ) : null}
 
-      <div className={`mt-3 text-xs ${isUrgent ? "text-red-200 font-semibold" : "text-zinc-400"}`}>
-        {isUrgent
-          ? t("recap.card.stoppedFor", { min: ongoingStopMin })
-              + (machine.activeWorkOrderId ? ` · WO ${machine.activeWorkOrderId}` : "")
-          : footerText}
-      </div>
+      <div className="mt-3 text-xs text-zinc-400">{footerText}</div>
     </Link>
   );
 }

@@ -175,90 +175,24 @@ function addDays(input: { year: number; month: number; day: number }, days: numb
   };
 }
 
-// Active stoppage = freshest macrostop episode whose latest event is "active"
-// and whose latest event timestamp is within ACTIVE_STALE_MS of rangeEnd.
-// Mirrors the same rules used by lib/recap/timeline.ts so the card status
-// agrees with the timeline rendering.
-const STOPPAGE_ACTIVE_STALE_MS = 2 * 60 * 1000;
-
-function detectActiveMacrostop(events: TimelineEventRow[] | undefined, endMs: number) {
-  if (!events || events.length === 0) return null;
-
-  type Episode = { firstTsMs: number; lastTsMs: number; lastStatus: string };
-  const episodes = new Map<string, Episode>();
-
-  for (const event of events) {
-    if (String(event.eventType || "").toLowerCase() !== "macrostop") continue;
-
-    // Defensive: parse data the same way timeline.ts does.
-    let parsed: unknown = event.data;
-    if (typeof parsed === "string") {
-      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
-    }
-    const data: Record<string, unknown> =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-
-    // Drop only the auto-ack pings (same rule as timeline.ts Fix B).
-    const isAutoAck =
-      data.is_auto_ack === true ||
-      data.isAutoAck === true ||
-      data.is_auto_ack === "true" ||
-      data.isAutoAck === "true";
-    if (isAutoAck) continue;
-
-    const status = String(data.status ?? "").trim().toLowerCase();
-    const incidentKey = String(data.incidentKey ?? data.incident_key ?? "").trim()
-      || `macrostop:${event.ts.getTime()}`;
-    const tsMs = event.ts.getTime();
-
-    const existing = episodes.get(incidentKey);
-    if (!existing) {
-      episodes.set(incidentKey, { firstTsMs: tsMs, lastTsMs: tsMs, lastStatus: status });
-      continue;
-    }
-    existing.firstTsMs = Math.min(existing.firstTsMs, tsMs);
-    if (tsMs >= existing.lastTsMs) {
-      existing.lastTsMs = tsMs;
-      existing.lastStatus = status;
-    }
-  }
-
-  let activeOngoingMin = 0;
-  for (const ep of episodes.values()) {
-    if (ep.lastStatus !== "active") continue;
-    if (endMs - ep.lastTsMs > STOPPAGE_ACTIVE_STALE_MS) continue;
-    const ongoingMin = Math.max(0, Math.floor((endMs - ep.firstTsMs) / 60000));
-    if (ongoingMin > activeOngoingMin) activeOngoingMin = ongoingMin;
-  }
-
-  return activeOngoingMin > 0 ? activeOngoingMin : null;
-}
-
-function statusFromMachine(machine: RecapMachine, endMs: number, events?: TimelineEventRow[]) {
+function statusFromMachine(machine: RecapMachine, endMs: number) {
   const lastSeenMs = machine.heartbeat.lastSeenAt ? new Date(machine.heartbeat.lastSeenAt).getTime() : null;
   const offlineForMs = lastSeenMs == null ? Number.POSITIVE_INFINITY : Math.max(0, endMs - lastSeenMs);
   const offline = !Number.isFinite(lastSeenMs ?? Number.NaN) || offlineForMs > OFFLINE_THRESHOLD_MS;
 
-  // ongoingStopMin from the legacy heartbeat-based path (typically null) OR
-  // from the macrostop event detection (preferred — accurate)
-  const macrostopOngoingMin = detectActiveMacrostop(events, endMs);
-  const legacyOngoingStopMin = machine.downtime.ongoingStopMin ?? 0;
-  const ongoingStopMin = macrostopOngoingMin ?? (legacyOngoingStopMin > 0 ? legacyOngoingStopMin : null);
-
+  const ongoingStopMin = machine.downtime.ongoingStopMin ?? 0;
   const moldActive = machine.workOrders.moldChangeInProgress;
 
   let status: RecapMachineStatus = "running";
   if (offline) status = "offline";
   else if (moldActive) status = "mold-change";
-  else if (ongoingStopMin != null && ongoingStopMin > 0) status = "stopped";
+  else if (ongoingStopMin > 0) status = "stopped";
 
   return {
     status,
     lastSeenMs,
     offlineForMin: offline ? Math.max(0, Math.floor(offlineForMs / 60000)) : null,
-    ongoingStopMin,
+    ongoingStopMin: machine.downtime.ongoingStopMin,
   };
 }
 
@@ -347,10 +281,9 @@ function toSummaryMachine(params: {
   machine: RecapMachine;
   miniTimeline: ReturnType<typeof compressTimelineSegments>;
   rangeEndMs: number;
-  events?: TimelineEventRow[];
 }): RecapSummaryMachine {
-  const { machine, miniTimeline, rangeEndMs, events } = params;
-  const status = statusFromMachine(machine, rangeEndMs, events);
+  const { machine, miniTimeline, rangeEndMs } = params;
+  const status = statusFromMachine(machine, rangeEndMs);
 
   return {
     machineId: machine.machineId,
@@ -416,7 +349,6 @@ async function computeRecapSummary(params: { orgId: string; hours: number }) {
       machine,
       miniTimeline,
       rangeEndMs: end.getTime(),
-      events: timelineRows.eventsByMachine.get(machine.machineId),
     });
   });
 
@@ -676,11 +608,7 @@ async function computeRecapMachineDetail(params: {
     rangeEnd: range.end,
   });
 
-  const status = statusFromMachine(
-    machine,
-    range.end.getTime(),
-    timelineRows.eventsByMachine.get(params.machineId)
-  );
+  const status = statusFromMachine(machine, range.end.getTime());
 
   const downtimeTotalMin = Math.max(0, machine.downtime.totalMin);
   const downtimeTop = machine.downtime.topReasons.slice(0, 3).map((row) => ({

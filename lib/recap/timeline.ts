@@ -622,27 +622,33 @@ export function buildTimelineSegments(input: {
     if (!TIMELINE_EVENT_TYPES.includes(eventType)) continue;
 
     const data = extractData(event.data);
-    const isUpdate = safeBool(data.is_update ?? data.isUpdate);
     const isAutoAck = safeBool(data.is_auto_ack ?? data.isAutoAck);
-    if (isUpdate || isAutoAck) continue;
+    if (isAutoAck) continue;
 
     const tsMs = event.ts.getTime();
     const key = eventIncidentKey(eventType, data, tsMs);
     const status = String(data.status ?? "").trim().toLowerCase();
 
-    const episode = eventEpisodes.get(key) ?? {
-      type: eventType,
-      firstTsMs: tsMs,
-      lastTsMs: tsMs,
-      startMs: null,
-      endMs: null,
-      durationSec: null,
-      statusActive: false,
-      statusResolved: false,
-      reason: null,
-      fromMoldId: null,
-      toMoldId: null,
-    };
+    let episode = eventEpisodes.get(key);
+    if (!episode) {
+      episode = {
+        type: eventType,
+        firstTsMs: tsMs,
+        lastTsMs: tsMs,
+        startMs: null,
+        endMs: null,
+        durationSec: null,
+        statusActive: false,
+        statusResolved: false,
+        reason: null,
+        fromMoldId: null,
+        toMoldId: null,
+      };
+    } else if ((PRIORITY[eventType] ?? 0) > (PRIORITY[episode.type] ?? 0)) {
+      // Upgrade type when escalation is detected within the same incidentKey
+      // (e.g. microstop → macrostop preserves the same key by design)
+      episode.type = eventType;
+    }
     episode.firstTsMs = Math.min(episode.firstTsMs, tsMs);
     episode.lastTsMs = Math.max(episode.lastTsMs, tsMs);
 
