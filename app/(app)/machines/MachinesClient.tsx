@@ -19,6 +19,12 @@ type MachineRow = {
     ip?: string | null;
     fwVersion?: string | null;
   };
+  latestMacrostop?: null | {
+    machineId: string;
+    ts: string;
+    status: "active" | "resolved" | "unknown";
+    startedAtMs: number;
+  };
 };
 const LIVE_REFRESH_MS = 5000;
 const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
@@ -49,6 +55,21 @@ function badgeClass(status?: string, offline?: boolean) {
   if (s === "IDLE") return "bg-yellow-500/15 text-yellow-300";
   if (s === "STOP" || s === "DOWN") return "bg-red-500/15 text-red-300";
   return "bg-white/10 text-white";
+}
+
+const MACROSTOP_FRESH_MS = 2 * 60 * 1000;
+
+function isMacrostopActive(macrostop: MachineRow["latestMacrostop"]) {
+  if (!macrostop) return false;
+  if (macrostop.status !== "active") return false;
+  // Fresh if last refresh was within 2 min — Node-RED refreshes every 10s,
+  // so anything older means the stoppage already ended without resolution event.
+  return Date.now() - new Date(macrostop.ts).getTime() <= MACROSTOP_FRESH_MS;
+}
+
+function ongoingMacrostopMin(macrostop: MachineRow["latestMacrostop"]) {
+  if (!macrostop) return 0;
+  return Math.max(0, Math.floor((Date.now() - macrostop.startedAtMs) / 60000));
 }
 
 export default function MachinesClient({ initialMachines = [] }: { initialMachines?: MachineRow[] }) {
@@ -292,8 +313,27 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
           const hbTs = hb?.tsServer ?? hb?.ts;
           const offline = isOffline(hbTs);
           const normalizedStatus = normalizeStatus(hb?.status);
-          const statusLabel = offline ? t("machines.status.offline") : (normalizedStatus || t("machines.status.unknown"));
           const lastSeen = secondsAgo(hbTs, locale, t("common.never"));
+
+          const macrostopActive = isMacrostopActive(m.latestMacrostop);
+          const stoppedMin = macrostopActive ? ongoingMacrostopMin(m.latestMacrostop) : 0;
+
+          // Production-state badge: STOPPED if active macrostop, else heartbeat-based.
+          const productionBadgeLabel = offline
+            ? t("machines.status.offline")
+            : macrostopActive
+            ? t("machines.status.stopped")
+            : (normalizedStatus || t("machines.status.unknown"));
+
+          const productionBadgeClass = offline
+            ? "bg-white/10 text-zinc-300"
+            : macrostopActive
+            ? "bg-red-500/20 text-red-200 ring-2 ring-red-500/50 animate-pulse"
+            : badgeClass(normalizedStatus, offline);
+
+          const cardClass = macrostopActive
+            ? "cursor-pointer rounded-2xl border border-red-500/60 bg-red-500/10 p-5 ring-2 ring-red-500/40 animate-pulse hover:bg-red-500/15"
+            : "cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10";
 
           return (
             <div
@@ -302,7 +342,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
               tabIndex={0}
               onClick={() => router.push(`/machines/${m.id}`)}
               onKeyDown={(event) => handleCardKeyDown(event, m.id)}
-              className="cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10"
+              className={cardClass}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
@@ -310,15 +350,17 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
                   <div className="mt-1 text-xs text-zinc-400">
                     {m.code ? m.code : t("common.na")} - {t("machines.lastSeen", { time: lastSeen })}
                   </div>
+                  {macrostopActive ? (
+                    <div className="mt-1 text-xs font-semibold text-red-200">
+                      {t("machines.stoppedFor", { min: stoppedMin })}
+                    </div>
+                  ) : null}
                 </div>
 
                 <span
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs ${badgeClass(
-                    normalizedStatus,
-                    offline
-                  )}`}
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs ${productionBadgeClass}`}
                 >
-                  {statusLabel}
+                  {productionBadgeLabel}
                 </span>
               </div>
 

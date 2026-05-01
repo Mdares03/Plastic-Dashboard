@@ -31,6 +31,15 @@ type LatestKpiRow = {
   cycleTime?: number | null;
 };
 
+export type LatestMacrostopRow = {
+  machineId: string;
+  ts: Date;
+  status: "active" | "resolved" | "unknown";
+  startedAtMs: number;
+};
+
+const MACROSTOP_LOOKBACK_MS = 5 * 60 * 1000;
+
 export async function fetchMachineBase(orgId: string): Promise<MachineBaseRow[]> {
   return prisma.machine.findMany({
     where: { orgId },
@@ -93,20 +102,75 @@ export async function fetchLatestKpis(
   });
 }
 
+export async function fetchLatestMacrostops(
+  orgId: string,
+  machineIds: string[]
+): Promise<LatestMacrostopRow[]> {
+  if (!machineIds.length) return [];
+
+  const rows = await prisma.machineEvent.findMany({
+    where: {
+      orgId,
+      machineId: { in: machineIds },
+      eventType: "macrostop",
+      ts: { gte: new Date(Date.now() - MACROSTOP_LOOKBACK_MS) },
+    },
+    orderBy: [{ machineId: "asc" }, { ts: "desc" }],
+    select: { machineId: true, ts: true, data: true },
+  });
+
+  const byMachine = new Map<string, LatestMacrostopRow>();
+  for (const row of rows) {
+    if (byMachine.has(row.machineId)) continue;
+
+    let parsed: unknown = row.data;
+    if (typeof parsed === "string") {
+      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+    }
+    const data: Record<string, unknown> =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
+
+    const isAutoAck =
+      data.is_auto_ack === true || data.isAutoAck === true ||
+      data.is_auto_ack === "true" || data.isAutoAck === "true";
+    if (isAutoAck) continue;
+
+    const rawStatus = String(data.status ?? "").trim().toLowerCase();
+    const status: LatestMacrostopRow["status"] =
+      rawStatus === "active" ? "active" : rawStatus === "resolved" ? "resolved" : "unknown";
+
+    const lastCycleTs = Number(data.last_cycle_timestamp);
+    const startedAtMs = Number.isFinite(lastCycleTs) && lastCycleTs > 0
+      ? lastCycleTs
+      : row.ts.getTime();
+
+    byMachine.set(row.machineId, { machineId: row.machineId, ts: row.ts, status, startedAtMs });
+  }
+
+  return Array.from(byMachine.values());
+}
+
+
 export function mergeMachineOverviewRows(params: {
   machines: MachineBaseRow[];
   heartbeats: LatestHeartbeatRow[];
   kpis?: LatestKpiRow[];
+  macrostops?: LatestMacrostopRow[];
   includeKpi?: boolean;
 }): OverviewMachineRow[] {
-  const { machines, heartbeats, kpis = [], includeKpi = false } = params;
+  const { machines, heartbeats, kpis = [], macrostops = [], includeKpi = false } = params;
   const heartbeatMap = new Map(heartbeats.map((row) => [row.machineId, row]));
   const kpiMap = new Map(kpis.map((row) => [row.machineId, row]));
+  const macrostopMap = new Map(macrostops.map((row) => [row.machineId, row]));
+
 
   return machines.map((machine) => ({
     ...machine,
     latestHeartbeat: (heartbeatMap.get(machine.id) ?? null) as OverviewMachineRow["latestHeartbeat"],
     latestKpi: includeKpi ? (kpiMap.get(machine.id) ?? null) : null,
+    latestMacrostop: macrostopMap.get(machine.id) ?? null,
     heartbeats: undefined,
     kpiSnapshots: undefined,
   }));

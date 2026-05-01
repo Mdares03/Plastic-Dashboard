@@ -112,6 +112,8 @@
   "recap.title": "Recap",
   "recap.subtitle": "Last 24h",
   "recap.card.stoppedFor": "Stopped for {min} min",
+  "machines.status.stopped": "STOPPED",
+  "machines.stoppedFor": "Stopped for {min} min",
   "recap.grid.title": "Machine recap",
   "recap.grid.subtitle": "Last 24h · click to open details",
   "recap.grid.updatedAgo": "Updated {sec}s ago",

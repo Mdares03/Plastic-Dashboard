@@ -9,6 +9,7 @@ import { requireSession } from "@/lib/auth/requireSession";
 import {
   fetchLatestHeartbeats,
   fetchLatestKpis,
+  fetchLatestMacrostops,
   fetchMachineBase,
   mergeMachineOverviewRows,
 } from "@/lib/machines/withLatest";
@@ -58,6 +59,10 @@ export async function GET(req: Request) {
     if (perfEnabled) timings.kpiQuery = elapsedMs(kpiStart);
   }
 
+  const macrostopStart = nowMs();
+  const macrostops = await fetchLatestMacrostops(session.orgId, machineIds);
+  if (perfEnabled) timings.macrostopsQuery = elapsedMs(macrostopStart);
+
   const postQueryStart = nowMs();
 
   // flatten latest heartbeat for UI convenience
@@ -65,6 +70,7 @@ export async function GET(req: Request) {
     machines,
     heartbeats,
     kpis,
+    macrostops,
     includeKpi,
   });
 

@@ -119,6 +119,8 @@
   "recap.title": "Resumen",
   "recap.subtitle": "Últimas 24h",
   "recap.card.stoppedFor": "Detenida hace {min} min",
+  "machines.status.stopped": "DETENIDA",
+  "machines.stoppedFor": "Detenida hace {min} min",
   "recap.grid.title": "Resumen de máquinas",
   "recap.grid.subtitle": "Últimas 24h · click para ver detalle",
   "recap.grid.updatedAgo": "Actualizado hace {sec}s",
