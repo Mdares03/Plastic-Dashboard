@@ -90,18 +90,19 @@ export default function RecapFullTimeline({
                   locale
                 )} · ${formatDuration(segment.startMs, segment.endMs)}${segment.label ? ` · ${segment.label}` : ""}`;
 
+                const showLabel = widthPct > LABEL_MIN_WIDTH_PCT;
                 return (
                   <div
                     key={`${segment.type}:${segment.startMs}:${segment.endMs}:${segment.label}`}
-                    className={`flex h-full shrink-0 items-center justify-center truncate px-2 text-xs font-semibold ${
-                      TIMELINE_COLORS[segment.type]
-                    } ${index === 0 ? "rounded-l-xl" : ""} ${
-                      index === normalized.length - 1 ? "rounded-r-xl" : ""
-                    }`}
+                    className={`flex h-full items-center justify-center overflow-hidden text-xs font-semibold ${
+                      showLabel ? "truncate px-2" : ""
+                    } ${TIMELINE_COLORS[segment.type]} ${
+                      index === 0 ? "rounded-l-xl" : ""
+                    } ${index === normalized.length - 1 ? "rounded-r-xl" : ""}`}
                     style={{ width: `${Math.max(0, widthPct)}%` }}
                     title={title}
                   >
-                    {widthPct > LABEL_MIN_WIDTH_PCT ? segment.label : ""}
+                    {showLabel ? segment.label : ""}
                   </div>
                 );
               })}

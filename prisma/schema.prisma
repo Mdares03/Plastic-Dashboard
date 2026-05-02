@@ -135,6 +135,8 @@ model Machine {
   settings             MachineSettings?
   workOrders           MachineWorkOrder[]
   settingsAudits       SettingsAudit[]
+  productionEnabled    Boolean  @default(true) @map("production_enabled")
+
 
   @@unique([orgId, name])
   @@index([orgId])

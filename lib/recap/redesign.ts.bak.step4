@@ -17,7 +17,6 @@ import type {
   RecapMachineDetail,
   RecapMachineStatus,
   RecapRangeMode,
-  RecapStateContext,
   RecapSummaryMachine,
   RecapSummaryResponse,
 } from "@/lib/recap/types";
@@ -258,7 +257,6 @@ function statusFromMachine(
 ): {
   status: RecapMachineStatus;
   result: MachineStateResult;
-  stateContext: RecapStateContext;
   lastSeenMs: number | null;
   offlineForMin: number | null;
   ongoingStopMin: number | null;
@@ -312,30 +310,9 @@ function statusFromMachine(
   let ongoingStopMin: number | null = null;
   if (result.state === "stopped") ongoingStopMin = result.ongoingStopMin;
 
-    let stateContext: RecapStateContext = {
-    stoppedReason: null,
-    dataLossReason: null,
-    untrackedCycleCount: null,
-  };
-
-  if (result.state === "stopped") {
-    stateContext = {
-      stoppedReason: result.reason,
-      dataLossReason: null,
-      untrackedCycleCount: null,
-    };
-  } else if (result.state === "data-loss") {
-    stateContext = {
-      stoppedReason: null,
-      dataLossReason: result.reason,
-      untrackedCycleCount: result.untrackedCycleCount,
-    };
-  }
-
   return {
     status,
     result,
-    stateContext,
     lastSeenMs,
     offlineForMin: result.state === "offline" ? result.offlineForMin : null,
     ongoingStopMin,
@@ -446,7 +423,6 @@ function toSummaryMachine(params: {
       status.lastSeenMs == null ? null : Math.max(0, Math.floor((rangeEndMs - status.lastSeenMs) / 60000)),
     offlineForMin: status.offlineForMin,
     ongoingStopMin: status.ongoingStopMin,
-    stateContext: status.stateContext,
     activeWorkOrderId: machine.workOrders.active?.id ?? null,
     moldChange: {
       active: machine.workOrders.moldChangeInProgress,
@@ -785,8 +761,6 @@ async function computeRecapMachineDetail(params: {
     lastSeenMs: status.lastSeenMs,
     offlineForMin: status.offlineForMin,
     ongoingStopMin: status.ongoingStopMin,
-    stateContext: status.stateContext,
-
     moldChange: {
       active: machine.workOrders.moldChangeInProgress,
       startMs: machine.workOrders.moldChangeStartMs,

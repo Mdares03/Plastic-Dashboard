@@ -13,8 +13,6 @@ function statusLabel(status: RecapMachineStatus, t: (key: string) => string) {
   if (status === "running") return t("recap.status.running");
   if (status === "mold-change") return t("recap.status.moldChange");
   if (status === "stopped") return t("recap.status.stopped");
-  if (status === "data-loss") return t("recap.status.dataLoss");
-  if (status === "idle") return t("recap.status.idle");
   return t("recap.status.offline");
 }
 
@@ -112,7 +110,7 @@ export default function RecapGridClient({ initialData }: Props) {
               className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-zinc-200"
             >
               <option value="all">{t("recap.filter.allStatuses")}</option>
-              {(["running", "mold-change", "stopped", "data-loss", "idle", "offline"] as const).map((status) => (
+              {(["running", "mold-change", "stopped", "offline"] as const).map((status) => (
                 <option key={status} value={status}>
                   {statusLabel(status, t)}
                 </option>

@@ -9,7 +9,6 @@ import {
   type TimelineCycleRow,
   type TimelineEventRow,
 } from "@/lib/recap/timeline";
-import { classifyMachineState, type MachineStateResult } from "@/lib/recap/machineState";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type {
   RecapDetailResponse,
@@ -17,7 +16,6 @@ import type {
   RecapMachineDetail,
   RecapMachineStatus,
   RecapRangeMode,
-  RecapStateContext,
   RecapSummaryMachine,
   RecapSummaryResponse,
 } from "@/lib/recap/types";
@@ -177,26 +175,22 @@ function addDays(input: { year: number; month: number; day: number }, days: numb
   };
 }
 
-// Detect active episodes (macrostop, mold-change) from event rows.
-// Returns the latest non-auto-ack episode whose final status is "active"
-// and that's been refreshed within ACTIVE_STALE_MS.
-const ACTIVE_STALE_MS = 2 * 60 * 1000;
+// Active stoppage = freshest macrostop episode whose latest event is "active"
+// and whose latest event timestamp is within ACTIVE_STALE_MS of rangeEnd.
+// Mirrors the same rules used by lib/recap/timeline.ts so the card status
+// agrees with the timeline rendering.
+const STOPPAGE_ACTIVE_STALE_MS = 2 * 60 * 1000;
 
-type ActiveEpisode = { startedAtMs: number; lastTsMs: number };
-
-function detectActiveEpisode(
-  events: TimelineEventRow[] | undefined,
-  eventType: "macrostop" | "mold-change",
-  endMs: number
-): ActiveEpisode | null {
+function detectActiveMacrostop(events: TimelineEventRow[] | undefined, endMs: number) {
   if (!events || events.length === 0) return null;
 
-  type Episode = { firstTsMs: number; lastTsMs: number; lastStatus: string; lastCycleTs: number | null };
+  type Episode = { firstTsMs: number; lastTsMs: number; lastStatus: string };
   const episodes = new Map<string, Episode>();
 
   for (const event of events) {
-    if (String(event.eventType || "").toLowerCase() !== eventType) continue;
+    if (String(event.eventType || "").toLowerCase() !== "macrostop") continue;
 
+    // Defensive: parse data the same way timeline.ts does.
     let parsed: unknown = event.data;
     if (typeof parsed === "string") {
       try { parsed = JSON.parse(parsed); } catch { parsed = null; }
@@ -206,6 +200,7 @@ function detectActiveEpisode(
         ? (parsed as Record<string, unknown>)
         : {};
 
+    // Drop only the auto-ack pings (same rule as timeline.ts Fix B).
     const isAutoAck =
       data.is_auto_ack === true ||
       data.isAutoAck === true ||
@@ -215,18 +210,12 @@ function detectActiveEpisode(
 
     const status = String(data.status ?? "").trim().toLowerCase();
     const incidentKey = String(data.incidentKey ?? data.incident_key ?? "").trim()
-      || `${eventType}:${event.ts.getTime()}`;
+      || `macrostop:${event.ts.getTime()}`;
     const tsMs = event.ts.getTime();
-    const lastCycleTs = Number(data.last_cycle_timestamp);
 
     const existing = episodes.get(incidentKey);
     if (!existing) {
-      episodes.set(incidentKey, {
-        firstTsMs: tsMs,
-        lastTsMs: tsMs,
-        lastStatus: status,
-        lastCycleTs: Number.isFinite(lastCycleTs) && lastCycleTs > 0 ? lastCycleTs : null,
-      });
+      episodes.set(incidentKey, { firstTsMs: tsMs, lastTsMs: tsMs, lastStatus: status });
       continue;
     }
     existing.firstTsMs = Math.min(existing.firstTsMs, tsMs);
@@ -236,108 +225,39 @@ function detectActiveEpisode(
     }
   }
 
-  let best: ActiveEpisode | null = null;
+  let activeOngoingMin = 0;
   for (const ep of episodes.values()) {
     if (ep.lastStatus !== "active") continue;
-    if (endMs - ep.lastTsMs > ACTIVE_STALE_MS) continue;
-    // Prefer the freshest active episode (highest lastTsMs)
-    if (!best || ep.lastTsMs > best.lastTsMs) {
-      best = {
-        startedAtMs: ep.lastCycleTs ?? ep.firstTsMs,
-        lastTsMs: ep.lastTsMs,
-      };
-    }
+    if (endMs - ep.lastTsMs > STOPPAGE_ACTIVE_STALE_MS) continue;
+    const ongoingMin = Math.max(0, Math.floor((endMs - ep.firstTsMs) / 60000));
+    if (ongoingMin > activeOngoingMin) activeOngoingMin = ongoingMin;
   }
-  return best;
+
+  return activeOngoingMin > 0 ? activeOngoingMin : null;
 }
 
-function statusFromMachine(
-  machine: RecapMachine,
-  endMs: number,
-  events?: TimelineEventRow[]
-): {
-  status: RecapMachineStatus;
-  result: MachineStateResult;
-  stateContext: RecapStateContext;
-  lastSeenMs: number | null;
-  offlineForMin: number | null;
-  ongoingStopMin: number | null;
-} {
+function statusFromMachine(machine: RecapMachine, endMs: number, events?: TimelineEventRow[]) {
   const lastSeenMs = machine.heartbeat.lastSeenAt ? new Date(machine.heartbeat.lastSeenAt).getTime() : null;
   const offlineForMs = lastSeenMs == null ? Number.POSITIVE_INFINITY : Math.max(0, endMs - lastSeenMs);
-  const heartbeatAlive = Number.isFinite(lastSeenMs ?? Number.NaN) && offlineForMs <= OFFLINE_THRESHOLD_MS;
+  const offline = !Number.isFinite(lastSeenMs ?? Number.NaN) || offlineForMs > OFFLINE_THRESHOLD_MS;
 
-  const activeMacrostop = detectActiveEpisode(events, "macrostop", endMs);
-  const activeMoldChange = detectActiveEpisode(events, "mold-change", endMs);
+  // ongoingStopMin from the legacy heartbeat-based path (typically null) OR
+  // from the macrostop event detection (preferred — accurate)
+  const macrostopOngoingMin = detectActiveMacrostop(events, endMs);
+  const legacyOngoingStopMin = machine.downtime.ongoingStopMin ?? 0;
+  const ongoingStopMin = macrostopOngoingMin ?? (legacyOngoingStopMin > 0 ? legacyOngoingStopMin : null);
 
-  // Round 1 limitation: trackingEnabled and untrackedCycles inputs require KPI/cycle queries
-  // we don't yet plumb here. We approximate from the legacy fields:
-  //   - trackingEnabled: true when there's an active macrostop (Pi only fires those when tracking on)
-  //                      OR when an active WO exists and machine.workOrders.moldChangeInProgress is false.
-  //                      This is a SIMPLIFICATION; Round 3 will replace with real KPI snapshot read.
-  //   - untrackedCycles: 0 (Round 3 will compute from MachineCycle vs latest KPI)
-  //
-  // Effect for Round 1: STOPPED `not_started` reason cannot trigger yet (we always assume tracking
-  // is on when a WO exists). Only `machine_fault` STOPPED fires. DATA_LOSS cannot fire yet.
-  // IDLE fires correctly when there's no WO and no recent activity.
-  const hasActiveWorkOrder = machine.workOrders.active != null;
-  const trackingEnabledApprox = hasActiveWorkOrder; // see comment above
+  const moldActive = machine.workOrders.moldChangeInProgress;
 
-  const lastCycleTsMs = (() => {
-    // Best-effort: use the machine's heartbeat as a "recent activity" proxy.
-    // The Pi only heartbeats every minute regardless of cycles, so this is a weak signal.
-    // Round 3 will pass the actual latest cycle ts.
-    return lastSeenMs;
-  })();
-
-  const result = classifyMachineState(
-    {
-      heartbeatAlive,
-      lastSeenMs,
-      offlineForMs,
-      trackingEnabled: trackingEnabledApprox,
-      hasActiveWorkOrder,
-      activeMoldChange,
-      activeMacrostop,
-      untrackedCycles: { count: 0, oldestTsMs: null },
-      lastCycleTsMs,
-    },
-    endMs
-  );
-
-  // Map the rich classifier result back to the existing RecapMachineStatus union
-  const status: RecapMachineStatus = result.state;
-
-  // Pull common fields out for the caller's convenience
-  let ongoingStopMin: number | null = null;
-  if (result.state === "stopped") ongoingStopMin = result.ongoingStopMin;
-
-    let stateContext: RecapStateContext = {
-    stoppedReason: null,
-    dataLossReason: null,
-    untrackedCycleCount: null,
-  };
-
-  if (result.state === "stopped") {
-    stateContext = {
-      stoppedReason: result.reason,
-      dataLossReason: null,
-      untrackedCycleCount: null,
-    };
-  } else if (result.state === "data-loss") {
-    stateContext = {
-      stoppedReason: null,
-      dataLossReason: result.reason,
-      untrackedCycleCount: result.untrackedCycleCount,
-    };
-  }
+  let status: RecapMachineStatus = "running";
+  if (offline) status = "offline";
+  else if (moldActive) status = "mold-change";
+  else if (ongoingStopMin != null && ongoingStopMin > 0) status = "stopped";
 
   return {
     status,
-    result,
-    stateContext,
     lastSeenMs,
-    offlineForMin: result.state === "offline" ? result.offlineForMin : null,
+    offlineForMin: offline ? Math.max(0, Math.floor(offlineForMs / 60000)) : null,
     ongoingStopMin,
   };
 }
@@ -446,7 +366,6 @@ function toSummaryMachine(params: {
       status.lastSeenMs == null ? null : Math.max(0, Math.floor((rangeEndMs - status.lastSeenMs) / 60000)),
     offlineForMin: status.offlineForMin,
     ongoingStopMin: status.ongoingStopMin,
-    stateContext: status.stateContext,
     activeWorkOrderId: machine.workOrders.active?.id ?? null,
     moldChange: {
       active: machine.workOrders.moldChangeInProgress,
@@ -785,8 +704,6 @@ async function computeRecapMachineDetail(params: {
     lastSeenMs: status.lastSeenMs,
     offlineForMin: status.offlineForMin,
     ongoingStopMin: status.ongoingStopMin,
-    stateContext: status.stateContext,
-
     moldChange: {
       active: machine.workOrders.moldChangeInProgress,
       startMs: machine.workOrders.moldChangeStartMs,

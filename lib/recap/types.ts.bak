@@ -121,24 +121,7 @@ export type RecapQuery = {
   shift?: string;
 };
 
-export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "data-loss" | "offline" | "idle";
-
-export type RecapStoppedReason = "machine_fault" | "not_started";
-export type RecapDataLossReason = "untracked";
-
-/**
- * Reason context for STOPPED and DATA_LOSS states.
- * - When status is "stopped": stoppedReason is set, dataLossReason is null.
- * - When status is "data-loss": dataLossReason is set, stoppedReason is null.
- * - All other states: both are null.
- */
-export type RecapStateContext = {
-  stoppedReason: RecapStoppedReason | null;
-  dataLossReason: RecapDataLossReason | null;
-  /** For data-loss: how many untracked cycles have been detected so far. */
-  untrackedCycleCount: number | null;
-};
-
+export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "offline";
 
 export type RecapSummaryMachine = {
   machineId: string;
@@ -153,7 +136,6 @@ export type RecapSummaryMachine = {
   lastActivityMin: number | null;
   offlineForMin: number | null;
   ongoingStopMin: number | null;
-  stateContext: RecapStateContext;
   activeWorkOrderId: string | null;
   moldChange: {
     active: boolean;
@@ -211,7 +193,6 @@ export type RecapMachineDetail = {
   lastSeenMs: number | null;
   offlineForMin: number | null;
   ongoingStopMin: number | null;
-  stateContext: RecapStateContext;
   moldChange: {
     active: boolean;
     startMs: number | null;
