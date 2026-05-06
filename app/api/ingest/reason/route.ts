@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
 
-const asTrimmedString = (v: any) => {
+const asTrimmedString = (v: unknown) => {
   if (v == null) return "";
   return String(v).trim();
 };
@@ -42,6 +42,20 @@ export async function POST(req: Request) {
   const reasonCode = reasonCodeRaw.toUpperCase(); // normalize for grouping/pareto
 
   const reasonLabel = r.reasonLabel != null ? String(r.reasonLabel) : null;
+
+  // Resolve human label from catalog at write time
+  let resolvedLabel: string | null = reasonLabel;
+  try {
+    const catalogItem = await prisma.reasonCatalogItem.findFirst({
+      where: { orgId: machine.orgId, reasonCode },
+      select: { name: true, category: { select: { name: true } } },
+    });
+    if (catalogItem) {
+      resolvedLabel = `${catalogItem.category.name} > ${catalogItem.name}`;
+    }
+  } catch {
+    // non-fatal — fall back to whatever reasonLabel was sent
+  }
 
   let reasonText = r.reasonText != null ? String(r.reasonText).trim() : null;
   if (reasonCode === "OTHER") {
@@ -120,7 +134,7 @@ export async function POST(req: Request) {
       scrapQty,
       scrapUnit,
       reasonCode,
-      reasonLabel,
+      reasonLabel: resolvedLabel,
       reasonText,
       capturedAt,
       workOrderId,
@@ -136,7 +150,7 @@ export async function POST(req: Request) {
       scrapQty,
       scrapUnit,
       reasonCode,
-      reasonLabel,
+      reasonLabel: resolvedLabel,
       reasonText,
       capturedAt,
       workOrderId,
