@@ -39,19 +39,31 @@ export async function POST(req: Request) {
 
   const reasonCodeRaw = asTrimmedString(r.reasonCode);
   if (!reasonCodeRaw) return bad(400, "Missing reason.reasonCode");
-  const reasonCode = reasonCodeRaw.toUpperCase(); // normalize for grouping/pareto
+  let reasonCode = reasonCodeRaw.toUpperCase(); // normalize for grouping/pareto
 
   const reasonLabel = r.reasonLabel != null ? String(r.reasonLabel) : null;
+  const categoryId = asTrimmedString(r.categoryId) || null;
 
-  // Resolve human label from catalog at write time
+  // Resolve human label and composite code from catalog at write time.
+  // 1) try direct match on full reasonCode (e.g. "DTPRC-01")
+  // 2) if reasonCode is digits-only and a categoryId is provided,
+  //    fall back to lookup by (orgId, categoryId, codeSuffix) and use
+  //    the row's full reasonCode for storage so Pareto groups correctly.
   let resolvedLabel: string | null = reasonLabel;
   try {
-    const catalogItem = await prisma.reasonCatalogItem.findFirst({
+    let catalogItem = await prisma.reasonCatalogItem.findFirst({
       where: { orgId: machine.orgId, reasonCode },
-      select: { name: true, category: { select: { name: true } } },
+      select: { name: true, reasonCode: true, category: { select: { name: true } } },
     });
+    if (!catalogItem && categoryId && /^\d+$/.test(reasonCodeRaw)) {
+      catalogItem = await prisma.reasonCatalogItem.findFirst({
+        where: { orgId: machine.orgId, categoryId, codeSuffix: reasonCodeRaw },
+        select: { name: true, reasonCode: true, category: { select: { name: true } } },
+      });
+      if (catalogItem) reasonCode = catalogItem.reasonCode.toUpperCase();
+    }
     if (catalogItem) {
-      resolvedLabel = `${catalogItem.category.name} > ${catalogItem.name}`;
+      resolvedLabel = catalogItem.category.name + " > " + catalogItem.name;
     }
   } catch {
     // non-fatal — fall back to whatever reasonLabel was sent
