@@ -10,7 +10,8 @@
     "test:downtime-reason-guard": "node scripts/test-downtime-reason-guard.mjs",
     "backfill:downtime-reasons": "node scripts/backfill-downtime-reasons.mjs",
     "prisma:generate": "prisma generate",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "seed:reason-catalog": "node scripts/seed-reason-catalog-from-xlsx.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

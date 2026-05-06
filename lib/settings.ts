@@ -81,10 +81,6 @@ export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) 
   const overrides = normalizeShiftOverrides(settings.shiftScheduleOverridesJson);
 
   const defaults = normalizeDefaults(settings.defaultsJson);
-  const reasonCatalog =
-    isPlainObject(settings.defaultsJson) && "reasonCatalog" in settings.defaultsJson
-      ? (settings.defaultsJson as AnyRecord).reasonCatalog
-      : null;
 
   return {
     orgId: settings.orgId,
@@ -105,9 +101,6 @@ export function buildSettingsPayload(settings: SettingsRow, shifts: ShiftRow[]) 
     },
     alerts: normalizeAlerts(settings.alertsJson),
     defaults,
-    reasonCatalog: reasonCatalog ?? undefined,
-    reasonCatalogData: reasonCatalog ?? undefined,
-    reasonCatalogVersion: Number((reasonCatalog as AnyRecord | null)?.version ?? 1),
     updatedAt: settings.updatedAt,
     updatedBy: settings.updatedBy,
   };

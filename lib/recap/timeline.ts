@@ -44,6 +44,7 @@ export type TimelineCycleRow = {
   ts: Date;
   cycleCount: number | null;
   actualCycleTime: number;
+  theoreticalCycleTime: number | null;
   workOrderId: string | null;
   sku: string | null;
 };
@@ -554,19 +555,21 @@ export function buildTimelineSegments(input: {
   let currentProduction: RawSegment | null = null;
   for (const cycle of dedupedCycles) {
     if (!cycle.workOrderId) continue;
-    const cycleStartMs = cycle.ts.getTime();
+    // Pi stores cycle.ts at COMPLETION time; the cycle ran in [ts - actual, ts].
+    const completionMs = cycle.ts.getTime();
     const cycleDurationMs = Math.max(
       1000,
       Math.min(600000, Math.trunc((safeNum(cycle.actualCycleTime) ?? 1) * 1000))
     );
-    const cycleEndMs = cycleStartMs + cycleDurationMs;
+    const cycleStartMs = completionMs - cycleDurationMs;
+    const cycleEndMs = completionMs;
 
     if (
       currentProduction &&
       currentProduction.type === "production" &&
       currentProduction.workOrderId === cycle.workOrderId &&
       currentProduction.sku === cycle.sku &&
-      cycleStartMs <= currentProduction.endMs + 5 * 60 * 1000
+      cycleStartMs <= currentProduction.endMs + MERGE_GAP_MS
     ) {
       currentProduction.endMs = Math.max(currentProduction.endMs, cycleEndMs);
       continue;
@@ -652,7 +655,11 @@ export function buildTimelineSegments(input: {
     episode.firstTsMs = Math.min(episode.firstTsMs, tsMs);
     episode.lastTsMs = Math.max(episode.lastTsMs, tsMs);
 
-    const startMs = safeNum(data.start_ms) ?? safeNum(data.startMs);
+    const startMs =
+      safeNum(data.start_ms) ??
+      safeNum(data.startMs) ??
+      safeNum(data.last_cycle_timestamp) ??
+      safeNum(data.lastCycleTimestamp);
     const endMs = safeNum(data.end_ms) ?? safeNum(data.endMs);
     const durationSec =
       safeNum(data.duration_sec) ??
@@ -679,7 +686,7 @@ export function buildTimelineSegments(input: {
   }
 
   for (const episode of eventEpisodes.values()) {
-    const startMs = Math.trunc(episode.startMs ?? episode.firstTsMs);
+    let startMs = Math.trunc(episode.startMs ?? episode.firstTsMs);
     let endMs = Math.trunc(episode.endMs ?? episode.lastTsMs);
 
     if (episode.statusActive && !episode.statusResolved) {
@@ -694,7 +701,13 @@ export function buildTimelineSegments(input: {
         }
       }
     } else if (endMs <= startMs && episode.durationSec != null && episode.durationSec > 0) {
-      endMs = startMs + episode.durationSec * 1000;
+      // Event ts is end-of-stop; subtract duration to recover start.
+      // Only adjust if we don't already have an explicit startMs from data.
+      if (episode.startMs == null) {
+        startMs = endMs - episode.durationSec * 1000;
+      } else {
+        endMs = startMs + episode.durationSec * 1000;
+      }
     }
 
     if (endMs <= startMs) continue;
@@ -730,7 +743,35 @@ export function buildTimelineSegments(input: {
   const clustered = absorbMicroStopClusters(withIdle, MICRO_CLUSTER_GAP_MS);
   const normalized = fillGapsWithIdle(clustered, rangeStartMs, rangeEndMs);
   const absorbed = absorbShortSegments(normalized, ABSORB_SHORT_SEGMENT_MS);
-  const finalSegments = fillGapsWithIdle(absorbed, rangeStartMs, rangeEndMs);
+ const finalSegments = fillGapsWithIdle(absorbed, rangeStartMs, rangeEndMs);
+
+  // Live tail: machine cycling now, last cycle not yet completed.
+  // Extend production through right edge until microstop threshold passes.
+  const lastCycle = dedupedCycles[dedupedCycles.length - 1];
+  const idealCT = safeNum(lastCycle?.theoreticalCycleTime) ?? 120;
+  const MICRO_MS = idealCT * 1.5 * 1000;
+
+  // Live-tail: extend whatever the last real state was, until microstop threshold passes.
+  if (finalSegments.length >= 2) {
+    const last = finalSegments[finalSegments.length - 1];
+    const prev = finalSegments[finalSegments.length - 2];
+    if (last.type === "idle" && last.endMs >= rangeEndMs - 2000) {
+      const gapMs = last.endMs - prev.endMs;
+      let shouldExtend = false;
+      if (prev.type === "production" && gapMs < MICRO_MS) {
+        // mid-cycle: still running up to microstop threshold
+        shouldExtend = true;
+      } else if (prev.type === "microstop" || prev.type === "macrostop") {
+        // stoppage in progress: extend until resolved/next cycle
+        shouldExtend = true;
+      }
+      if (shouldExtend) {
+        prev.endMs = last.endMs;
+        prev.durationSec = Math.max(0, Math.trunc((prev.endMs - prev.startMs) / 1000));
+        finalSegments.pop();
+      }
+    }
+  }
 
   return finalSegments;
 }

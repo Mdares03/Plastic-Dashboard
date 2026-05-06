@@ -19,7 +19,7 @@ import {
   validateShiftOverrides,
   validateThresholds,
 } from "@/lib/settings";
-import { loadFallbackReasonCatalog, normalizeReasonCatalog, type ReasonCatalog } from "@/lib/reasonCatalog";
+import { effectiveReasonCatalogForOrg } from "@/lib/reasonCatalogDb";
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
@@ -39,21 +39,18 @@ function canManageSettings(role?: string | null) {
   return role === "OWNER" || role === "ADMIN";
 }
 
-function withReasonCatalog<T extends Record<string, unknown>>(payload: T, fallbackCatalog: ReasonCatalog) {
-  const base = (isPlainObject(payload) ? { ...payload } : {}) as T;
-  const defaults = isPlainObject(base.defaults) ? base.defaults : {};
-  const parsed =
-    normalizeReasonCatalog(base.reasonCatalog) ??
-    normalizeReasonCatalog(base.reasonCatalogData) ??
-    normalizeReasonCatalog(defaults.reasonCatalog) ??
-    normalizeReasonCatalog(defaults.reasonCatalogData) ??
-    fallbackCatalog;
-
+async function attachReasonCatalog(
+  orgId: string,
+  defaultsJson: unknown,
+  settingsVersion: number,
+  base: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const catalog = await effectiveReasonCatalogForOrg(orgId, defaultsJson, settingsVersion);
   return {
     ...base,
-    reasonCatalog: parsed,
-    reasonCatalogData: parsed,
-    reasonCatalogVersion: Number(parsed.version || 1),
+    reasonCatalog: catalog,
+    reasonCatalogData: catalog,
+    reasonCatalogVersion: Number(catalog.version || 1),
   };
 }
 
@@ -66,7 +63,6 @@ const settingsPayloadSchema = z
     thresholds: z.any().optional(),
     alerts: z.any().optional(),
     defaults: z.any().optional(),
-    reasonCatalog: z.any().optional(),
     version: z.union([z.number(), z.string()]).optional(),
   })
   .passthrough();
@@ -145,8 +141,13 @@ async function loadSettingsPayload(orgId: string, userId: string) {
     return found;
   });
 
-  const fallbackCatalog = await loadFallbackReasonCatalog();
-  const payload = withReasonCatalog(buildSettingsPayload(loaded.settings, loaded.shifts ?? []), fallbackCatalog);
+  const base = buildSettingsPayload(loaded.settings, loaded.shifts ?? []) as Record<string, unknown>;
+  const payload = await attachReasonCatalog(
+    orgId,
+    loaded.settings.defaultsJson,
+    loaded.settings.version,
+    base
+  );
   const defaultsRaw = isPlainObject(loaded.settings.defaultsJson) ? (loaded.settings.defaultsJson as any) : {};
   const modulesRaw = isPlainObject(defaultsRaw.modules) ? defaultsRaw.modules : {};
   const modules = { screenlessMode: modulesRaw.screenlessMode === true };
@@ -221,7 +222,6 @@ export async function PUT(req: Request) {
     const thresholds = parsed.data.thresholds;
     const alerts = parsed.data.alerts;
     const defaults = parsed.data.defaults;
-    const reasonCatalogRaw = parsed.data.reasonCatalog;
     const expectedVersion = parsed.data.version;
     const modules = parsed.data.modules;
 
@@ -233,7 +233,6 @@ export async function PUT(req: Request) {
       thresholds === undefined &&
       alerts === undefined &&
       defaults === undefined &&
-      reasonCatalogRaw === undefined &&
       modules === undefined
 
     ) {
@@ -251,13 +250,6 @@ export async function PUT(req: Request) {
     }
     if (defaults !== undefined && !isPlainObject(defaults)) {
       return NextResponse.json({ ok: false, error: "defaults must be an object" }, { status: 400 });
-    }
-    const nextReasonCatalog =
-      reasonCatalogRaw === undefined || reasonCatalogRaw === null
-        ? reasonCatalogRaw
-        : normalizeReasonCatalog(reasonCatalogRaw);
-    if (reasonCatalogRaw !== undefined && reasonCatalogRaw !== null && !nextReasonCatalog) {
-      return NextResponse.json({ ok: false, error: "reasonCatalog must be a valid catalog payload" }, { status: 400 });
     }
     if (modules !== undefined && !isPlainObject(modules)) {
       return NextResponse.json({ ok: false, error: "Invalid modules payload" }, { status: 400 });
@@ -333,20 +325,16 @@ export async function PUT(req: Request) {
         : { ...currentModulesRaw, screenlessMode };
 
     // Write defaultsJson if either defaults changed OR modules changed
-    const shouldWriteDefaultsJson =
-      !!nextDefaultsCore || screenlessMode !== undefined || reasonCatalogRaw !== undefined;
+    const shouldWriteDefaultsJson = !!nextDefaultsCore || screenlessMode !== undefined;
 
     const nextDefaultsJson = shouldWriteDefaultsJson
       ? { ...(nextDefaultsCore ?? normalizeDefaults(currentDefaultsRaw)), modules: nextModules }
       : undefined;
 
-    if (nextDefaultsJson && reasonCatalogRaw !== undefined) {
+    if (nextDefaultsJson) {
       const defaultsTarget = nextDefaultsJson as Record<string, unknown>;
-      if (nextReasonCatalog === null) {
-        delete defaultsTarget.reasonCatalog;
-      } else if (nextReasonCatalog) {
-        defaultsTarget.reasonCatalog = nextReasonCatalog;
-      }
+      delete defaultsTarget.reasonCatalog;
+      delete defaultsTarget.reasonCatalogData;
     }
 
 
@@ -444,12 +432,18 @@ export async function PUT(req: Request) {
       return NextResponse.json({ ok: false, error: updated.error }, { status: 400 });
     }
 
-    const payload = buildSettingsPayload(updated.settings, updated.shifts ?? []);
+    const baseOut = buildSettingsPayload(updated.settings, updated.shifts ?? []) as Record<string, unknown>;
+    const payload = await attachReasonCatalog(
+      session.orgId,
+      updated.settings.defaultsJson,
+      updated.settings.version,
+      baseOut
+    );
     const updatedAt =
       typeof payload.updatedAt === "string"
         ? payload.updatedAt
         : payload.updatedAt
-        ? payload.updatedAt.toISOString()
+        ? (payload.updatedAt as Date).toISOString()
         : undefined;
     try {
       await publishSettingsUpdate({

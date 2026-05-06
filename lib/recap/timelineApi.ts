@@ -105,6 +105,7 @@ export async function getRecapTimelineForMachine(params: {
         ts: true,
         cycleCount: true,
         actualCycleTime: true,
+        theoreticalCycleTime: true,
         workOrderId: true,
         sku: true,
       },
@@ -151,10 +152,10 @@ export async function getRecapTimelineForMachine(params: {
     ts: row.ts,
     cycleCount: row.cycleCount,
     actualCycleTime: row.actualCycleTime,
+    theoreticalCycleTime: row.theoreticalCycleTime,
     workOrderId: row.workOrderId,
     sku: row.sku,
   }));
-
   const events: TimelineEventRow[] = eventsRaw.map((row) => ({
     ts: row.ts,
     eventType: row.eventType,

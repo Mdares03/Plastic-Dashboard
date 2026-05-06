@@ -258,65 +258,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
         })
       : allowed;
 
-  // Build a lookup of raw event metadata (incidentKey, status, is_auto_ack)
-  // by event id, so we can collapse the normalized events down to one
-  // "active" + one "resolved" per incident.
-  const rawMetaById = new Map<string, { incidentKey: string | null; status: string | null; isAutoAck: boolean }>();
-  for (const row of rawEvents) {
-    let parsed: unknown = row.data;
-    if (typeof parsed === "string") {
-      try { parsed = JSON.parse(parsed); } catch { parsed = null; }
-    }
-    const data: Record<string, unknown> =
-      parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : {};
-    const isAutoAck =
-      data.is_auto_ack === true ||
-      data.isAutoAck === true ||
-      data.is_auto_ack === "true" ||
-      data.isAutoAck === "true";
-    const incidentKey =
-      typeof data.incidentKey === "string" ? data.incidentKey :
-      typeof data.incident_key === "string" ? data.incident_key : null;
-    const status = typeof data.status === "string" ? data.status.toLowerCase() : null;
-    rawMetaById.set(row.id, { incidentKey, status, isAutoAck });
-  }
-
-  // Drop pure auto-ack refresh pings.
-  const filteredNoAutoAck = filtered.filter((event) => {
-    const meta = rawMetaById.get(event.id);
-    return !meta?.isAutoAck;
+  const seen = new Set<string>();
+  const deduped = filtered.filter((event) => {
+    const key = `${event.eventType}-${event.ts ?? ""}-${event.title}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   });
 
-  // Group by incidentKey: keep at most one "active" (oldest = original happen)
-  // and one "resolved" (newest = actual end) per incident. Events without
-  // incidentKey pass through unchanged (mold-change, edge-case events).
-  const byGroup = new Map<string, typeof filteredNoAutoAck[number]>();
-  const passthrough: typeof filteredNoAutoAck = [];
-
-  for (const event of filteredNoAutoAck) {
-    const meta = rawMetaById.get(event.id);
-    const groupId = meta?.incidentKey;
-    if (!groupId) {
-      passthrough.push(event);
-      continue;
-    }
-    const statusKey = meta.status === "resolved" ? "resolved" : "active";
-    const key = `${groupId}:${statusKey}`;
-    const existing = byGroup.get(key);
-    if (!existing) {
-      byGroup.set(key, event);
-      continue;
-    }
-    const existingTs = existing.ts ? existing.ts.getTime() : 0;
-    const eventTs = event.ts ? event.ts.getTime() : 0;
-    const pickNewest = statusKey === "resolved";
-    const shouldReplace = pickNewest ? eventTs > existingTs : eventTs < existingTs;
-    if (shouldReplace) byGroup.set(key, event);
-  }
-
-  const deduped = [...passthrough, ...byGroup.values()];
   deduped.sort((a, b) => {
     const at = a.ts ? a.ts.getTime() : 0;
     const bt = b.ts ? b.ts.getTime() : 0;

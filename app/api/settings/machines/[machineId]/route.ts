@@ -17,7 +17,7 @@ import {
   validateShiftOverrides,
   validateThresholds,
 } from "@/lib/settings";
-import { loadFallbackReasonCatalog, normalizeReasonCatalog, type ReasonCatalog } from "@/lib/reasonCatalog";
+import { effectiveReasonCatalogForOrg } from "@/lib/reasonCatalogDb";
 import { publishSettingsUpdate } from "@/lib/mqtt";
 import { z } from "zod";
 
@@ -46,21 +46,18 @@ function pickAllowedOverrides(raw: unknown) {
   return out;
 }
 
-function withReasonCatalog<T extends Record<string, unknown>>(payload: T, fallbackCatalog: ReasonCatalog) {
-  const base = (isPlainObject(payload) ? { ...payload } : {}) as T;
-  const defaults = isPlainObject(base.defaults) ? base.defaults : {};
-  const parsed =
-    normalizeReasonCatalog(base.reasonCatalog) ??
-    normalizeReasonCatalog(base.reasonCatalogData) ??
-    normalizeReasonCatalog(defaults.reasonCatalog) ??
-    normalizeReasonCatalog(defaults.reasonCatalogData) ??
-    fallbackCatalog;
-
+async function attachReasonCatalog(
+  orgId: string,
+  defaultsJson: unknown,
+  settingsVersion: number,
+  base: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const catalog = await effectiveReasonCatalogForOrg(orgId, defaultsJson, settingsVersion);
   return {
     ...base,
-    reasonCatalog: parsed,
-    reasonCatalogData: parsed,
-    reasonCatalogVersion: Number(parsed.version || 1),
+    reasonCatalog: catalog,
+    reasonCatalogData: catalog,
+    reasonCatalogVersion: Number(catalog.version || 1),
   };
 }
 
@@ -164,9 +161,7 @@ export async function GET(
     if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     orgId = machine.orgId;
   }
-  const fallbackCatalog = await loadFallbackReasonCatalog();
-
-  const { settings, overrides } = await prisma.$transaction(async (tx) => {
+  const { orgRow, shifts, rawOverrides } = await prisma.$transaction(async (tx) => {
     const orgSettings = await ensureOrgSettings(tx, orgId as string, userId);
     if (!orgSettings?.settings) throw new Error("SETTINGS_NOT_FOUND");
 
@@ -175,25 +170,24 @@ export async function GET(
       select: { overridesJson: true },
     });
 
-    const orgPayload = withReasonCatalog(
-      buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []),
-      fallbackCatalog
-    );
     const rawOverrides = pickAllowedOverrides(machineSettings?.overridesJson ?? {});
-    const effective = withReasonCatalog(
-      deepMerge(orgPayload, rawOverrides) as Record<string, unknown>,
-      fallbackCatalog
-    );
-
-    return { settings: { org: orgPayload, effective }, overrides: rawOverrides };
+    return {
+      orgRow: orgSettings.settings,
+      shifts: orgSettings.shifts ?? [],
+      rawOverrides,
+    };
   });
+
+  const baseOrg = buildSettingsPayload(orgRow, shifts) as Record<string, unknown>;
+  const orgPayload = await attachReasonCatalog(orgId as string, orgRow.defaultsJson, orgRow.version, baseOrg);
+  const effective = deepMerge(orgPayload, rawOverrides) as Record<string, unknown>;
 
   return NextResponse.json({
     ok: true,
     machineId,
-    orgSettings: settings.org,
-    effectiveSettings: settings.effective,
-    overrides,
+    orgSettings: orgPayload,
+    effectiveSettings: effective,
+    overrides: rawOverrides,
   });
 }
 
@@ -413,24 +407,22 @@ export async function PUT(
       },
     });
 
-    const fallbackCatalog = await loadFallbackReasonCatalog();
-    const orgPayload = withReasonCatalog(
-      buildSettingsPayload(orgSettings.settings, orgSettings.shifts ?? []),
-      fallbackCatalog
-    );
-    const overrides = pickAllowedOverrides(saved.overridesJson ?? {});
-    const effective = withReasonCatalog(
-      deepMerge(orgPayload, overrides) as Record<string, unknown>,
-      fallbackCatalog
-    );
-
     return {
-      orgPayload,
-      overrides,
-      effective,
+      orgSettingsRow: orgSettings.settings,
+      shifts: orgSettings.shifts ?? [],
+      overrides: pickAllowedOverrides(saved.overridesJson ?? {}),
       overridesUpdatedAt: saved.updatedAt,
     };
   });
+
+  const baseOrg = buildSettingsPayload(result.orgSettingsRow, result.shifts) as Record<string, unknown>;
+  const orgPayload = await attachReasonCatalog(
+    session.orgId,
+    result.orgSettingsRow.defaultsJson,
+    result.orgSettingsRow.version,
+    baseOrg
+  );
+  const effective = deepMerge(orgPayload, result.overrides) as Record<string, unknown>;
 
   const overridesUpdatedAt =
     result.overridesUpdatedAt && result.overridesUpdatedAt instanceof Date
@@ -440,7 +432,7 @@ export async function PUT(
     await publishSettingsUpdate({
       orgId: session.orgId,
       machineId,
-      version: Number(result.orgPayload.version ?? 0),
+      version: Number(result.orgSettingsRow.version ?? 0),
       source,
       overridesUpdatedAt,
     });
@@ -451,8 +443,8 @@ export async function PUT(
   return NextResponse.json({
     ok: true,
     machineId,
-    orgSettings: result.orgPayload,
-    effectiveSettings: result.effective,
+    orgSettings: orgPayload,
+    effectiveSettings: effective,
     overrides: result.overrides,
   });
 }

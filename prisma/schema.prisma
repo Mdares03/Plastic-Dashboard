@@ -33,6 +33,8 @@ model Org {
   shifts                     OrgShift[]
   productCostOverrides       ProductCostOverride[]
   settingsAudits             SettingsAudit[]
+  reasonCatalogCategories     ReasonCatalogCategory[]
+  reasonCatalogItems          ReasonCatalogItem[]
 }
 
 model User {
@@ -288,6 +290,42 @@ model IngestLog {
   @@index([endpoint, tsServer])
   @@index([machineId, tsServer])
   @@index([machineId, seq])
+}
+
+model ReasonCatalogCategory {
+  id         String              @id @default(uuid())
+  orgId      String              @map("org_id")
+  kind       String
+  name       String
+  codePrefix String              @map("code_prefix")
+  sortOrder  Int                 @default(0) @map("sort_order")
+  active     Boolean             @default(true)
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+  org        Org                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  items      ReasonCatalogItem[]
+
+  @@index([orgId, kind, active])
+  @@map("reason_catalog_category")
+}
+
+model ReasonCatalogItem {
+  id         String                @id @default(uuid())
+  orgId      String                @map("org_id")
+  categoryId String                @map("category_id")
+  name       String
+  codeSuffix String                @map("code_suffix")
+  reasonCode String                @map("reason_code")
+  sortOrder  Int                   @default(0) @map("sort_order")
+  active     Boolean               @default(true)
+  createdAt  DateTime              @default(now()) @map("created_at")
+  updatedAt  DateTime              @updatedAt @map("updated_at")
+  org        Org                   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  category   ReasonCatalogCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, reasonCode])
+  @@index([orgId, categoryId])
+  @@map("reason_catalog_item")
 }
 
 model OrgSettings {

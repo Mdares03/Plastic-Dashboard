@@ -16,7 +16,6 @@ const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
   running: "bg-emerald-400",
   "mold-change": "bg-amber-400",
   stopped: "bg-red-500",
-  "data-loss": "bg-red-500",
   offline: "bg-zinc-500",
   idle: "bg-zinc-400",
 };
@@ -25,7 +24,6 @@ function statusLabel(status: RecapSummaryMachine["status"], t: (key: string) => 
   if (status === "running") return t("recap.status.running");
   if (status === "mold-change") return t("recap.status.moldChange");
   if (status === "stopped") return t("recap.status.stopped");
-  if (status === "data-loss") return t("recap.status.dataLoss");
   if (status === "idle") return t("recap.status.idle");
   return t("recap.status.offline");
 }
@@ -42,7 +40,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
   const zeroActivity = machine.goodParts === 0 && machine.scrap === 0 && machine.stopsCount === 0;
   const primaryMetric = machine.oee == null ? "—" : `${machine.oee.toFixed(1)}%`;
   const ongoingStopMin = machine.ongoingStopMin ?? 0;
-  const isUrgent = (machine.status === "stopped" && ongoingStopMin >= 5) || machine.status === "data-loss";
+  const isUrgent = machine.status === "stopped" && ongoingStopMin >= 5;
   const isCalm = machine.status === "idle";
   const timelineSegments = timeline?.segments ?? machine.miniTimeline;
   const timelineStart = timeline?.range.start ?? rangeStart;
@@ -66,7 +64,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
     async function loadTimeline() {
       try {
         const res = await fetch(
-          `/api/recap/${machine.machineId}/timeline?range=24h&compact=1&maxSegments=60`,
+          `/api/recap/${machine.machineId}/timeline?range=24h`,
           { cache: "no-store" }
         );
         const json = await res.json().catch(() => null);
@@ -150,13 +148,8 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
       ) : null}
 
       <div className={`mt-3 text-xs ${isUrgent ? "text-red-200 font-semibold" : isCalm ? "text-zinc-500" : "text-zinc-400"}`}>
-        {machine.status === "data-loss"
-          ? t("recap.card.dataLoss", { count: machine.stateContext.untrackedCycleCount ?? 0 })
-              + (machine.activeWorkOrderId ? ` · WO ${machine.activeWorkOrderId}` : "")
-          : machine.status === "stopped" && ongoingStopMin >= 5
-          ? (machine.stateContext.stoppedReason === "not_started"
-              ? t("recap.card.notStarted")
-              : t("recap.card.stoppedFor", { min: ongoingStopMin }))
+        {isUrgent
+          ? t("recap.card.stoppedFor", { min: ongoingStopMin })
               + (machine.activeWorkOrderId ? ` · WO ${machine.activeWorkOrderId}` : "")
           : machine.status === "idle"
           ? t("recap.card.idle")

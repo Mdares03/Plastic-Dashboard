@@ -23,9 +23,6 @@ export type MachineStateName =
   | "idle"
   | "running";
 
-export type StoppedReason = "machine_fault" | "not_started";
-export type DataLossReason = "untracked";
-
 export type MachineStateResult =
   | { state: "offline"; lastSeenMs: number | null; offlineForMin: number }
   | {
@@ -35,16 +32,8 @@ export type MachineStateResult =
     }
   | {
       state: "stopped";
-      reason: StoppedReason;
       ongoingStopMin: number;
       stopStartedAtMs: number | null;
-    }
-  | {
-      state: "data-loss";
-      reason: DataLossReason;
-      untrackedCycleCount: number;
-      untrackedSinceMs: number | null;
-      untrackedForMin: number;
     }
   | { state: "idle" }
   | { state: "running" };
@@ -74,8 +63,6 @@ export type MachineStateInputs = {
    * Caller computes by counting MachineCycle rows in the last UNTRACKED_WINDOW_MS
    * where ts > latestKpi.ts (so they're "after" the tracking-off snapshot).
    */
-  untrackedCycles: { count: number; oldestTsMs: number | null };
-
   /**
    * Most recent cycle timestamp regardless of tracking — used as a sanity check
    * for IDLE classification.
@@ -84,8 +71,7 @@ export type MachineStateInputs = {
 };
 
 // Trigger thresholds — tunable
-const DATA_LOSS_MIN_CYCLES = 5;
-const DATA_LOSS_MIN_DURATION_MS = 10 * 60 * 1000; // 10 min
+
 const RECENT_CYCLE_MS = 15 * 60 * 1000; // for IDLE check — "no cycles in 15 min"
 
 export function classifyMachineState(
@@ -116,48 +102,19 @@ export function classifyMachineState(
   // 3. DATA_LOSS — tracking off but cycles arriving. Operator forgot START.
   // Check this BEFORE STOPPED because cycles ARE arriving (so the "no cycles" branch
   // would never fire), but we still want to flag it.
-  if (!inputs.trackingEnabled && inputs.untrackedCycles.count > 0) {
-    const oldest = inputs.untrackedCycles.oldestTsMs;
-    const durationMs = oldest != null ? nowMs - oldest : 0;
-    const tripped =
-      inputs.untrackedCycles.count >= DATA_LOSS_MIN_CYCLES ||
-      durationMs >= DATA_LOSS_MIN_DURATION_MS;
-
-    if (tripped) {
-      return {
-        state: "data-loss",
-        reason: "untracked",
-        untrackedCycleCount: inputs.untrackedCycles.count,
-        untrackedSinceMs: oldest,
-        untrackedForMin: Math.max(0, Math.floor(durationMs / 60000)),
-      };
-    }
-    // Not yet tripped — fall through to other checks (likely RUNNING since cycles are coming)
-  }
 
   // 4. STOPPED — should be producing, isn't. Two reasons:
   //    a) machine_fault: operator pressed START, macrostop event active → mechanical issue
   //    b) not_started: operator never pressed START but a WO is loaded
-  if (inputs.activeMacrostop && inputs.trackingEnabled) {
+// 4. STOPPED — machine should be producing, isn't.
+  // The Pi only emits macrostop events when tracking is on AND a WO is active,
+  // so the presence of an active macrostop event is sufficient.
+  if (inputs.activeMacrostop) {
     const startedAt = inputs.activeMacrostop.startedAtMs;
     return {
       state: "stopped",
-      reason: "machine_fault",
       ongoingStopMin: Math.max(0, Math.floor((nowMs - startedAt) / 60000)),
       stopStartedAtMs: startedAt,
-    };
-  }
-
-  if (inputs.hasActiveWorkOrder && !inputs.trackingEnabled) {
-    // Operator hasn't started production despite a loaded WO.
-    // We don't have a precise "since when" for this — best estimate is "since latest
-    // KPI snapshot reported trackingEnabled=false," but that's not in the inputs.
-    // For now, report ongoingStopMin=0 and let the caller refine if needed.
-    return {
-      state: "stopped",
-      reason: "not_started",
-      ongoingStopMin: 0,
-      stopStartedAtMs: null,
     };
   }
 

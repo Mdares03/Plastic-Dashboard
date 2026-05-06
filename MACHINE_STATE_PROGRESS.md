@@ -34,3 +34,10 @@
 ## Notes / parked items
 - Prisma drift on (orgId,machineId,seq) unique indexes — pre-existing, not related to this work. Address as separate housekeeping task.
 - Node-RED incidentKey rotation behavior verified: 10 distinct keys per real stoppage = correct.
+
+## Path A — dead state cleanup (post Round 1)
+- [x] Removed `not_started` and `data-loss` branches from classifier
+- [x] Removed `RecapStoppedReason` and `RecapDataLossReason` types
+- [x] Simplified `RecapStateContext` to empty struct (kept for future use)
+- [x] Updated UI rendering: 5 states only (offline/stopped/mold-change/idle/running)
+- [x] i18n: removed dead keys

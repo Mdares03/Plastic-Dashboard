@@ -38,7 +38,6 @@ type AlertsInboxEvent = {
   status?: string | null;
   shift?: string | null;
   alertId?: string | null;
-  incidentKey?: string | null;
   isUpdate?: boolean;
   isAutoAck?: boolean;
 };
@@ -225,34 +224,29 @@ function resolveShift(
 }
 
 function collapseAlertEvents(events: AlertsInboxEvent[]) {
-  // Group by incidentKey (preferred — stable across the entire incident lifecycle)
-  // OR alertId (fallback — for older or non-stoppage events).
-  // Per group, keep AT MOST one "active" (oldest = when it first happened) and
-  // one "resolved" (newest = when it actually ended). Result: max 2 entries per incident.
-  const byGroup = new Map<string, AlertsInboxEvent>();
+  const byAlert = new Map<string, AlertsInboxEvent>();
   const passthrough: AlertsInboxEvent[] = [];
 
   for (const ev of events) {
-    const groupId = ev.incidentKey ?? ev.alertId;
-    if (!groupId) {
+    if (!ev.alertId) {
       passthrough.push(ev);
       continue;
     }
     const statusKey = ev.status === "resolved" ? "resolved" : "active";
-    const key = `${groupId}:${statusKey}`;
-    const existing = byGroup.get(key);
+    const key = `${ev.alertId}:${statusKey}`;
+    const existing = byAlert.get(key);
     if (!existing) {
-      byGroup.set(key, ev);
+      byAlert.set(key, ev);
       continue;
     }
     const pickNewest = statusKey === "resolved";
     const shouldReplace = pickNewest
       ? ev.ts.getTime() > existing.ts.getTime()
       : ev.ts.getTime() < existing.ts.getTime();
-    if (shouldReplace) byGroup.set(key, ev);
+    if (shouldReplace) byAlert.set(key, ev);
   }
 
-  const combined = [...passthrough, ...byGroup.values()];
+  const combined = [...passthrough, ...byAlert.values()];
   combined.sort((a, b) => b.ts.getTime() - a.ts.getTime());
   return combined;
 }
@@ -331,12 +325,7 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
     const rawStatus = safeString(payload?.status ?? inner?.status);
     const isUpdate = safeBool(payload?.is_update ?? inner?.is_update);
     const isAutoAck = safeBool(payload?.is_auto_ack ?? inner?.is_auto_ack);
-    // Drop only auto-ack pings (every-10s refresh noise).
-    // Keep is_update events: due to a Node-RED spread inheritance pattern,
-    // virtually all events carry is_update=true even legitimate first-emission
-    // and cycle-arrival resolved events. Dedup happens via collapseAlertEvents
-    // grouping by incidentKey below.
-    if (!includeUpdates && isAutoAck) continue;
+    if (!includeUpdates && (isUpdate || isAutoAck)) continue;
 
     const shiftName = resolveShift(shifts, shiftOverrides, ev.ts, timeZone);
     if (normalizedShift && shiftName !== normalizedShift) continue;
@@ -360,7 +349,6 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
       status: statusLabel,
       shift: shiftName,
       alertId: safeString(payload?.alert_id ?? inner?.alert_id),
-      incidentKey: safeString(payload?.incidentKey ?? payload?.incident_key ?? inner?.incidentKey ?? inner?.incident_key),
       isUpdate,
       isAutoAck,
     });

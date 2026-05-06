@@ -5,13 +5,14 @@ import { z } from "zod";
 import { evaluateAlertsForEvent } from "@/lib/alerts/engine";
 import { toJsonValue } from "@/lib/prismaJson";
 import {
+  detailEffectiveReasonCode,
   findCatalogReason,
-  loadFallbackReasonCatalog,
-  normalizeReasonCatalog,
+  findCatalogReasonByReasonCode,
   toReasonCode,
   type ReasonCatalog,
   type ReasonCatalogKind,
 } from "@/lib/reasonCatalog";
+import { effectiveReasonCatalogForOrg } from "@/lib/reasonCatalogDb";
 
 const normalizeType = (t: unknown) =>
   String(t ?? "")
@@ -169,18 +170,12 @@ function findCatalogReasonFlexible(
         categoryLabel: category.label,
         detailId: detail.id,
         detailLabel: detail.label,
-        reasonCode: toReasonCode(category.id, detail.id),
+        reasonCode: detailEffectiveReasonCode(category, detail),
         reasonLabel: `${category.label} > ${detail.label}`,
       };
     }
   }
   return null;
-}
-
-function getCatalogFromDefaults(defaultsJson: unknown) {
-  const defaults = asRecord(defaultsJson);
-  if (!defaults) return null;
-  return normalizeReasonCatalog(defaults.reasonCatalog ?? defaults.reasonCatalogData);
 }
 
 function resolveReason(
@@ -193,7 +188,13 @@ function resolveReason(
   const reasonTextPath = parseReasonTextPath(raw.reasonText);
   const categoryIdRaw = clampText(raw.categoryId ?? reasonPath.category ?? reasonTextPath.category, 64);
   const detailIdRaw = clampText(raw.detailId ?? reasonPath.detail ?? reasonTextPath.detail, 64);
-  const fromCatalog = findCatalogReasonFlexible(catalog, kind, categoryIdRaw, detailIdRaw);
+  const fromCatalogFlexible = findCatalogReasonFlexible(catalog, kind, categoryIdRaw, detailIdRaw);
+  const rawReasonCodeEarly = clampText(raw.reasonCode, 64);
+  const fromCatalogByCode =
+    !fromCatalogFlexible && rawReasonCodeEarly
+      ? findCatalogReasonByReasonCode(catalog, kind, rawReasonCodeEarly)
+      : null;
+  const fromCatalog = fromCatalogFlexible ?? fromCatalogByCode;
 
   const categoryLabelRaw = clampText(raw.categoryLabel ?? reasonPath.category ?? reasonTextPath.category, 120);
   const detailLabelRaw = clampText(raw.detailLabel ?? reasonPath.detail ?? reasonTextPath.detail, 120);
@@ -282,11 +283,13 @@ export async function POST(req: Request) {
 
   const orgSettings = await prisma.orgSettings.findUnique({
     where: { orgId: machine.orgId },
-    select: { stoppageMultiplier: true, macroStoppageMultiplier: true, defaultsJson: true },
+    select: { stoppageMultiplier: true, macroStoppageMultiplier: true, defaultsJson: true, version: true },
   });
-  const fallbackCatalog = await loadFallbackReasonCatalog();
-  const settingsCatalog = getCatalogFromDefaults(orgSettings?.defaultsJson);
-  const reasonCatalog = settingsCatalog ?? fallbackCatalog;
+  const reasonCatalog = await effectiveReasonCatalogForOrg(
+    machine.orgId,
+    orgSettings?.defaultsJson ?? null,
+    orgSettings?.version ?? 1
+  );
 
   const defaultMicroMultiplier = Number(orgSettings?.stoppageMultiplier ?? 1.5);
   const defaultMacroMultiplier = Math.max(

@@ -121,23 +121,14 @@ export type RecapQuery = {
   shift?: string;
 };
 
-export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "data-loss" | "offline" | "idle";
-
-export type RecapStoppedReason = "machine_fault" | "not_started";
-export type RecapDataLossReason = "untracked";
+export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "offline" | "idle";
 
 /**
- * Reason context for STOPPED and DATA_LOSS states.
- * - When status is "stopped": stoppedReason is set, dataLossReason is null.
- * - When status is "data-loss": dataLossReason is set, stoppedReason is null.
- * - All other states: both are null.
+ * Reason context — currently empty in practice because the only STOPPED cause
+ * we can detect (given Node-RED's constraints) is machine_fault. Kept as a
+ * struct so future expansion doesn't require a type change downstream.
  */
-export type RecapStateContext = {
-  stoppedReason: RecapStoppedReason | null;
-  dataLossReason: RecapDataLossReason | null;
-  /** For data-loss: how many untracked cycles have been detected so far. */
-  untrackedCycleCount: number | null;
-};
+export type RecapStateContext = Record<string, never>;
 
 
 export type RecapSummaryMachine = {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsConfig } from "@/components/settings/AlertsConfig";
 import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
+import { ReasonCatalogConfig } from "@/components/settings/ReasonCatalogConfig";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { SHIFT_OVERRIDE_DAYS, type ShiftOverrideDay } from "@/lib/settings";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
@@ -122,6 +123,7 @@ const SETTINGS_TABS = [
   { id: "thresholds", labelKey: "settings.tabs.thresholds" },
   { id: "alerts", labelKey: "settings.tabs.alerts" },
   { id: "financial", labelKey: "settings.tabs.financial" },
+  { id: "reasonCatalog", labelKey: "settings.tabs.reasonCatalog" },
   { id: "team", labelKey: "settings.tabs.team" },
 ] as const;
 
@@ -239,7 +241,6 @@ function normalizeSettings(raw: unknown, fallbackName: (index: number) => string
   const thresholds = asRecord(record.thresholds) ?? {};
   const alerts = asRecord(record.alerts) ?? {};
   const defaults = asRecord(record.defaults) ?? {};
-
   return {
     orgId: String(record.orgId ?? ""),
     version: Number(record.version ?? 0),
@@ -1273,6 +1274,18 @@ export default function SettingsPage() {
       {activeTab === "financial" && (
         <div className="space-y-6">
           <FinancialCostConfig />
+        </div>
+      )}
+
+      {activeTab === "reasonCatalog" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.reasonCatalog.title")}</div>
+            <p className="mt-1 text-xs text-zinc-400">{t("settings.reasonCatalog.subtitle")}</p>
+            <div className="mt-4">
+              <ReasonCatalogConfig disabled={saving} />
+            </div>
+          </div>
         </div>
       )}
 

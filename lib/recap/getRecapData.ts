@@ -289,6 +289,7 @@ async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
           ts: true,
           cycleCount: true,
           workOrderId: true,
+          theoreticalCycleTime: true,
           sku: true,
           goodDelta: true,
           scrapDelta: true,

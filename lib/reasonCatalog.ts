@@ -1,6 +1,3 @@
-import { readFile } from "fs/promises";
-import path from "path";
-
 type AnyRecord = Record<string, unknown>;
 
 export type ReasonCatalogKind = "downtime" | "scrap";
@@ -8,6 +5,10 @@ export type ReasonCatalogKind = "downtime" | "scrap";
 export type ReasonCatalogDetail = {
   id: string;
   label: string;
+  /** Official code (e.g. DTPRC-01, MX001). When set, used as reasonCode instead of slug. */
+  reasonCode?: string;
+  /** When false, hidden from operator pickers but kept for historical label resolution. Default true. */
+  active?: boolean;
 };
 
 export type ReasonCatalogCategory = {
@@ -20,6 +21,11 @@ export type ReasonCatalog = {
   version: number;
   downtime: ReasonCatalogCategory[];
   scrap: ReasonCatalogCategory[];
+};
+
+export type FlattenReasonCatalogOptions = {
+  /** If true, omit details with active === false (operator / tactile UI). */
+  activeOnly?: boolean;
 };
 
 function isPlainObject(value: unknown): value is AnyRecord {
@@ -40,6 +46,17 @@ function buildReasonCode(categoryId: string, detailId: string) {
   return `${canonicalId(categoryId)}__${canonicalId(detailId)}`.toUpperCase();
 }
 
+/** Uppercase official or derived code for this detail row. */
+export function detailEffectiveReasonCode(category: ReasonCatalogCategory, detail: ReasonCatalogDetail): string {
+  const explicit = String(detail.reasonCode ?? "").trim();
+  if (explicit) return explicit.toUpperCase();
+  return buildReasonCode(category.id, detail.id);
+}
+
+export function isDetailActive(detail: ReasonCatalogDetail): boolean {
+  return detail.active !== false;
+}
+
 function toCategory(raw: unknown): ReasonCatalogCategory | null {
   if (!isPlainObject(raw)) return null;
   const labelRaw = String(raw.label ?? "").trim();
@@ -57,7 +74,16 @@ function toCategory(raw: unknown): ReasonCatalogCategory | null {
     const detailLabel = String(detailRaw.label ?? "").trim();
     if (!detailLabel) continue;
     const detailId = String(detailRaw.id ?? "").trim() || canonicalId(detailLabel, "detail");
-    details.push({ id: detailId, label: detailLabel });
+    const reasonCodeRaw = detailRaw.reasonCode ?? detailRaw.code;
+    const reasonCode =
+      reasonCodeRaw != null && String(reasonCodeRaw).trim() ? String(reasonCodeRaw).trim() : undefined;
+    const active = detailRaw.active === false ? false : true;
+    details.push({
+      id: detailId,
+      label: detailLabel,
+      ...(reasonCode ? { reasonCode } : {}),
+      ...(active ? {} : { active: false }),
+    });
   }
 
   if (!details.length) return null;
@@ -131,7 +157,7 @@ export function parseReasonCatalogMarkdown(markdown: string): ReasonCatalog {
         details: [] as ReasonCatalogDetail[],
       };
     if (!existing.details.some((d) => d.id === detailId)) {
-      existing.details.push({ id: detailId, label: detailLabel });
+      existing.details.push({ id: detailId, label: detailLabel, active: true });
     }
     buckets[activeKind].set(categoryId, existing);
   }
@@ -143,29 +169,35 @@ export function parseReasonCatalogMarkdown(markdown: string): ReasonCatalog {
   };
 }
 
-let catalogPromise: Promise<ReasonCatalog> | null = null;
-
-export async function loadFallbackReasonCatalog() {
-  if (!catalogPromise) {
-    catalogPromise = readFile(path.join(process.cwd(), "downtime_menu.md"), "utf8")
-      .then((raw) => parseReasonCatalogMarkdown(raw))
-      .catch(() => ({ version: 1, downtime: [], scrap: [] }));
-  }
-  return catalogPromise;
+export function flattenReasonCatalog(
+  catalog: ReasonCatalog,
+  kind: ReasonCatalogKind,
+  options?: FlattenReasonCatalogOptions
+) {
+  const activeOnly = options?.activeOnly === true;
+  return (catalog[kind] ?? []).flatMap((category) =>
+    category.details
+      .filter((d) => !activeOnly || isDetailActive(d))
+      .map((detail) => ({
+        kind,
+        categoryId: category.id,
+        categoryLabel: category.label,
+        detailId: detail.id,
+        detailLabel: detail.label,
+        reasonCode: detailEffectiveReasonCode(category, detail),
+        reasonLabel: `${category.label} > ${detail.label}`,
+        active: isDetailActive(detail),
+      }))
+  );
 }
 
-export function flattenReasonCatalog(catalog: ReasonCatalog, kind: ReasonCatalogKind) {
-  return (catalog[kind] ?? []).flatMap((category) =>
-    category.details.map((detail) => ({
-      kind,
-      categoryId: category.id,
-      categoryLabel: category.label,
-      detailId: detail.id,
-      detailLabel: detail.label,
-      reasonCode: buildReasonCode(category.id, detail.id),
-      reasonLabel: `${category.label} > ${detail.label}`,
-    }))
-  );
+function canonicalText(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function findCatalogReason(
@@ -187,9 +219,36 @@ export function findCatalogReason(
     categoryLabel: category.label,
     detailId: detail.id,
     detailLabel: detail.label,
-    reasonCode: buildReasonCode(category.id, detail.id),
+    reasonCode: detailEffectiveReasonCode(category, detail),
     reasonLabel: `${category.label} > ${detail.label}`,
   };
+}
+
+/** Resolve category/detail + labels by official or derived reasonCode (includes inactive details). */
+export function findCatalogReasonByReasonCode(
+  catalog: ReasonCatalog | null | undefined,
+  kind: ReasonCatalogKind,
+  reasonCode: string | null | undefined
+) {
+  if (!catalog) return null;
+  const needle = String(reasonCode ?? "").trim().toUpperCase();
+  if (!needle) return null;
+  for (const category of catalog[kind] ?? []) {
+    for (const detail of category.details) {
+      const rc = detailEffectiveReasonCode(category, detail);
+      if (rc === needle) {
+        return {
+          categoryId: category.id,
+          categoryLabel: category.label,
+          detailId: detail.id,
+          detailLabel: detail.label,
+          reasonCode: rc,
+          reasonLabel: `${category.label} > ${detail.label}`,
+        };
+      }
+    }
+  }
+  return null;
 }
 
 export function toReasonCode(categoryId: unknown, detailId: unknown) {
