@@ -21,6 +21,25 @@ export type OverviewLatestKpi = {
   cycleTime?: number | null;
 };
 
+export type OverviewLatestMacrostop = {
+  machineId: string;
+  ts: Date;
+  status: "active" | "resolved" | "unknown";
+  startedAtMs: number;
+};
+
+export type OverviewActiveWorkOrder = {
+  id: string;
+  workOrderId: string;
+  sku: string | null;
+  mold: string | null;
+  target: number | null;
+  goodParts: number;
+  scrapParts: number;
+  cycleTime: number | null;
+  stopsCount: number;
+};
+
 export type OverviewMachineRow = {
   id: string;
   name: string;
@@ -30,6 +49,8 @@ export type OverviewMachineRow = {
   updatedAt: Date;
   latestHeartbeat: OverviewLatestHeartbeat | null;
   latestKpi: OverviewLatestKpi | null;
+  latestMacrostop?: OverviewLatestMacrostop | null;
+  activeWorkOrder?: OverviewActiveWorkOrder | null;
   heartbeats?: undefined;
   kpiSnapshots?: undefined;
 };
@@ -48,4 +69,3 @@ export type OverviewEventRow = {
   machineName?: string | null;
   source: "ingested";
 };
-

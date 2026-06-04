@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatElapsedFromSeconds } from "@/lib/time/elapsed";
 
 type MachineRow = {
   id: string;
@@ -43,9 +44,7 @@ const RANGE_OPTIONS = [
 
 function formatDuration(seconds: number | null | undefined, t: (key: string) => string) {
   if (seconds == null || !Number.isFinite(seconds)) return t("alerts.inbox.duration.na");
-  if (seconds < 60) return `${Math.round(seconds)}${t("alerts.inbox.duration.sec")}`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}${t("alerts.inbox.duration.min")}`;
-  return `${(seconds / 3600).toFixed(1)}${t("alerts.inbox.duration.hr")}`;
+  return formatElapsedFromSeconds(seconds, { maxUnits: 2, minUnit: "second" });
 }
 
 function normalizeLabel(value?: string | null) {

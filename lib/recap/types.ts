@@ -25,14 +25,18 @@ export type RecapMachine = {
   };
   downtime: {
     totalMin: number;
+    plannedMin: number;
+    unplannedMin: number;
     stopsCount: number;
     topReasons: Array<{
       reasonLabel: string;
       minutes: number;
       count: number;
+      planned: boolean;
     }>;
     ongoingStopMin: number | null;
   };
+  cycleTime: number | null;
   workOrders: {
     completed: Array<{
       id: string;
@@ -43,6 +47,8 @@ export type RecapMachine = {
     active: {
       id: string;
       sku: string | null;
+      mold: string | null;
+      cycleTime: number | null;
       progressPct: number | null;
       startedAt: string | null;
     } | null;
@@ -146,6 +152,9 @@ export type RecapSummaryMachine = {
   ongoingStopMin: number | null;
   stateContext: RecapStateContext;
   activeWorkOrderId: string | null;
+  activeWorkOrderSku: string | null;
+  activeWorkOrderMold: string | null;
+  cycleTime: number | null;
   moldChange: {
     active: boolean;
     startMs: number | null;
@@ -171,6 +180,7 @@ export type RecapDowntimeTopRow = {
   minutes: number;
   count: number;
   percent: number;
+  planned: boolean;
 };
 
 export type RecapWorkOrders = {
@@ -183,6 +193,8 @@ export type RecapWorkOrders = {
   active: {
     id: string;
     sku: string | null;
+    mold: string | null;
+    cycleTime: number | null;
     progressPct: number | null;
     startedAt: string | null;
   } | null;
@@ -199,6 +211,7 @@ export type RecapMachineDetail = {
   stopsCount: number;
   stopMinutes: number;
   activeWorkOrderId: string | null;
+  cycleTime: number | null;
   lastSeenMs: number | null;
   offlineForMin: number | null;
   ongoingStopMin: number | null;

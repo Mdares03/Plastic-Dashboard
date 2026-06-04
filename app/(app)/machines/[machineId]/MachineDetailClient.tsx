@@ -22,6 +22,7 @@ import { useI18n } from "@/lib/i18n/useI18n";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 import type { RecapTimelineResponse, RecapTimelineSegment } from "@/lib/recap/types";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
+import { formatElapsedSince, formatElapsedSinceWithAgo } from "@/lib/time/elapsed";
 import {
   computeWidths,
   formatDuration,
@@ -822,15 +823,6 @@ export default function MachineDetailClient() {
   }
 
 
-  function timeAgo(ts?: string) {
-    if (!ts) return t("common.never");
-    const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-    const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-    if (diff < 60) return rtf.format(-diff, "second");
-    if (diff < 3600) return rtf.format(-Math.floor(diff / 60), "minute");
-    return rtf.format(-Math.floor(diff / 3600), "hour");
-  }
-
   function isOffline(ts?: string) {
     if (!ts) return true;
     return Date.now() - new Date(ts).getTime() > RECAP_HEARTBEAT_STALE_MS;
@@ -889,7 +881,7 @@ export default function MachineDetailClient() {
   const machineCode = machine?.code ?? t("common.na");
   const machineLocation = machine?.location ?? t("common.na");
   const lastSeenLabel = t("machine.detail.lastSeen", {
-    time: hbTs ? timeAgo(hbTs) : t("common.never"),
+    time: formatElapsedSince(hbTs, t("common.never"), { maxUnits: 2, minUnit: "second" }),
   });
 
   const ActiveRing = ({ cx, cy, fill }: ActiveRingProps) => {
@@ -1228,7 +1220,7 @@ export default function MachineDetailClient() {
               )}
               <div className="mt-1 text-xs text-zinc-400">
                 {t("machine.detail.kpi.updated", {
-                  time: kpi?.ts ? timeAgo(kpi.ts) : t("common.never"),
+                  time: formatElapsedSince(kpi?.ts, t("common.never"), { maxUnits: 2, minUnit: "second" }),
                 })}
               </div>
               {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
@@ -1354,7 +1346,7 @@ export default function MachineDetailClient() {
                           ) : null}
                         </div>
 
-                        <div className="shrink-0 text-xs text-zinc-400">{timeAgo(event.ts)}</div>
+                        <div className="shrink-0 text-xs text-zinc-400">{formatElapsedSinceWithAgo(event.ts, locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}</div>
                       </div>
                     </div>
                   ))}
@@ -1424,7 +1416,7 @@ export default function MachineDetailClient() {
                           ) : null}
                         </div>
                       </div>
-                      <div className="shrink-0 text-xs text-zinc-400">{timeAgo(event.ts)}</div>
+                      <div className="shrink-0 text-xs text-zinc-400">{formatElapsedSinceWithAgo(event.ts, locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}</div>
                     </div>
                   );
                 })

@@ -7,6 +7,8 @@ import { logLine } from "@/lib/logger";
 import { elapsedMs, formatServerTiming, nowMs, PERF_LOGS_ENABLED } from "@/lib/perf/serverTiming";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
+  fetchActiveWorkOrders,
+  fetchDowntimeCountsByWorkOrder,
   fetchLatestHeartbeats,
   fetchLatestKpis,
   fetchLatestMacrostops,
@@ -47,8 +49,9 @@ export async function GET(req: Request) {
   const machines = await fetchMachineBase(session.orgId);
   if (perfEnabled) timings.machinesQuery = elapsedMs(machinesStart);
 
-  const heartbeatStart = nowMs();
   const machineIds = machines.map((machine) => machine.id);
+
+  const heartbeatStart = nowMs();
   const heartbeats = await fetchLatestHeartbeats(session.orgId, machineIds);
   if (perfEnabled) timings.heartbeatsQuery = elapsedMs(heartbeatStart);
 
@@ -63,14 +66,27 @@ export async function GET(req: Request) {
   const macrostops = await fetchLatestMacrostops(session.orgId, machineIds);
   if (perfEnabled) timings.macrostopsQuery = elapsedMs(macrostopStart);
 
+  const activeWoStart = nowMs();
+  const activeWorkOrders = await fetchActiveWorkOrders(session.orgId, machineIds);
+  if (perfEnabled) timings.activeWoQuery = elapsedMs(activeWoStart);
+
+  const woDowntimeStart = nowMs();
+  const downtimeCountByWorkOrder = await fetchDowntimeCountsByWorkOrder(
+    session.orgId,
+    activeWorkOrders.map((row) => row.workOrderId)
+  );
+  if (perfEnabled) timings.woDowntimeQuery = elapsedMs(woDowntimeStart);
+
   const postQueryStart = nowMs();
 
-  // flatten latest heartbeat for UI convenience
+  // Flatten latest machine state for card/UI consumption.
   const out = mergeMachineOverviewRows({
     machines,
     heartbeats,
     kpis,
     macrostops,
+    activeWorkOrders,
+    downtimeCountByWorkOrder,
     includeKpi,
   });
 

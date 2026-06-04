@@ -11,7 +11,8 @@
     "backfill:downtime-reasons": "node scripts/backfill-downtime-reasons.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
-    "seed:reason-catalog": "node scripts/seed-reason-catalog-from-xlsx.mjs"
+    "seed:reason-catalog": "node scripts/seed-reason-catalog-from-xlsx.mjs",
+    "db:dry-run-cutoff": "dotenv -e .env -- node scripts/db-dry-run-cutoff.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",

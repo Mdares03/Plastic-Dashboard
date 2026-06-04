@@ -6,6 +6,7 @@ import Link from "next/link";
 import {
   Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
   ReferenceLine,
@@ -14,7 +15,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+
+const PLANNED_REASON_CODE = "MOLD_CHANGE";
+const UNPLANNED_BAR_COLOR = "#FF7A00";
+const PLANNED_BAR_COLOR = "#38BDF8";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 
 
 type ParetoRow = {
@@ -90,6 +96,9 @@ export default function DowntimeParetoCard({
         const qs = new URLSearchParams();
         qs.set("kind", "downtime");
         qs.set("range", range);
+        // Include planned downtime (mold change) so this summary matches the full /downtime
+        // report. Planned changeover is shown but tinted/labelled distinctly below.
+        qs.set("planned", "all");
         if (machineId) qs.set("machineId", machineId);
 
         const res = await fetch(`/api/analytics/pareto?${qs.toString()}`, {
@@ -146,15 +155,20 @@ export default function DowntimeParetoCard({
   const rows = pareto?.rows ?? [];
 
   const chartData = useMemo(() => {
-    return rows.slice(0, barsLimit).map((r, idx) => ({
-      i: idx,
-      reasonCode: r.reasonCode,
-      reasonLabel: r.reasonLabel,
-      label: clampLabel(r.reasonLabel || r.reasonCode, isSummary ? 16 : 22),
-      minutes: Number(r.minutesLost ?? 0),
-      pctOfTotal: Number(r.pctOfTotal ?? 0),
-      cumulativePct: Number(r.cumulativePct ?? 0),
-    }));
+    return rows.slice(0, barsLimit).map((r, idx) => {
+      const planned = String(r.reasonCode ?? "").trim().toUpperCase() === PLANNED_REASON_CODE;
+      const baseLabel = clampLabel(r.reasonLabel || r.reasonCode, isSummary ? 16 : 22);
+      return {
+        i: idx,
+        reasonCode: r.reasonCode,
+        reasonLabel: r.reasonLabel,
+        planned,
+        label: planned ? `${baseLabel} (P)` : baseLabel,
+        minutes: Number(r.minutesLost ?? 0),
+        pctOfTotal: Number(r.pctOfTotal ?? 0),
+        cumulativePct: Number(r.cumulativePct ?? 0),
+      };
+    });
   }, [rows, barsLimit, isSummary]);
 
 
@@ -190,7 +204,7 @@ export default function DowntimeParetoCard({
         <div>
           <div className="text-sm font-semibold text-white">{title}</div>
           <div className="mt-1 text-xs text-zinc-400">
-            Total: <span className="text-white">{totalMinutes.toFixed(0)} min</span>
+            Total: <span className="text-white">{formatElapsedFromMinutes(totalMinutes, { maxUnits: 2 })}</span>
             {covPct != null ? (
               <>
                 <span className="mx-2 text-zinc-600">•</span>
@@ -258,7 +272,7 @@ export default function DowntimeParetoCard({
                   }}
                   labelStyle={{ color: "var(--app-chart-label)" }}
                   formatter={(val: any, name: any, ctx: any) => {
-                    if (name === "minutes") return [`${Number(val).toFixed(1)} min`, "Minutes"];
+                    if (name === "minutes") return [formatElapsedFromMinutes(Number(val), { maxUnits: 2 }), "Duration"];
                     if (name === "cumulativePct") return [`${Number(val).toFixed(1)}%`, "Cumulative"];
                     return [val, name];
                   }}
@@ -276,8 +290,15 @@ export default function DowntimeParetoCard({
                   dataKey="minutes"
                   radius={[10, 10, 0, 0]}
                   isAnimationActive={false}
-                  fill="#FF7A00"
-                />
+                  fill={UNPLANNED_BAR_COLOR}
+                >
+                  {chartData.map((d) => (
+                    <Cell
+                      key={d.reasonCode}
+                      fill={d.planned ? PLANNED_BAR_COLOR : UNPLANNED_BAR_COLOR}
+                    />
+                  ))}
+                </Bar>
                 <Line
                   yAxisId="right"
                   dataKey="cumulativePct"
@@ -297,8 +318,15 @@ export default function DowntimeParetoCard({
                 <div key={r.reasonCode} className="rounded-xl border border-white/10 bg-white/5 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold text-white">
-                        {r.reasonLabel || r.reasonCode}
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-white">
+                          {r.reasonLabel || r.reasonCode}
+                        </span>
+                        {String(r.reasonCode ?? "").trim().toUpperCase() === PLANNED_REASON_CODE ? (
+                          <span className="shrink-0 rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+                            {t("recap.downtime.planned")}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-1 text-xs text-zinc-400">{r.reasonCode}</div>
                     </div>

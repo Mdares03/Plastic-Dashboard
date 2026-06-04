@@ -307,6 +307,8 @@ export async function evaluateAlertsForEvent(eventId: string) {
   if (!event) return;
 
   const policy = await ensurePolicy(event.orgId);
+  // Master kill switch: when alerts are disabled for the org, send nothing.
+  if (!policy.enabled) return;
   const eventType = normalizeEventType(event.eventType);
   const rule = policy.rules.find((r) => normalizeEventType(r.eventType) === eventType);
   if (!rule) return;

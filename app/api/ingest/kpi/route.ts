@@ -5,6 +5,7 @@ import { getMachineAuth } from "@/lib/machineAuthCache";
 import { normalizeSnapshotV1 } from "@/lib/contracts/v1";
 import { toJsonValue } from "@/lib/prismaJson";
 import { logLine } from "@/lib/logger";
+import { isTemporarilyBlockedWorkOrder } from "@/lib/workOrders/temporaryBlocklist";
 
 function getClientIp(req: Request) {
   const xf = req.headers.get("x-forwarded-for");
@@ -183,11 +184,17 @@ export async function POST(req: Request) {
     orgId = machine.orgId;
 
     const woRecord = (body.activeWorkOrder ?? {}) as Record<string, unknown>;
-    const activeWorkOrderId = woRecord.id != null ? String(woRecord.id).trim() : "";
+    const activeWorkOrderIdRaw = woRecord.id != null ? String(woRecord.id).trim() : "";
     const activeSku = woRecord.sku != null ? String(woRecord.sku).trim() : "";
+    const isBlockedWorkOrder = isTemporarilyBlockedWorkOrder({
+      machineId: machine.id,
+      workOrderId: activeWorkOrderIdRaw,
+      sku: activeSku,
+    });
+    const activeWorkOrderId = isBlockedWorkOrder ? "" : activeWorkOrderIdRaw;
     const activeStatus = woRecord.status != null ? String(woRecord.status).trim() : "";
-    const activeTargetQty = toFiniteInt(woRecord.target);
-    const activeCycleTime = toFiniteNumber(woRecord.cycleTime);
+    const activeTargetQty = isBlockedWorkOrder ? null : toFiniteInt(woRecord.target);
+    const activeCycleTime = isBlockedWorkOrder ? null : toFiniteNumber(woRecord.cycleTime);
     const good = pickFirstNumber(woRecord.good, woRecord.goodParts, woRecord.good_parts);
     const scrap = pickFirstNumber(woRecord.scrap, woRecord.scrapParts, woRecord.scrap_parts);
     const activeGoodParts = Math.max(0, Math.trunc(good ?? 0));

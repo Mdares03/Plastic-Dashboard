@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createHash } from "crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { logLine } from "@/lib/logger";
 import { elapsedMs, formatServerTiming, nowMs, PERF_LOGS_ENABLED } from "@/lib/perf/serverTiming";
+import { isUnclassifiedReasonCode, parseBooleanParam } from "@/lib/analytics/downtimeFilters";
 
 let reportsColdStart = true;
 
@@ -55,6 +57,42 @@ function toMs(value?: Date | null) {
   return value ? value.getTime() : 0;
 }
 
+function parseReasonEpisodeType(row: { episodeId?: string | null; meta?: unknown }) {
+  let parsedMeta: unknown = row.meta;
+  if (typeof parsedMeta === "string") {
+    try {
+      parsedMeta = JSON.parse(parsedMeta);
+    } catch {
+      parsedMeta = null;
+    }
+  }
+
+  const record =
+    parsedMeta && typeof parsedMeta === "object" && !Array.isArray(parsedMeta)
+      ? (parsedMeta as Record<string, unknown>)
+      : {};
+  const innerCandidate = record.data;
+  const inner =
+    innerCandidate && typeof innerCandidate === "object" && !Array.isArray(innerCandidate)
+      ? (innerCandidate as Record<string, unknown>)
+      : record;
+
+  const rawType = String(
+    inner.anomalyType ?? inner.eventType ?? record.anomalyType ?? record.eventType ?? ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (rawType === "macrostop") return "macrostop" as const;
+  if (rawType === "microstop") return "microstop" as const;
+
+  const episodeId = String(row.episodeId ?? "").trim().toLowerCase();
+  if (episodeId.startsWith("macrostop:")) return "macrostop" as const;
+  if (episodeId.startsWith("microstop:")) return "microstop" as const;
+
+  return null;
+}
+
 export async function GET(req: NextRequest) {
   const perfEnabled = PERF_LOGS_ENABLED;
   const totalStart = nowMs();
@@ -73,6 +111,7 @@ export async function GET(req: NextRequest) {
   const { start, end } = pickRange(req);
   const workOrderId = url.searchParams.get("workOrderId") ?? undefined;
   const sku = url.searchParams.get("sku") ?? undefined;
+  const excludeUnclassified = parseBooleanParam(url.searchParams.get("excludeUnclassified"));
   const baseWhere = {
     orgId: session.orgId,
     ...(machineId ? { machineId } : {}),
@@ -111,6 +150,7 @@ export async function GET(req: NextRequest) {
     machineId ?? "",
     workOrderId ?? "",
     sku ?? "",
+    String(excludeUnclassified ? 1 : 0),
     toMs(kpiMax._max.tsServer),
     toMs(cycleMax._max.tsServer),
     toMs(eventMax._max.tsServer),
@@ -250,6 +290,10 @@ export async function GET(req: NextRequest) {
   let qualitySpikeCount = 0;
   let performanceDegradationCount = 0;
   let oeeDropCount = 0;
+  let downtimeAllSec = 0;
+  let downtimeClassifiedSec = 0;
+  let excludedUnclassifiedSec = 0;
+  let excludedUnclassifiedPct = 0;
 
   for (const e of events) {
     const type = String(e.eventType ?? "").toLowerCase();
@@ -280,6 +324,90 @@ export async function GET(req: NextRequest) {
     else if (type === "quality-spike") qualitySpikeCount += 1;
     else if (type === "performance-degradation") performanceDegradationCount += 1;
     else if (type === "oee-drop") oeeDropCount += 1;
+  }
+
+  const reasonRowsStart = nowMs();
+  let skuWorkOrderIds: string[] | null = null;
+  if (sku) {
+    const skuRows = await prisma.machineCycle.findMany({
+      where: {
+        orgId: session.orgId,
+        ...(machineId ? { machineId } : {}),
+        sku,
+        ts: { gte: start, lte: end },
+        workOrderId: { not: null },
+      },
+      distinct: ["workOrderId"],
+      select: { workOrderId: true },
+    });
+    skuWorkOrderIds = skuRows.map((row) => row.workOrderId).filter((row): row is string => Boolean(row));
+  }
+
+  const reasonWhere: Prisma.ReasonEntryWhereInput = {
+    orgId: session.orgId,
+    kind: "downtime",
+    capturedAt: { gte: start, lte: end },
+    ...(machineId ? { machineId } : {}),
+  };
+
+  if (workOrderId) {
+    reasonWhere.workOrderId = workOrderId;
+    if (skuWorkOrderIds && !skuWorkOrderIds.includes(workOrderId)) {
+      reasonWhere.workOrderId = "__NO_MATCH__";
+    }
+  } else if (skuWorkOrderIds) {
+    reasonWhere.workOrderId = skuWorkOrderIds.length ? { in: skuWorkOrderIds } : "__NO_MATCH__";
+  }
+
+  const reasonRows = await prisma.reasonEntry.findMany({
+    where: reasonWhere,
+    select: {
+      reasonCode: true,
+      durationSeconds: true,
+      episodeId: true,
+      meta: true,
+    },
+  });
+  if (perfEnabled) timings.reasonRows = elapsedMs(reasonRowsStart);
+
+  let reasonMacroAllSec = 0;
+  let reasonMicroAllSec = 0;
+  let reasonMacroClassifiedSec = 0;
+  let reasonMicroClassifiedSec = 0;
+  let hasTypedReasonStops = false;
+
+  for (const row of reasonRows) {
+    const stopType = parseReasonEpisodeType({ episodeId: row.episodeId, meta: row.meta });
+    if (stopType !== "macrostop" && stopType !== "microstop") continue;
+
+    hasTypedReasonStops = true;
+    const sec = Math.max(0, safeNum(row.durationSeconds) ?? 0);
+    if (stopType === "macrostop") reasonMacroAllSec += sec;
+    if (stopType === "microstop") reasonMicroAllSec += sec;
+
+    if (!isUnclassifiedReasonCode(row.reasonCode)) {
+      if (stopType === "macrostop") reasonMacroClassifiedSec += sec;
+      if (stopType === "microstop") reasonMicroClassifiedSec += sec;
+    }
+  }
+
+  if (hasTypedReasonStops) {
+    downtimeAllSec = reasonMacroAllSec + reasonMicroAllSec;
+    downtimeClassifiedSec = reasonMacroClassifiedSec + reasonMicroClassifiedSec;
+  } else {
+    downtimeAllSec = macrostopSec + microstopSec;
+    downtimeClassifiedSec = macrostopSec + microstopSec;
+  }
+
+  excludedUnclassifiedSec = Math.max(0, downtimeAllSec - downtimeClassifiedSec);
+  excludedUnclassifiedPct =
+    downtimeAllSec > 0 ? Math.round((excludedUnclassifiedSec / downtimeAllSec) * 10000) / 100 : 0;
+
+  if (hasTypedReasonStops) {
+    // Keep loss-driver macro/micro aligned with the same reason-entry window used
+    // for downtime totals. This avoids inflated event-payload durations.
+    macrostopSec = excludeUnclassified ? reasonMacroClassifiedSec : reasonMacroAllSec;
+    microstopSec = excludeUnclassified ? reasonMicroClassifiedSec : reasonMicroAllSec;
   }
 
   type TrendPoint = { t: string; v: number | null };
@@ -500,6 +628,7 @@ export async function GET(req: NextRequest) {
       topScrapWorkOrder,
     },
 
+    excludeUnclassified,
     downtime: {
       macrostopSec,
       microstopSec,
@@ -507,6 +636,10 @@ export async function GET(req: NextRequest) {
       qualitySpikeCount,
       performanceDegradationCount,
       oeeDropCount,
+      downtimeAllSec,
+      downtimeClassifiedSec,
+      excludedUnclassifiedSec,
+      excludedUnclassifiedPct,
     },
     trend,
     insights,
@@ -528,6 +661,7 @@ export async function GET(req: NextRequest) {
       machineId,
       workOrderId,
       sku,
+      excludeUnclassified,
       timings,
       rowCounts: {
         kpiRows: kpiRows.length,

@@ -12,6 +12,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 
 type Translator = (key: string, vars?: Record<string, string | number>) => string;
 type TooltipPayload<T> = { payload?: T; name?: string; value?: number | string };
@@ -83,7 +84,7 @@ function DowntimeTooltip({
     <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
       <div className="text-sm font-semibold text-white">{label}</div>
       <div className="mt-2 text-xs text-zinc-300">
-        {t("reports.tooltip.downtime")}: <span className="text-white">{Number(value)} min</span>
+        {t("reports.tooltip.downtime")}: <span className="text-white">{formatElapsedFromMinutes(Number(value), { maxUnits: 2 })}</span>
       </div>
     </div>
   );

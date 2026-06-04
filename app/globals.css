@@ -105,6 +105,44 @@ body {
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+/* Colored row-pulse animations for the Machines / Recap list views.
+   Each animates the row background tint + an outer glow so the whole row
+   visibly pulses in its state color. See lib/machines/rowPulse.ts. */
+@keyframes row-pulse-blue {
+  0%, 100% { background-color: rgba(56, 189, 248, 0.10); box-shadow: 0 0 14px rgba(56, 189, 248, 0.18); }
+  50%      { background-color: rgba(56, 189, 248, 0.28); box-shadow: 0 0 30px rgba(56, 189, 248, 0.45); }
+}
+@keyframes row-pulse-red {
+  0%, 100% { background-color: rgba(239, 68, 68, 0.12); box-shadow: 0 0 14px rgba(239, 68, 68, 0.20); }
+  50%      { background-color: rgba(239, 68, 68, 0.30); box-shadow: 0 0 30px rgba(239, 68, 68, 0.48); }
+}
+@keyframes row-pulse-red-strong {
+  0%, 100% { background-color: rgba(239, 68, 68, 0.22); box-shadow: 0 0 20px rgba(239, 68, 68, 0.32); }
+  50%      { background-color: rgba(239, 68, 68, 0.42); box-shadow: 0 0 40px rgba(239, 68, 68, 0.60); }
+}
+@keyframes row-pulse-orange {
+  0%, 100% { background-color: rgba(249, 115, 22, 0.12); box-shadow: 0 0 14px rgba(249, 115, 22, 0.20); }
+  50%      { background-color: rgba(249, 115, 22, 0.30); box-shadow: 0 0 30px rgba(249, 115, 22, 0.48); }
+}
+@keyframes row-pulse-dark {
+  0%, 100% { background-color: rgba(24, 24, 27, 0.55); box-shadow: 0 0 10px rgba(0, 0, 0, 0.35); }
+  50%      { background-color: rgba(39, 39, 42, 0.85); box-shadow: 0 0 22px rgba(0, 0, 0, 0.55); }
+}
+
+.animate-row-pulse-blue       { animation: row-pulse-blue 1.8s ease-in-out infinite; }
+.animate-row-pulse-red        { animation: row-pulse-red 1.8s ease-in-out infinite; }
+.animate-row-pulse-red-strong { animation: row-pulse-red-strong 1.4s ease-in-out infinite; }
+.animate-row-pulse-orange     { animation: row-pulse-orange 1.8s ease-in-out infinite; }
+.animate-row-pulse-dark       { animation: row-pulse-dark 2.4s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-row-pulse-blue,
+  .animate-row-pulse-red,
+  .animate-row-pulse-red-strong,
+  .animate-row-pulse-orange,
+  .animate-row-pulse-dark { animation: none; }
+}
+
 /* Theme-friendly overrides for common utility classes */
 .text-white { color: var(--app-text-strong) !important; }
 .text-black { color: var(--app-text-on-accent) !important; }
@@ -166,3 +204,52 @@ body {
 .hover\:bg-emerald-500\/30:hover { background-color: var(--app-good-bg) !important; }
 .hover\:bg-red-500\/20:hover { background-color: var(--app-bad-bg) !important; }
 .hover\:text-white:hover { color: var(--app-text-strong) !important; }
+
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #111 !important;
+    font-size: 10.5pt;
+    line-height: 1.4;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+
+  section.page {
+    break-inside: avoid;
+  }
+
+  .weekly-report {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .weekly-report [class*="bg-"] {
+    box-shadow: none !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  aside,
+  nav,
+  header {
+    display: none !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+}

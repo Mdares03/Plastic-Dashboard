@@ -124,6 +124,16 @@ function normalizePlanned(raw: string | null): PlannedFilter {
   return "all";
 }
 
+export function parseBooleanParam(raw: string | null) {
+  const v = String(raw ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+export function isUnclassifiedReasonCode(reasonCode: string | null | undefined) {
+  const code = String(reasonCode ?? "").trim().toUpperCase();
+  return code === "UNCLASSIFIED" || code === "UNKNOWN";
+}
+
 export function resolvePlannedFilter(raw: string | null, includeMoldChange: boolean): PlannedFilter {
   const normalized = normalizePlanned(raw);
   if (raw != null && String(raw).trim() !== "") return normalized;

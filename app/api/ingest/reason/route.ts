@@ -132,7 +132,7 @@ export async function POST(req: Request) {
   }
 
   // Idempotent upsert keyed by reasonId
-  const row = await prisma.reasonEntry.upsert({
+    const row = await prisma.reasonEntry.upsert({
     where: { reasonId },
     create: {
       orgId: machine.orgId,
@@ -154,17 +154,16 @@ export async function POST(req: Request) {
       schemaVersion,
     },
     update: {
+      // Reason ingest owns classification only; never overwrites timing.
+      // durationSeconds, episodeEndTs, capturedAt are managed by /api/ingest/event.
       kind,
       episodeId,
-      durationSeconds,
-      episodeEndTs,
       scrapEntryId,
       scrapQty,
       scrapUnit,
       reasonCode,
       reasonLabel: resolvedLabel,
       reasonText,
-      capturedAt,
       workOrderId,
       meta,
       schemaVersion,

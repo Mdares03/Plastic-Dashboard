@@ -361,6 +361,7 @@ model OrgFinancialProfile {
   energyCostPerMin       Float?   @map("energy_cost_per_min")
   scrapCostPerUnit       Float?   @map("scrap_cost_per_unit")
   rawMaterialCostPerUnit Float?   @map("raw_material_cost_per_unit")
+  formulasJson           Json?    @map("formulas_json")
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
   updatedBy              String?  @map("updated_by")

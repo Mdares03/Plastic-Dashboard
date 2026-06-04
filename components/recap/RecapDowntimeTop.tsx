@@ -20,7 +20,14 @@ export default function RecapDowntimeTop({ rows }: Props) {
         <div className="space-y-3">
           {rows.slice(0, 3).map((row) => (
             <div key={row.reasonLabel} className="rounded-xl border border-white/10 bg-black/20 p-3">
-              <div className="text-sm font-medium text-white">{row.reasonLabel}</div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-white">{row.reasonLabel}</span>
+                {row.planned ? (
+                  <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+                    {t("recap.downtime.planned")}
+                  </span>
+                ) : null}
+              </div>
               <div className="mt-1 text-xs text-zinc-300">
                 {row.minutes.toFixed(1)} min · {row.percent.toFixed(1)}%
               </div>

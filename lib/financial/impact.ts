@@ -1,4 +1,18 @@
 import { prisma } from "@/lib/prisma";
+import { getCompiledFinancialFormulas } from "@/lib/financial/cache";
+import {
+  createSchemaDriftDiagnostic,
+  getMissingColumnName,
+  isPrismaMissingColumnError,
+  logFinancialSchemaDrift,
+  type FinancialDiagnostic,
+} from "@/lib/financial/diagnostics";
+import {
+  evaluateCompiledFinancialExpression,
+  type FinancialFormulaKey,
+  type FinancialFormulaVariable,
+  type CompiledFinancialExpression,
+} from "@/lib/financial/formulas";
 
 const COST_EVENT_TYPES = ["slow-cycle", "microstop", "macrostop", "quality-spike"] as const;
 
@@ -56,6 +70,7 @@ export type FinancialImpactResult = {
   eventsEvaluated: number;
   eventsIncluded: number;
   events: FinancialEventDetail[];
+  diagnostic?: FinancialDiagnostic;
   filters: {
     machineId?: string;
     location?: string;
@@ -133,8 +148,60 @@ function computeEnergyCostPerMin(profile: CostProfile, mode: "running" | "idle")
   return (kw / 60) * rate * multiplier;
 }
 
+function buildFormulaScope(
+  profile: CostProfile,
+  params: { mode: "running" | "idle"; durationMin?: number; scrapUnits?: number }
+) {
+  const fallbackEnergyCostPerMin = computeEnergyCostPerMin(profile, params.mode) ?? 0;
+  const scope: Record<FinancialFormulaVariable, number> = {
+    machineCostPerMin: profile.machineCostPerMin ?? 0,
+    operatorCostPerMin: profile.operatorCostPerMin ?? 0,
+    ratedRunningKw: profile.ratedRunningKw ?? 0,
+    idleKw: profile.idleKw ?? 0,
+    kwhRate: profile.kwhRate ?? 0,
+    energyMultiplier: profile.energyMultiplier ?? 1,
+    energyCostPerMin: fallbackEnergyCostPerMin,
+    scrapCostPerUnit: profile.scrapCostPerUnit ?? 0,
+    rawMaterialCostPerUnit: profile.rawMaterialCostPerUnit ?? 0,
+    durationMin: Math.max(0, params.durationMin ?? 0),
+    scrapUnits: Math.max(0, params.scrapUnits ?? 0),
+  };
+  return scope;
+}
+
+function evaluateFormulaValue(
+  formulas: Partial<Record<FinancialFormulaKey, CompiledFinancialExpression>>,
+  key: FinancialFormulaKey,
+  scope: Record<FinancialFormulaVariable, number>
+) {
+  const compiled = formulas[key];
+  if (!compiled) return 0;
+  const value = evaluateCompiledFinancialExpression(compiled, scope);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function distributeCost(
+  total: number,
+  parts: { costMachine: number; costOperator: number; costEnergy: number; costScrap: number; costRawMaterial: number }
+) {
+  const baseTotal = parts.costMachine + parts.costOperator + parts.costEnergy + parts.costScrap + parts.costRawMaterial;
+  if (baseTotal <= 0) {
+    return { ...parts, costMachine: total };
+  }
+
+  const ratio = total / baseTotal;
+  return {
+    costMachine: parts.costMachine * ratio,
+    costOperator: parts.costOperator * ratio,
+    costEnergy: parts.costEnergy * ratio,
+    costScrap: parts.costScrap * ratio,
+    costRawMaterial: parts.costRawMaterial * ratio,
+  };
+}
+
 export async function computeFinancialImpact(params: FinancialImpactParams): Promise<FinancialImpactResult> {
   const { orgId, start, end, machineId, location, sku, currency, includeEvents } = params;
+  let diagnostic: FinancialDiagnostic | undefined;
 
   const machines = await prisma.machine.findMany({
     where: { orgId },
@@ -206,8 +273,67 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     }
   }
 
-  const [orgProfileRaw, locationOverrides, machineOverrides, productOverrides] = await Promise.all([
-    prisma.orgFinancialProfile.findUnique({ where: { orgId } }),
+  let orgProfileRaw:
+    | {
+        defaultCurrency: string | null;
+        machineCostPerMin: number | null;
+        operatorCostPerMin: number | null;
+        ratedRunningKw: number | null;
+        idleKw: number | null;
+        kwhRate: number | null;
+        energyMultiplier: number | null;
+        energyCostPerMin: number | null;
+        scrapCostPerUnit: number | null;
+        rawMaterialCostPerUnit: number | null;
+        formulasJson?: unknown;
+      }
+    | null = null;
+
+  try {
+    orgProfileRaw = await prisma.orgFinancialProfile.findUnique({
+      where: { orgId },
+      select: {
+        defaultCurrency: true,
+        machineCostPerMin: true,
+        operatorCostPerMin: true,
+        ratedRunningKw: true,
+        idleKw: true,
+        kwhRate: true,
+        energyMultiplier: true,
+        energyCostPerMin: true,
+        scrapCostPerUnit: true,
+        rawMaterialCostPerUnit: true,
+        formulasJson: true,
+      },
+    });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+
+    orgProfileRaw = await prisma.orgFinancialProfile.findUnique({
+      where: { orgId },
+      select: {
+        defaultCurrency: true,
+        machineCostPerMin: true,
+        operatorCostPerMin: true,
+        ratedRunningKw: true,
+        idleKw: true,
+        kwhRate: true,
+        energyMultiplier: true,
+        energyCostPerMin: true,
+        scrapCostPerUnit: true,
+        rawMaterialCostPerUnit: true,
+      },
+    });
+
+    diagnostic = createSchemaDriftDiagnostic(getMissingColumnName(error));
+    logFinancialSchemaDrift({
+      route: "lib/financial/impact",
+      orgId,
+      error,
+    });
+  }
+
+  const [locationOverrides, machineOverrides, productOverrides] = await Promise.all([
     prisma.locationFinancialOverride.findMany({ where: { orgId } }),
     prisma.machineFinancialOverride.findMany({ where: { orgId } }),
     prisma.productCostOverride.findMany({ where: { orgId } }),
@@ -225,6 +351,8 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     scrapCostPerUnit: orgProfileRaw?.scrapCostPerUnit ?? null,
     rawMaterialCostPerUnit: orgProfileRaw?.rawMaterialCostPerUnit ?? null,
   };
+
+  const formulaSet = getCompiledFinancialFormulas(orgId, orgProfileRaw?.formulasJson);
 
   const locationMap = new Map(locationOverrides.map((o) => [o.location, o]));
   const machineOverrideMap = new Map(machineOverrides.map((o) => [o.machineId, o]));
@@ -283,6 +411,8 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     let costScrap = 0;
     let costRawMaterial = 0;
 
+    let costTotal = 0;
+
     if (eventType === "slow-cycle") {
       const actual =
         safeNumber(inner?.actual_cycle_time ?? blob?.actual_cycle_time ?? inner?.actualCycleTime ?? blob?.actualCycleTime) ??
@@ -298,9 +428,18 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
       durationSec = Math.max(0, actual - theoretical);
       if (!durationSec) continue;
       const durationMin = durationSec / 60;
-      costMachine = durationMin * (profile.machineCostPerMin ?? 0);
-      costOperator = durationMin * (profile.operatorCostPerMin ?? 0);
-      costEnergy = durationMin * (computeEnergyCostPerMin(profile, "running") ?? 0);
+      const scope = buildFormulaScope(profile, { mode: "running", durationMin });
+      costTotal = Math.max(0, evaluateFormulaValue(formulaSet, "slowCycleTotalCost", scope));
+      const distributed = distributeCost(costTotal, {
+        costMachine: durationMin * (profile.machineCostPerMin ?? 0),
+        costOperator: durationMin * (profile.operatorCostPerMin ?? 0),
+        costEnergy: durationMin * (computeEnergyCostPerMin(profile, "running") ?? 0),
+        costScrap: 0,
+        costRawMaterial: 0,
+      });
+      costMachine = distributed.costMachine;
+      costOperator = distributed.costOperator;
+      costEnergy = distributed.costEnergy;
       category = "slowCycle";
     } else if (eventType === "microstop" || eventType === "macrostop") {
       //future activestoppage handling
@@ -325,9 +464,18 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
       durationSec = isCycleGapStop ? Math.max(0, rawDurationSec - theoreticalSec) : rawDurationSec;
       if (!durationSec || durationSec <= 0) continue;
       const durationMin = durationSec / 60;
-      costMachine = durationMin * (profile.machineCostPerMin ?? 0);
-      costOperator = durationMin * (profile.operatorCostPerMin ?? 0);
-      costEnergy = durationMin * (computeEnergyCostPerMin(profile, "idle") ?? 0);
+      const scope = buildFormulaScope(profile, { mode: "idle", durationMin });
+      costTotal = Math.max(0, evaluateFormulaValue(formulaSet, "downtimeTotalCost", scope));
+      const distributed = distributeCost(costTotal, {
+        costMachine: durationMin * (profile.machineCostPerMin ?? 0),
+        costOperator: durationMin * (profile.operatorCostPerMin ?? 0),
+        costEnergy: durationMin * (computeEnergyCostPerMin(profile, "idle") ?? 0),
+        costScrap: 0,
+        costRawMaterial: 0,
+      });
+      costMachine = distributed.costMachine;
+      costOperator = distributed.costOperator;
+      costEnergy = distributed.costEnergy;
       category = eventType === "macrostop" ? "macrostop" : "microstop";
     } else if (eventType === "quality-spike") {
       if (severity === "info" || status === "resolved") continue;
@@ -339,14 +487,21 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
             blob?.scrapParts
         ) ?? 0;
       if (scrapParts <= 0) continue;
-      costScrap = scrapParts * (profile.scrapCostPerUnit ?? 0);
-      costRawMaterial = scrapParts * (profile.rawMaterialCostPerUnit ?? 0);
+      const scope = buildFormulaScope(profile, { mode: "idle", scrapUnits: scrapParts });
+      costTotal = Math.max(0, evaluateFormulaValue(formulaSet, "scrapTotalCost", scope));
+      const distributed = distributeCost(costTotal, {
+        costMachine: 0,
+        costOperator: 0,
+        costEnergy: 0,
+        costScrap: scrapParts * (profile.scrapCostPerUnit ?? 0),
+        costRawMaterial: scrapParts * (profile.rawMaterialCostPerUnit ?? 0),
+      });
+      costScrap = distributed.costScrap;
+      costRawMaterial = distributed.costRawMaterial;
       category = "scrap";
     }
 
     if (!category) continue;
-
-    const costTotal = costMachine + costOperator + costEnergy + costScrap + costRawMaterial;
     if (costTotal <= 0) continue;
     if (currency && profile.currency !== currency) continue;
 
@@ -414,6 +569,7 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     eventsEvaluated: events.length,
     eventsIncluded,
     events: detailed,
+    diagnostic,
     filters: { machineId, location, sku, currency },
   };
 }

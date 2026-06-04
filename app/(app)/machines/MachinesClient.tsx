@@ -1,10 +1,12 @@
 "use client";
-
 import Link from "next/link";
+import { LayoutGrid, List } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
+import { formatElapsedFromMinutes, formatElapsedSince } from "@/lib/time/elapsed";
+import { avgCycle, rowPulse, type MachinePulseState } from "@/lib/machines/rowPulse";
 
 type MachineRow = {
   id: string;
@@ -19,23 +21,32 @@ type MachineRow = {
     ip?: string | null;
     fwVersion?: string | null;
   };
+  latestKpi?: null | {
+    ts: string;
+    oee?: number | null;
+    cycleTime?: number | null;
+  };
   latestMacrostop?: null | {
     machineId: string;
     ts: string;
     status: "active" | "resolved" | "unknown";
     startedAtMs: number;
   };
+  activeWorkOrder?: null | {
+    id?: string | null;
+    workOrderId: string;
+    sku: string | null;
+    mold: string | null;
+    target: number | null;
+    goodParts: number;
+    scrapParts: number;
+    cycleTime: number | null;
+    stopsCount: number;
+  };
 };
+
 const LIVE_REFRESH_MS = 5000;
 const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
-
-function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
-  if (!ts) return fallback;
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  if (diff < 60) return rtf.format(-diff, "second");
-  return rtf.format(-Math.floor(diff / 60), "minute");
-}
 
 function isOffline(ts?: string) {
   if (!ts) return true;
@@ -72,6 +83,142 @@ function ongoingMacrostopMin(macrostop: MachineRow["latestMacrostop"]) {
   return Math.max(0, Math.floor((Date.now() - macrostop.startedAtMs) / 60000));
 }
 
+function formatInt(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.trunc(value));
+}
+
+function formatOneDecimal(value: number | null | undefined) {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return `${Number(value).toFixed(1)}%`;
+}
+
+type CyclePoint = { actual: number; ideal: number | null; t: number };
+type TFunc = (key: string, params?: Record<string, string | number>) => string;
+
+function machineSortPriority(m: MachineRow): number {
+  const hbTs = m.latestHeartbeat?.tsServer ?? m.latestHeartbeat?.ts;
+  const offline = isOffline(hbTs);
+  const status = normalizeStatus(m.latestHeartbeat?.status);
+  if (isMacrostopActive(m.latestMacrostop)) return 0;
+  if ((status === "STOP" || status === "DOWN") && !offline) return 1;
+  if (status === "IDLE" && !offline) return 2;
+  if (status === "RUN" && !offline) return 3;
+  return 4;
+}
+
+function MachineListRow({ m, t, onNavigate }: { m: MachineRow; t: TFunc; onNavigate: (id: string) => void }) {
+  const [cycles, setCycles] = useState<CyclePoint[]>([]);
+  const [currentState, setCurrentState] = useState<MachinePulseState | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      try {
+        const res = await fetch(`/api/machines/${m.id}?windowSec=3600`, { cache: "no-store" });
+        const data = await res.json();
+        if (alive) {
+          setCycles(data.cycles ?? []);
+          setCurrentState((data.currentState as MachinePulseState | undefined) ?? null);
+        }
+      } catch {}
+    }
+    void load();
+    const interval = setInterval(() => void load(), 60000);
+    return () => { alive = false; clearInterval(interval); };
+  }, [m.id]);
+
+  const hb = m.latestHeartbeat;
+  const hbTs = hb?.tsServer ?? hb?.ts;
+  const offline = isOffline(hbTs);
+  const normalizedStatus = normalizeStatus(hb?.status);
+  const lastSeen = formatElapsedSince(hbTs, t("common.never"), { maxUnits: 2, minUnit: "second" });
+  const macrostopActive = isMacrostopActive(m.latestMacrostop);
+  const stoppedMin = macrostopActive ? ongoingMacrostopMin(m.latestMacrostop) : 0;
+
+  const productionBadgeLabel = offline
+    ? t("machines.status.offline")
+    : macrostopActive
+    ? t("machines.status.stopped")
+    : (normalizedStatus || t("machines.status.unknown"));
+
+  const productionBadgeClass = offline
+    ? "bg-white/10 text-zinc-300"
+    : macrostopActive
+    ? "bg-red-500/20 text-red-200 ring-2 ring-red-500/50 animate-pulse"
+    : badgeClass(normalizedStatus, offline);
+
+  const wo = m.activeWorkOrder ?? null;
+  const cycleTime = wo?.cycleTime ?? m.latestKpi?.cycleTime ?? null;
+  const heartbeatFresh = Boolean(hbTs) && !offline;
+  const heartbeatDotClass = heartbeatFresh ? "bg-emerald-400 animate-pulse" : "bg-red-500 animate-pulse";
+  const heartbeatLabel = heartbeatFresh ? t("machines.status.ok") : t("machines.status.noHeartbeat");
+
+  // Fallback state from local signals while the per-row state fetch is in flight.
+  const fallbackState: MachinePulseState = offline
+    ? "offline"
+    : normalizedStatus === "STOP" || normalizedStatus === "DOWN"
+    ? "stopped"
+    : normalizedStatus === "IDLE"
+    ? "idle"
+    : "running";
+  // A fresh active macrostop is an immediate, strong signal — force urgent red.
+  const effectiveState: MachinePulseState = macrostopActive ? "stopped" : currentState ?? fallbackState;
+  const rowClass = rowPulse(effectiveState, { urgent: macrostopActive });
+
+  return (
+    <tr onClick={() => onNavigate(m.id)} className={`transition ${rowClass}`}>
+      <td className="px-4 py-3">
+        <div className="font-medium text-white">{m.name}</div>
+        <div className="mt-0.5 text-xs text-zinc-400">
+          {m.code || t("common.na")} · {t("machines.lastSeen", { time: lastSeen })}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <span className={`rounded-full px-2.5 py-1 text-xs ${productionBadgeClass}`}>
+          {productionBadgeLabel}
+        </span>
+        {macrostopActive ? (
+          <div className="mt-1 text-xs text-red-200">
+            {t("machines.stoppedFor", {
+              duration: formatElapsedFromMinutes(stoppedMin, { maxUnits: 2 }),
+            })}
+          </div>
+        ) : null}
+      </td>
+      <td className="px-4 py-3 text-right">
+        <span className={`font-medium ${m.latestKpi?.oee == null ? "text-zinc-400" : "text-white"}`}>
+          {formatOneDecimal(m.latestKpi?.oee)}
+        </span>
+      </td>
+      <td className="px-4 py-3 text-right text-zinc-300">{formatInt(wo?.goodParts)}</td>
+      <td className="px-4 py-3 text-right text-zinc-300">{formatInt(wo?.scrapParts)}</td>
+      <td className="px-4 py-3 text-right text-zinc-300">{formatInt(wo?.stopsCount)}</td>
+      <td className="px-4 py-3 text-right text-zinc-300">
+        {cycleTime != null ? `${cycleTime.toFixed(1)}s` : "—"}
+      </td>
+      <td className="px-4 py-3 text-right text-zinc-300">
+        {(() => {
+          const avg = avgCycle(cycles);
+          return avg != null ? `${avg.toFixed(1)}s` : "—";
+        })()}
+      </td>
+      <td className="px-4 py-3">
+        <div className="text-xs text-zinc-200">{wo?.workOrderId || t("common.na")}</div>
+        <div className="mt-0.5 text-xs text-zinc-400">
+          {wo?.sku || t("common.na")} · {wo?.mold || t("common.na")}
+        </div>
+      </td>
+      <td className="px-4 py-3 text-center">
+        <span className="inline-flex items-center gap-1.5 text-xs text-zinc-200">
+          <span className={`inline-block h-2 w-2 rounded-full ${heartbeatDotClass}`} />
+          {heartbeatLabel}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
 export default function MachinesClient({ initialMachines = [] }: { initialMachines?: MachineRow[] }) {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -90,6 +237,12 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
     pairingExpiresAt: string;
   } | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  const sortedMachines = useMemo(
+    () => [...machines].sort((a, b) => machineSortPriority(a) - machineSortPriority(b)),
+    [machines],
+  );
 
   useEffect(() => {
     let alive = true;
@@ -101,7 +254,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
           return;
         }
 
-        const res = await fetch("/api/machines", { cache: "no-store" });
+        const res = await fetch("/api/machines?includeKpi=1", { cache: "no-store" });
         const json = await res.json();
         if (alive) {
           setMachines(json.machines ?? []);
@@ -148,9 +301,12 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
         throw new Error(data.error || t("machines.create.error.failed"));
       }
 
-      const nextMachine = {
+      const nextMachine: MachineRow = {
         ...data.machine,
         latestHeartbeat: null,
+        latestKpi: null,
+        latestMacrostop: null,
+        activeWorkOrder: null,
       };
       setMachines((prev) => [nextMachine, ...prev]);
       setCreatedMachine({
@@ -216,6 +372,24 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
           >
             {t("machines.backOverview")}
           </Link>
+          <div className="flex items-center overflow-hidden rounded-xl border border-white/10">
+            <button
+              type="button"
+              onClick={() => setViewMode("grid")}
+              aria-label={t("machines.view.grid")}
+              className={`p-2 transition ${viewMode === "grid" ? "bg-emerald-500/20 text-emerald-100" : "bg-black/40 text-zinc-400 hover:text-zinc-200"}`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("list")}
+              aria-label={t("machines.view.list")}
+              className={`border-l border-white/10 p-2 transition ${viewMode === "list" ? "bg-emerald-500/20 text-emerald-100" : "bg-black/40 text-zinc-400 hover:text-zinc-200"}`}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -262,15 +436,15 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
               disabled={creating}
               className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
             >
-            {creating ? t("machines.create.loading") : t("machines.create.default")}
-          </button>
+              {creating ? t("machines.create.loading") : t("machines.create.default")}
+            </button>
             {createError && <div className="text-xs text-red-200">{createError}</div>}
           </div>
         </div>
       )}
 
       {createdMachine && (
-      <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
+        <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
           <div className="text-sm font-semibold text-white">{t("machines.pairing.title")}</div>
           <div className="mt-2 text-xs text-zinc-300">
             {t("machines.pairing.machine")} <span className="text-white">{createdMachine.name}</span>
@@ -307,85 +481,137 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
         <div className="mb-4 text-sm text-zinc-400">{t("machines.empty")}</div>
       )}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {(!loading ? machines : []).map((m) => {
-          const hb = m.latestHeartbeat;
-          const hbTs = hb?.tsServer ?? hb?.ts;
-          const offline = isOffline(hbTs);
-          const normalizedStatus = normalizeStatus(hb?.status);
-          const lastSeen = secondsAgo(hbTs, locale, t("common.never"));
+      {viewMode === "grid" ? (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {(!loading ? sortedMachines : []).map((m) => {
+            const hb = m.latestHeartbeat;
+            const hbTs = hb?.tsServer ?? hb?.ts;
+            const offline = isOffline(hbTs);
+            const normalizedStatus = normalizeStatus(hb?.status);
+            const lastSeen = formatElapsedSince(hbTs, t("common.never"), {
+              maxUnits: 2,
+              minUnit: "second",
+            });
 
-          const macrostopActive = isMacrostopActive(m.latestMacrostop);
-          const stoppedMin = macrostopActive ? ongoingMacrostopMin(m.latestMacrostop) : 0;
+            const macrostopActive = isMacrostopActive(m.latestMacrostop);
+            const stoppedMin = macrostopActive ? ongoingMacrostopMin(m.latestMacrostop) : 0;
 
-          // Production-state badge: STOPPED if active macrostop, else heartbeat-based.
-          const productionBadgeLabel = offline
-            ? t("machines.status.offline")
-            : macrostopActive
-            ? t("machines.status.stopped")
-            : (normalizedStatus || t("machines.status.unknown"));
+            // Production-state badge: STOPPED if active macrostop, else heartbeat-based.
+            const productionBadgeLabel = offline
+              ? t("machines.status.offline")
+              : macrostopActive
+              ? t("machines.status.stopped")
+              : (normalizedStatus || t("machines.status.unknown"));
 
-          const productionBadgeClass = offline
-            ? "bg-white/10 text-zinc-300"
-            : macrostopActive
-            ? "bg-red-500/20 text-red-200 ring-2 ring-red-500/50 animate-pulse"
-            : badgeClass(normalizedStatus, offline);
+            const productionBadgeClass = offline
+              ? "bg-white/10 text-zinc-300"
+              : macrostopActive
+              ? "bg-red-500/20 text-red-200 ring-2 ring-red-500/50 animate-pulse"
+              : badgeClass(normalizedStatus, offline);
 
-          const cardClass = macrostopActive
-            ? "cursor-pointer rounded-2xl border border-red-500/60 bg-red-500/10 p-5 ring-2 ring-red-500/40 animate-pulse hover:bg-red-500/15"
-            : "cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10";
+            const cardClass = macrostopActive
+              ? "cursor-pointer rounded-2xl border border-red-500/60 bg-red-500/10 p-5 ring-2 ring-red-500/40 animate-pulse hover:bg-red-500/15"
+              : "cursor-pointer rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10";
 
-          return (
-            <div
-              key={m.id}
-              role="link"
-              tabIndex={0}
-              onClick={() => router.push(`/machines/${m.id}`)}
-              onKeyDown={(event) => handleCardKeyDown(event, m.id)}
-              className={cardClass}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="truncate text-lg font-semibold text-white">{m.name}</div>
-                  <div className="mt-1 text-xs text-zinc-400">
-                    {m.code ? m.code : t("common.na")} - {t("machines.lastSeen", { time: lastSeen })}
-                  </div>
-                  {macrostopActive ? (
-                    <div className="mt-1 text-xs font-semibold text-red-200">
-                      {t("machines.stoppedFor", { min: stoppedMin })}
+            const wo = m.activeWorkOrder ?? null;
+            const cycleTime = wo?.cycleTime ?? m.latestKpi?.cycleTime ?? null;
+            const heartbeatFresh = Boolean(hbTs) && !offline;
+            const heartbeatDotClass = heartbeatFresh
+              ? "bg-emerald-400 animate-pulse"
+              : "bg-red-500 animate-pulse";
+            const heartbeatLabel = heartbeatFresh
+              ? t("machines.status.ok")
+              : t("machines.status.noHeartbeat");
+
+            return (
+              <div
+                key={m.id}
+                role="link"
+                tabIndex={0}
+                onClick={() => router.push(`/machines/${m.id}`)}
+                onKeyDown={(event) => handleCardKeyDown(event, m.id)}
+                className={cardClass}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-lg font-semibold text-white">{m.name}</div>
+                    <div className="mt-1 text-xs text-zinc-400">
+                      {m.code ? m.code : t("common.na")} - {t("machines.lastSeen", { time: lastSeen })}
                     </div>
-                  ) : null}
+                    {macrostopActive ? (
+                      <div className="mt-1 text-xs font-semibold text-red-200">
+                        {t("machines.stoppedFor", {
+                          duration: formatElapsedFromMinutes(stoppedMin, { maxUnits: 2 }),
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <span
+                    className={`shrink-0 rounded-full px-3 py-1 text-xs ${productionBadgeClass}`}
+                  >
+                    {productionBadgeLabel}
+                  </span>
                 </div>
 
-                <span
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs ${productionBadgeClass}`}
-                >
-                  {productionBadgeLabel}
-                </span>
-              </div>
+                <div className="mt-4 flex items-baseline gap-2">
+                  <div className={`text-3xl font-semibold ${m.latestKpi?.oee == null ? "text-zinc-400" : "text-white"}`}>
+                    {formatOneDecimal(m.latestKpi?.oee)}
+                  </div>
+                  <div className="text-xs uppercase tracking-wide text-zinc-400">{t("machines.card.oee")}</div>
+                </div>
 
-              <div className="mt-4 text-sm text-zinc-400">{t("machines.status")}</div>
-              <div className="mt-1 flex items-center gap-2 text-sm font-semibold text-white">
-                {offline ? (
-                  <>
-                    <span className="inline-flex h-2.5 w-2.5 rounded-full bg-zinc-500" aria-hidden="true" />
-                    <span>{t("machines.status.noHeartbeat")}</span>
-                  </>
-                ) : (
-                  <>
-                    <span className="relative flex h-2.5 w-2.5" aria-hidden="true">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-400" />
-                    </span>
-                    <span>{t("machines.status.ok")}</span>
-                  </>
-                )}
-              </div>
+                <div className="mt-2 text-[11px] text-zinc-500">{t("machines.card.scopeWoTotals")}</div>
 
-            </div>
-          );
-        })}
-      </div>
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300">
+                  <span>{t("recap.card.good")}: {formatInt(wo?.goodParts)}</span>
+                  <span>{t("recap.card.scrap")}: {formatInt(wo?.scrapParts)}</span>
+                  <span>{t("recap.card.stops")}: {formatInt(wo?.stopsCount)}</span>
+                  <span>{t("recap.card.cycleTime")}: {cycleTime != null ? cycleTime.toFixed(1) + "s" : "—"}</span>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
+                  <span>{t("machines.card.wo")}: {wo?.id || wo?.workOrderId || t("common.na")}</span>
+                  <span>{t("machines.card.sku")}: {wo?.sku || t("common.na")}</span>
+                  <span>{t("machines.card.mold")}: {wo?.mold || t("common.na")}</span>
+                </div>
+
+                <div className="mt-3 flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2.5 py-2 text-xs">
+                  <span className="text-zinc-400">{t("recap.machine.lastHeartbeat")}</span>
+                  <span className="inline-flex items-center gap-2 text-zinc-200">
+                    <span className={`inline-block h-2.5 w-2.5 rounded-full ${heartbeatDotClass}`} />
+                    {heartbeatLabel}
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/10 bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-500">
+                <th className="px-4 py-3 text-left font-medium">{t("machines.col.machine")}</th>
+                <th className="px-4 py-3 text-left font-medium">{t("machines.status")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("machines.card.oee")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("recap.card.good")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("recap.card.scrap")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("recap.card.stops")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("recap.card.cycleTime")}</th>
+                <th className="px-4 py-3 text-right font-medium">{t("machines.col.avgCycle1h")}</th>
+                <th className="px-4 py-3 text-left font-medium">{t("machines.card.wo")}</th>
+                <th className="px-4 py-3 text-center font-medium">{t("recap.machine.lastHeartbeat")}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {(!loading ? sortedMachines : []).map((m) => (
+                <MachineListRow key={m.id} m={m} t={t} onNavigate={(id) => router.push(`/machines/${id}`)} />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,8 +6,74 @@ import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
 import { normalizeEvent } from "@/lib/events/normalizeEvent";
 import { invalidateMachineAuth } from "@/lib/machineAuthCache";
+import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
+import type { MachinePulseState } from "@/lib/machines/rowPulse";
 
 const machineIdSchema = z.string().uuid();
+
+// Freshness windows for "is this incident still ongoing?" — mirrors recap
+// (lib/recap/redesign.ts detectActiveEpisode / getRecapData mold detection).
+const STOP_ACTIVE_STALE_MS = 2 * 60 * 1000;
+const MOLD_ACTIVE_STALE_MS = 12 * 60 * 60 * 1000;
+
+function eventDataObject(data: unknown): Record<string, unknown> {
+  let parsed: unknown = data;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+function isTruthyFlag(value: unknown) {
+  return value === true || value === "true";
+}
+
+/**
+ * Returns the start (ms) of the freshest still-active incident of `type`, or
+ * null. Groups by incidentKey, ignores auto-ack/update refresh pings, treats a
+ * "resolved" final status as ended, and drops episodes older than `staleMs`.
+ */
+function activeEpisodeStartMs(
+  rows: ReadonlyArray<{ eventType: string | null; ts: Date; data: unknown }>,
+  type: string,
+  nowMs: number,
+  staleMs: number,
+): number | null {
+  const episodes = new Map<string, { firstTsMs: number; lastTsMs: number; lastStatus: string }>();
+  for (const row of rows) {
+    if (String(row.eventType || "").toLowerCase() !== type) continue;
+    const data = eventDataObject(row.data);
+    if (isTruthyFlag(data.is_auto_ack) || isTruthyFlag(data.isAutoAck)) continue;
+    if (isTruthyFlag(data.is_update) || isTruthyFlag(data.isUpdate)) continue;
+    const status = String(data.status ?? "").trim().toLowerCase();
+    const incidentKey =
+      String(data.incidentKey ?? data.incident_key ?? "").trim() || `${type}:${row.ts.getTime()}`;
+    const tsMs = row.ts.getTime();
+    const existing = episodes.get(incidentKey);
+    if (!existing) {
+      episodes.set(incidentKey, { firstTsMs: tsMs, lastTsMs: tsMs, lastStatus: status });
+      continue;
+    }
+    existing.firstTsMs = Math.min(existing.firstTsMs, tsMs);
+    if (tsMs >= existing.lastTsMs) {
+      existing.lastTsMs = tsMs;
+      existing.lastStatus = status;
+    }
+  }
+  let bestStart: number | null = null;
+  let bestTs = -Infinity;
+  for (const ep of episodes.values()) {
+    if (ep.lastStatus === "resolved") continue; // ended
+    if (nowMs - ep.lastTsMs > staleMs) continue; // stale → assume ended
+    if (ep.lastTsMs > bestTs) {
+      bestTs = ep.lastTsMs;
+      bestStart = ep.firstTsMs;
+    }
+  }
+  return bestStart;
+}
 
 const ALLOWED_EVENT_TYPES = new Set([
   "slow-cycle",
@@ -323,9 +389,37 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
     return bt - at;
   });
 
+  // Derive the machine's current state so list views can pulse the row in the
+  // matching color (blue mold-change, red stop, orange microstop, dark idle).
+  // Precedence mirrors recap: offline > mold-change > stopped > microstop > running > idle.
+  const nowMs = Date.now();
+  const hbTs = machine.latestHeartbeat?.tsServer ?? machine.latestHeartbeat?.ts ?? null;
+  const hbStatus = String(machine.latestHeartbeat?.status ?? "").toUpperCase();
+  const offline = !hbTs || nowMs - new Date(hbTs).getTime() > RECAP_HEARTBEAT_STALE_MS;
+
+  const moldStartMs = activeEpisodeStartMs(rawEvents, "mold-change", nowMs, MOLD_ACTIVE_STALE_MS);
+  // A mold change is over once production resumes after it started.
+  const moldOngoing = moldStartMs != null && !cyclesOut.some((c) => c.t > moldStartMs);
+  const macroActive = activeEpisodeStartMs(rawEvents, "macrostop", nowMs, STOP_ACTIVE_STALE_MS) != null;
+  const microActive =
+    activeEpisodeStartMs(rawEvents, "microstop", nowMs, STOP_ACTIVE_STALE_MS) != null ||
+    activeEpisodeStartMs(rawEvents, "slow-cycle", nowMs, STOP_ACTIVE_STALE_MS) != null;
+  const lastCycleMs = cyclesOut.length ? cyclesOut[cyclesOut.length - 1].t : null;
+  const producingRecently = lastCycleMs != null && nowMs - lastCycleMs < 15 * 60 * 1000;
+
+  let currentState: MachinePulseState;
+  if (offline) currentState = "offline";
+  else if (moldOngoing) currentState = "mold-change";
+  else if (macroActive || hbStatus === "STOP" || hbStatus === "DOWN") currentState = "stopped";
+  else if (microActive) currentState = "microstop";
+  else if (hbStatus === "IDLE") currentState = "idle";
+  else if (hbStatus === "RUN" || hbStatus === "ONLINE" || producingRecently) currentState = "running";
+  else currentState = "idle";
+
   return NextResponse.json({
     ok: true,
     machine,
+    currentState,
     events: deduped,
     eventsCountAll,
     cycles: cyclesOut,

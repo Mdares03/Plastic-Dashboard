@@ -2,6 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import {
+  FINANCIAL_FORMULA_DEFAULTS,
+  FINANCIAL_FORMULA_KEYS,
+  FINANCIAL_FORMULA_LABELS,
+  FINANCIAL_FORMULA_VARIABLES,
+  validateFinancialExpression,
+  type FinancialFormulaKey,
+} from "@/lib/financial/formulas";
 
 type OrgProfile = {
   orgId: string;
@@ -15,6 +23,7 @@ type OrgProfile = {
   energyCostPerMin?: number | null;
   scrapCostPerUnit?: number | null;
   rawMaterialCostPerUnit?: number | null;
+  formulasJson?: Record<string, string> | null;
 };
 
 type LocationOverride = {
@@ -133,6 +142,14 @@ function parseNumber(input: string) {
   return Number.isFinite(n) ? n : null;
 }
 
+function initialFormulaRows() {
+  const rows = {} as Record<FinancialFormulaKey, string>;
+  for (const key of FINANCIAL_FORMULA_KEYS) {
+    rows[key] = "";
+  }
+  return rows;
+}
+
 export function FinancialCostConfig() {
   const { t } = useI18n();
   const [role, setRole] = useState<string | null>(null);
@@ -156,6 +173,9 @@ export function FinancialCostConfig() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [formulaRows, setFormulaRows] = useState<Record<FinancialFormulaKey, string>>(() => initialFormulaRows());
+  const [formulaErrors, setFormulaErrors] = useState<Partial<Record<FinancialFormulaKey, string>>>({});
+  const [showFormulaEditor, setShowFormulaEditor] = useState(false);
 
   const locations = useMemo(() => {
     const seen = new Set<string>();
@@ -199,6 +219,7 @@ export function FinancialCostConfig() {
         const costsJson = await costsRes.json().catch(() => ({}));
         if (!alive) return;
         setMachines(machinesJson.machines ?? []);
+        setFormulaErrors({});
         setConfig({
           org: costsJson.org ?? null,
           locations: costsJson.locations ?? [],
@@ -233,6 +254,19 @@ export function FinancialCostConfig() {
       scrapCostPerUnit: toFieldValue(org?.scrapCostPerUnit),
       rawMaterialCostPerUnit: toFieldValue(org?.rawMaterialCostPerUnit),
     });
+
+    const formulasRaw =
+      org?.formulasJson && typeof org.formulasJson === "object"
+        ? (org.formulasJson as Record<string, string>)
+        : {};
+    const nextFormulaRows = initialFormulaRows();
+    for (const key of FINANCIAL_FORMULA_KEYS) {
+      const value = formulasRaw[key];
+      nextFormulaRows[key] = typeof value === "string" ? value : "";
+    }
+    setFormulaRows(nextFormulaRows);
+    setFormulaErrors({});
+    setShowFormulaEditor(false);
 
     setLocationRows(
       (config.locations ?? []).map((row) => ({
@@ -295,6 +329,33 @@ export function FinancialCostConfig() {
       rawMaterialCostPerUnit: parseNumber(orgForm.rawMaterialCostPerUnit),
     };
 
+    const nextFormulaErrors: Partial<Record<FinancialFormulaKey, string>> = {};
+    const formulaPayload: Record<string, string> = {};
+
+    for (const key of FINANCIAL_FORMULA_KEYS) {
+      const expression = formulaRows[key].trim();
+      if (!expression) continue;
+      const error = validateFinancialExpression(expression);
+      if (error) {
+        nextFormulaErrors[key] = error;
+      } else {
+        formulaPayload[key] = expression;
+      }
+    }
+
+    setFormulaErrors(nextFormulaErrors);
+    if (Object.keys(nextFormulaErrors).length > 0) {
+      setShowFormulaEditor(true);
+      setSaveStatus("Hay fórmulas inválidas. Corrige los errores y vuelve a guardar.");
+      setSaving(false);
+      return;
+    }
+
+    const orgPayloadWithFormulas = {
+      ...orgPayload,
+      formulas: Object.keys(formulaPayload).length > 0 ? formulaPayload : null,
+    };
+
     const locationPayload = locationRows
       .filter((row) => row.location)
       .map((row) => ({
@@ -340,7 +401,7 @@ export function FinancialCostConfig() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          org: orgPayload,
+          org: orgPayloadWithFormulas,
           locations: locationPayload,
           machines: machinePayload,
           products: productPayload,
@@ -348,8 +409,16 @@ export function FinancialCostConfig() {
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) {
+        const serverFormulaErrors = json?.formulaErrors && typeof json.formulaErrors === "object"
+          ? (json.formulaErrors as Partial<Record<FinancialFormulaKey, string>>)
+          : null;
+        if (serverFormulaErrors) {
+          setFormulaErrors(serverFormulaErrors);
+          setShowFormulaEditor(true);
+        }
         setSaveStatus(json?.error ?? t("financial.config.saveFailed"));
       } else {
+        setFormulaErrors({});
         setConfig({
           org: json.org ?? null,
           locations: json.locations ?? [],
@@ -367,6 +436,11 @@ export function FinancialCostConfig() {
 
   function updateOrgField(key: CostFieldKey, value: string) {
     setOrgForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function updateFormulaField(key: FinancialFormulaKey, value: string) {
+    setFormulaRows((prev) => ({ ...prev, [key]: value }));
+    setFormulaErrors((prev) => ({ ...prev, [key]: undefined }));
   }
 
   function updateLocationRow(id: string, key: keyof OverrideForm, value: string) {
@@ -509,6 +583,52 @@ export function FinancialCostConfig() {
               </label>
             ))}
           </div>
+
+          <details className="mt-5 rounded-xl border border-white/10 bg-black/30 p-3">
+            <summary className="cursor-pointer text-sm font-semibold text-white">Fórmulas avanzadas</summary>
+            <p className="mt-2 text-xs text-zinc-400">Sobrescriben los cálculos por defecto. Editar con precaución.</p>
+
+            {!showFormulaEditor ? (
+              <button
+                type="button"
+                onClick={() => setShowFormulaEditor(true)}
+                className="mt-3 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 hover:bg-amber-500/20"
+              >
+                Mostrar editor
+              </button>
+            ) : null}
+
+            {showFormulaEditor ? (
+              <div className="mt-4 space-y-3">
+                {FINANCIAL_FORMULA_KEYS.map((key) => (
+                  <label key={key} className="block text-xs text-zinc-300">
+                    {FINANCIAL_FORMULA_LABELS[key]}
+                    <textarea
+                      rows={2}
+                      className="mt-2 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 font-mono text-xs text-zinc-200"
+                      value={formulaRows[key]}
+                      onChange={(event) => updateFormulaField(key, event.target.value)}
+                      placeholder={FINANCIAL_FORMULA_DEFAULTS[key]}
+                    />
+                    {formulaErrors[key] ? (
+                      <div className="mt-1 text-[11px] text-red-300">{formulaErrors[key]}</div>
+                    ) : null}
+                  </label>
+                ))}
+
+                <div className="rounded-lg border border-white/10 bg-black/40 p-3">
+                  <div className="text-[11px] text-zinc-400">Variables válidas:</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {FINANCIAL_FORMULA_VARIABLES.map((name) => (
+                      <code key={name} className="rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-zinc-300">
+                        {name}
+                      </code>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </details>
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/20 p-4 space-y-4">

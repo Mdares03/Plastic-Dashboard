@@ -21,6 +21,7 @@ type AlertRule = {
 
 type AlertPolicy = {
   version: number;
+  enabled?: boolean;
   defaults: Record<RoleName, RoleRule>;
   rules: AlertRule[];
 };
@@ -159,6 +160,10 @@ export function AlertsConfig() {
       return policyDraft.rules[0].eventType;
     });
   }, [policyDraft]);
+
+  function updatePolicyEnabled(enabled: boolean) {
+    setPolicyDraft((prev) => (prev ? { ...prev, enabled } : prev));
+  }
 
   function updatePolicyDefaults(role: RoleName, patch: Partial<RoleRule>) {
     setPolicyDraft((prev) => {
@@ -383,7 +388,45 @@ export function AlertsConfig() {
             </div>
           )}
 
-          <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+          {(() => {
+            const masterOn = policyDraft.enabled !== false;
+            return (
+              <div
+                className={`mb-5 flex items-center justify-between gap-4 rounded-xl border p-4 ${
+                  masterOn
+                    ? "border-emerald-500/30 bg-emerald-500/10"
+                    : "border-amber-500/30 bg-amber-500/10"
+                }`}
+              >
+                <div>
+                  <div className="text-sm font-semibold text-white">
+                    {t("alerts.policy.masterTitle")}
+                  </div>
+                  <div className="text-xs text-zinc-300">
+                    {masterOn
+                      ? t("alerts.policy.masterOnHelp")
+                      : t("alerts.policy.masterOffHelp")}
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-semibold text-white">
+                  <span>{masterOn ? t("alerts.policy.masterOn") : t("alerts.policy.masterOff")}</span>
+                  <input
+                    type="checkbox"
+                    checked={masterOn}
+                    onChange={(event) => updatePolicyEnabled(event.target.checked)}
+                    disabled={!canEdit}
+                    className="h-5 w-5 rounded border border-white/20 bg-black/20"
+                  />
+                </label>
+              </div>
+            );
+          })()}
+
+          <div
+            className={`rounded-xl border border-white/10 bg-black/20 p-4 ${
+              policyDraft.enabled === false ? "opacity-50" : ""
+            }`}
+          >
             <div className="mb-3 text-xs text-zinc-400">{t("alerts.policy.defaults")}</div>
             <div className="mb-4 text-xs text-zinc-500">{t("alerts.policy.defaultsHelp")}</div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 import {
   Bar,
   CartesianGrid,
@@ -30,6 +31,11 @@ type ApiParetoRow = {
 
 type ApiParetoRes = {
   ok: boolean;
+  excludeUnclassified?: boolean;
+  totalMinutesAll?: number;
+  totalMinutesClassified?: number;
+  excludedUnclassifiedMinutes?: number;
+  excludedUnclassifiedPct?: number;
   error?: string;
   orgId?: string;
   machineId?: string | null;
@@ -76,6 +82,14 @@ type ApiDowntimeEvent = {
 
 type ApiDowntimeEventsRes = {
   ok: boolean;
+  excludeUnclassified?: boolean;
+  totalEventsAll?: number;
+  totalEventsClassified?: number;
+  excludedUnclassifiedEvents?: number;
+  excludedUnclassifiedPct?: number;
+  totalMinutesAll?: number;
+  totalMinutesClassified?: number;
+  excludedUnclassifiedMinutes?: number;
   error?: string;
   orgId?: string;
   range?: "24h" | "7d" | "30d";
@@ -270,9 +284,8 @@ function fmtPct(pct: number, digits = 0) {
   return `${fmtNum(pct, digits)}%`;
 }
 
-function fmtHoursFromMinutes(min: number) {
-  const hrs = min / 60;
-  return hrs >= 10 ? `${fmtNum(hrs, 0)} hrs` : `${fmtNum(hrs, 1)} hrs`;
+function fmtDurationFromMinutes(min: number | null | undefined) {
+  return formatElapsedFromMinutes(min, { maxUnits: 2 });
 }
 
 function cn(...xs: Array<string | false | null | undefined>) {
@@ -397,7 +410,7 @@ function ReasonDrawer({
                   {metric === "minutes" ? "Downtime" : "Stops"}
                 </div>
                 <div className="mt-2 text-2xl font-semibold text-white">
-                  {metric === "minutes" ? `${fmtNum(row.value, 1)} min` : fmtNum(row.value, 0)}
+                  {metric === "minutes" ? fmtDurationFromMinutes(row.value) : fmtNum(row.value, 0)}
                 </div>
                 <div className="mt-1 text-xs text-zinc-400">{fmtPct(row.pctOfTotal, 1)} share</div>
               </div>
@@ -406,7 +419,7 @@ function ReasonDrawer({
                 <div className="text-xs text-zinc-400">Stops</div>
                 <div className="mt-2 text-2xl font-semibold text-white">{fmtNum(row.count, 0)}</div>
                 <div className="mt-1 text-xs text-zinc-400">
-                  {avgMin == null ? "Avg duration —" : `Avg ${fmtNum(avgMin, 1)} min`}
+                  {avgMin == null ? "Avg duration —" : `Avg ${fmtDurationFromMinutes(avgMin)}`}
                 </div>
               </div>
             </div>
@@ -640,7 +653,7 @@ function Heatmap({
               const title = `${DAY_LABELS[dayIdx]} ${String(hour).padStart(2, "0")}:00–${String(
                 (hour + 1) % 24
               ).padStart(2, "0")}:00\n${
-                metric === "minutes" ? `${fmtNum(v, 1)} min` : `${fmtNum(v, 0)} stops`
+                metric === "minutes" ? fmtDurationFromMinutes(v) : `${fmtNum(v, 0)} stops`
               }\n${c.label}`;
 
               return (
@@ -686,7 +699,7 @@ function Heatmap({
             {events.length === 0
               ? "No events loaded for this scope"
               : hasData
-              ? `Max cell: ${metric === "minutes" ? `${fmtNum(max, 1)} min` : `${fmtNum(max, 0)} stops`}`
+              ? `Max cell: ${metric === "minutes" ? fmtDurationFromMinutes(max) : `${fmtNum(max, 0)} stops`}`
               : "Events loaded, but no usable durations/endAt yet"}
           </div>
         </div>
@@ -1288,6 +1301,7 @@ export default function DowntimePageClient() {
   const shift = (sp.get("shift") || "all").toUpperCase();
   const planned = (sp.get("planned") as "all" | "planned" | "unplanned") || "all";
   const microstopLtMin = sp.get("microstopLtMin") || "2";
+  const excludeUnclassified = sp.get("excludeUnclassified") === "1";
 
   const hmDay = sp.get("hmDay");
   const hmHour = sp.get("hmHour");
@@ -1357,6 +1371,7 @@ export default function DowntimePageClient() {
         qs.set("shift", shift);
         qs.set("planned", planned);
         qs.set("microstopLtMin", microstopLtMin);
+        if (excludeUnclassified) qs.set("excludeUnclassified", "1");
 
         const r1 = await fetch(`/api/analytics/pareto?${qs.toString()}`, {
           cache: "no-cache",
@@ -1389,7 +1404,7 @@ export default function DowntimePageClient() {
       alive = false;
       ac.abort();
     };
-  }, [range, machineId, shift, planned, microstopLtMin]);
+  }, [range, machineId, shift, planned, microstopLtMin, excludeUnclassified]);
 
   useEffect(() => {
     let alive = true;
@@ -1442,6 +1457,7 @@ export default function DowntimePageClient() {
             qs.set("shift", shift);
             qs.set("planned", planned);
             qs.set("microstopLtMin", microstopLtMin);
+            if (excludeUnclassified) qs.set("excludeUnclassified", "1");
             if (eventsBefore) qs.set("before", eventsBefore);
 
             const r = await fetch(`/api/analytics/downtime-events?${qs.toString()}`, {
@@ -1474,7 +1490,7 @@ export default function DowntimePageClient() {
             alive = false;
             ac.abort();
         };
-        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, eventsLimit, eventsBefore]);
+        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified, eventsLimit, eventsBefore]);
 
   // Derived data
   const events = eventsRes?.events ?? [];
@@ -1489,8 +1505,13 @@ export default function DowntimePageClient() {
       start: eventsRes?.start ?? normalized?.start,
       orgId: eventsRes?.orgId ?? normalized?.orgId,
       machineId: eventsRes?.machineId ?? normalized?.machineId ?? null,
+      totalMinutesAll: eventsRes?.totalMinutesAll,
+      totalMinutesClassified: eventsRes?.totalMinutesClassified,
+      excludedUnclassifiedMinutes: eventsRes?.excludedUnclassifiedMinutes,
+      excludedUnclassifiedPct: eventsRes?.excludedUnclassifiedPct,
+      excludeUnclassified: eventsRes?.excludeUnclassified,
     };
-  }, [pareto, events, eventsRes?.orgId, eventsRes?.machineId, eventsRes?.range, eventsRes?.start]);
+  }, [pareto, events, eventsRes?.orgId, eventsRes?.machineId, eventsRes?.range, eventsRes?.start, eventsRes?.totalMinutesAll, eventsRes?.totalMinutesClassified, eventsRes?.excludedUnclassifiedMinutes, eventsRes?.excludedUnclassifiedPct, eventsRes?.excludeUnclassified]);
   const usingEventsFallback = (paretoEffective?.rows?.length ?? 0) > 0 && (pareto?.rows?.length ?? 0) === 0 && events.length > 0;
 
   const baseRows = paretoEffective?.rows ?? [];
@@ -1530,6 +1551,19 @@ export default function DowntimePageClient() {
     [baseRows]
   );
 
+  const totalMinutesAll = paretoEffective?.totalMinutesAll ?? totalMinutes;
+  const totalMinutesClassified = paretoEffective?.totalMinutesClassified ?? totalMinutes;
+  const excludedUnclassifiedMinutes =
+    paretoEffective?.excludedUnclassifiedMinutes ?? Math.max(0, totalMinutesAll - totalMinutesClassified);
+  const excludedUnclassifiedPct =
+    paretoEffective?.excludedUnclassifiedPct ??
+    (totalMinutesAll > 0 ? (excludedUnclassifiedMinutes / totalMinutesAll) * 100 : 0);
+
+  const totalEventsAll = eventsRes?.totalEventsAll ?? totalStops;
+  const totalEventsClassified = eventsRes?.totalEventsClassified ?? totalStops;
+  const excludedUnclassifiedEvents =
+    eventsRes?.excludedUnclassifiedEvents ?? Math.max(0, totalEventsAll - totalEventsClassified);
+
   const top3Share = useMemo(() => {
     const top3 = metricRowsAll.slice(0, 3);
     return top3.reduce((acc, r) => acc + (r.pctOfTotal ?? 0), 0);
@@ -1558,11 +1592,11 @@ export default function DowntimePageClient() {
     }));
   }, [metricRowsAll]);
 
-const totalDowntimeMin = paretoEffective?.totalMinutesLost ?? 0;
+const totalDowntimeMin = totalMinutes;
 
 useEffect(() => {
   setEventsBefore(null);
-}, [range, machineId, reasonCode, shift, planned, microstopLtMin]);
+}, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified]);
 
 const filteredEvents = useMemo(() => {
   let list = events;
@@ -1626,7 +1660,14 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
     "pctOfTotal",
     "cumulativePct",
     ];
-    const lines = [header.join(",")];
+    const lines = [
+      `# excludeUnclassified=${excludeUnclassified ? 1 : 0}`,
+      `# totalMinutesAll=${totalMinutesAll}`,
+      `# totalMinutesClassified=${totalMinutesClassified}`,
+      `# excludedUnclassifiedMinutes=${excludedUnclassifiedMinutes}`,
+      `# excludedUnclassifiedPct=${excludedUnclassifiedPct}`,
+      header.join(","),
+    ];
 
     rows.forEach((r) => {
       const v = metric === "minutes" ? (r.value ?? 0) : (r.value ?? 0);
@@ -1781,6 +1822,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                 shift: "all",
                 planned: "all",
                 microstopLtMin: "2",
+                excludeUnclassified: null,
                 reasonCode: null,
                 mxnPerMin: null,
             })
@@ -1823,6 +1865,20 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
             />
             <span className="text-zinc-400">min</span>
         </div>
+
+        <button
+          onClick={() =>
+            setParams({ excludeUnclassified: excludeUnclassified ? null : "1" })
+          }
+          className={cn(
+            "h-9 rounded-xl border px-3 text-xs",
+            excludeUnclassified
+              ? "border-amber-500/30 bg-amber-500/15 text-amber-100"
+              : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
+          )}
+        >
+          Exclude unclassified
+        </button>
         </div>
     </div>
     );
@@ -1845,7 +1901,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
           <div>
             Value:{" "}
             <span className="text-white">
-              {metric === "minutes" ? `${fmtNum(p.value, 1)} min` : fmtNum(p.value, 0)}
+              {metric === "minutes" ? fmtDurationFromMinutes(p.value) : fmtNum(p.value, 0)}
             </span>
           </div>
           <div>
@@ -1982,12 +2038,25 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
               Events list unavailable: {eventsErr}
             </div>
           ) : null}
+
+          {excludeUnclassified ? (
+            <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+              <div className="font-semibold">Filtered view: excluding UNCLASSIFIED / UNKNOWN</div>
+              <div className="mt-1 text-xs text-amber-200">
+                All downtime: {fmtDurationFromMinutes(totalMinutesAll)} · Classified: {fmtDurationFromMinutes(totalMinutesClassified)} · Excluded unclassified: {fmtDurationFromMinutes(excludedUnclassifiedMinutes)} ({fmtPct(excludedUnclassifiedPct, 1)})
+              </div>
+              <div className="mt-1 text-xs text-amber-300/90">
+                Events all: {fmtNum(totalEventsAll, 0)} · Classified events: {fmtNum(totalEventsClassified, 0)} · Excluded events: {fmtNum(excludedUnclassifiedEvents, 0)}
+              </div>
+            </div>
+          ) : null}
+
           {/* KPI strip */}
           <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-8">
             <KPI
                 label="Total downtime"
-                value={fmtHoursFromMinutes(totalDowntimeMin)}
-                sub={`${fmtNum(totalDowntimeMin, 1)} min`}
+                value={fmtDurationFromMinutes(totalDowntimeMin)}
+                sub={`${fmtDurationFromMinutes(totalDowntimeMin)} total`}
                 accent="emerald"
             />
             <KPI
@@ -2004,12 +2073,12 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
             />
             <KPI
                 label="MTBF"
-                value={stops > 0 ? `${fmtNum(mtbfHours, 1)} hrs` : "—"}
+                value={stops > 0 ? fmtDurationFromMinutes(mtbfHours * 60) : "—"}
                 sub="Proxy (window-based)"
             />
             <KPI
                 label="MTTR"
-                value={stops > 0 ? `${fmtNum(mttrMin, 1)} min` : "—"}
+                value={stops > 0 ? fmtDurationFromMinutes(mttrMin) : "—"}
                 sub="Avg stop duration"
             />
             <KPI
@@ -2265,9 +2334,9 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                 <thead className="border-b border-white/10 text-[11px] text-zinc-500">
                   <tr>
                     <th className="px-4 py-3">Reason</th>
-                    <th className="px-4 py-3 text-right">Downtime (min)</th>
+                    <th className="px-4 py-3 text-right">Downtime</th>
                     <th className="px-4 py-3 text-right">Stops</th>
-                    <th className="px-4 py-3 text-right">Avg (min)</th>
+                    <th className="px-4 py-3 text-right">Avg duration</th>
                     <th className="px-4 py-3 text-right">% share</th>
                     <th className="px-4 py-3 text-right">Cum %</th>
                   </tr>
@@ -2294,11 +2363,11 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                           <div className="mt-1 text-[11px] text-zinc-500">{r.reasonCode}</div>
                         </td>
                         <td className="px-4 py-3 text-right text-white">
-                          {r.minutesLost != null ? fmtNum(r.minutesLost, 1) : "—"}
+                          {r.minutesLost != null ? fmtDurationFromMinutes(r.minutesLost) : "—"}
                         </td>
                         <td className="px-4 py-3 text-right text-white">{fmtNum(r.count, 0)}</td>
                         <td className="px-4 py-3 text-right text-zinc-200">
-                          {avg == null ? "—" : fmtNum(avg, 1)}
+                          {avg == null ? "—" : fmtDurationFromMinutes(avg)}
                         </td>
                         <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.pctOfTotal, 1)}</td>
                         <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.cumulativePct, 0)}</td>
@@ -2457,7 +2526,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                             </td>
                             <td className="px-4 py-3 text-zinc-200">{e.workOrderId ?? "—"}</td>
                             <td className="px-4 py-3 text-right text-white">
-                            {durMin == null ? "—" : `${fmtNum(durMin, 1)} min`}
+                            {durMin == null ? "—" : fmtDurationFromMinutes(durMin)}
                             </td>
                             <td className="px-4 py-3 text-right text-[11px] text-zinc-500">
                             {e.episodeId ?? "—"}

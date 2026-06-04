@@ -3,21 +3,13 @@
 import Link from "next/link";
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatElapsedSinceWithAgo } from "@/lib/time/elapsed";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
 import type { EventRow, Heartbeat, MachineRow } from "./types";
 
 const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
 const MAX_EVENT_MACHINES = 6;
 const OverviewTimeline = lazy(() => import("./OverviewTimeline"));
-
-function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
-  if (!ts) return fallback;
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  if (diff < 60) return rtf.format(-diff, "second");
-  if (diff < 3600) return rtf.format(-Math.floor(diff / 60), "minute");
-  return rtf.format(-Math.floor(diff / 3600), "hour");
-}
 
 function isOffline(ts?: string) {
   if (!ts) return true;
@@ -350,7 +342,7 @@ export default function OverviewClient({
                   {e.title}
                 </div>
                 <div className="shrink-0 text-zinc-500">
-                  {secondsAgo(e.ts, locale, t("common.never"))}
+                  {formatElapsedSinceWithAgo(e.ts, locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}
                 </div>
               </div>
             ))}
@@ -406,7 +398,7 @@ export default function OverviewClient({
                       </div>
                     </div>
                     <div className="text-xs text-zinc-400">
-                      {secondsAgo(heartbeatTime(machine.latestHeartbeat), locale, t("common.never"))}
+                      {formatElapsedSinceWithAgo(heartbeatTime(machine.latestHeartbeat), locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">

@@ -12,6 +12,7 @@ import {
   getFinancialConfig,
   type FinancialConfigPayload,
 } from "@/lib/financial/cache";
+import { FINANCIAL_FORMULA_KEYS, validateFinancialExpression } from "@/lib/financial/formulas";
 
 function canManageFinancials(role?: string | null) {
   return role === "OWNER";
@@ -56,6 +57,7 @@ const numericFields = {
 const orgSchema = z
   .object({
     defaultCurrency: z.string().trim().min(1).max(8).optional(),
+    formulas: z.record(z.string(), z.string().trim().min(1).max(400)).optional().nullable(),
     ...numericFields,
   })
   .strict();
@@ -92,6 +94,40 @@ const payloadSchema = z
     products: z.array(productSchema).optional(),
   })
   .strict();
+
+function validateFormulasInput(formulas: Record<string, unknown> | null | undefined) {
+  if (formulas == null) {
+    return { normalized: null as Record<string, string> | null, errors: {} as Record<string, string> };
+  }
+
+  const normalized: Record<string, string> = {};
+  const errors: Record<string, string> = {};
+  const allowed = new Set(FINANCIAL_FORMULA_KEYS);
+
+  for (const [rawKey, rawValue] of Object.entries(formulas)) {
+    const key = String(rawKey).trim();
+    if (!allowed.has(key as (typeof FINANCIAL_FORMULA_KEYS)[number])) {
+      errors[key] = "Formula key is not allowed";
+      continue;
+    }
+
+    const value = String(rawValue ?? "").trim();
+    if (!value) {
+      errors[key] = "Expression cannot be empty";
+      continue;
+    }
+
+    const error = validateFinancialExpression(value);
+    if (error) {
+      errors[key] = error;
+      continue;
+    }
+
+    normalized[key] = value;
+  }
+
+  return { normalized, errors };
+}
 
 async function ensureOrgFinancialProfile(
   tx: Prisma.TransactionClient,
@@ -192,6 +228,14 @@ export async function POST(req: Request) {
   }
 
   const data = parsed.data;
+  const formulaValidation = validateFormulasInput(data.org?.formulas);
+  if (Object.keys(formulaValidation.errors).length > 0) {
+    return NextResponse.json(
+      { ok: false, error: "Invalid formulas", formulaErrors: formulaValidation.errors },
+      { status: 400 }
+    );
+  }
+
 
   await prisma.$transaction(async (tx) => {
     await ensureOrgFinancialProfile(tx, session.orgId, session.userId);
@@ -208,6 +252,12 @@ export async function POST(req: Request) {
         energyCostPerMin: data.org.energyCostPerMin,
         scrapCostPerUnit: data.org.scrapCostPerUnit,
         rawMaterialCostPerUnit: data.org.rawMaterialCostPerUnit,
+        formulasJson:
+          data.org.formulas === undefined
+            ? undefined
+            : formulaValidation.normalized && Object.keys(formulaValidation.normalized).length > 0
+              ? (formulaValidation.normalized as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
         updatedBy: session.userId,
       });
 
@@ -306,4 +356,8 @@ export async function POST(req: Request) {
 
   const payload = await getFinancialConfig(session.orgId, { refresh: true });
   return NextResponse.json({ ok: true, ...payload });
+}
+
+export async function PATCH(req: Request) {
+  return POST(req);
 }

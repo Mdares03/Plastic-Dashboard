@@ -38,9 +38,14 @@ type ImpactSummary = {
   }>;
 };
 
-type ImpactResponse = {
+export type ImpactResponse = {
   ok: boolean;
   currencySummaries: ImpactSummary[];
+  diagnostic?: {
+    code?: string;
+    message?: string;
+    recoverable?: boolean;
+  };
 };
 
 function formatMoney(value: number, currency: string, locale: string) {
@@ -60,15 +65,20 @@ export default function FinancialClient({
   initialRole = null,
   initialMachines = [],
   initialImpact = null,
+  initialDiagnostic = null,
 }: {
   initialRole?: string | null;
   initialMachines?: MachineRow[];
   initialImpact?: ImpactResponse | null;
+  initialDiagnostic?: string | null;
 }) {
   const { locale, t } = useI18n();
   const [role, setRole] = useState<string | null>(initialRole);
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
   const [impact, setImpact] = useState<ImpactResponse | null>(initialImpact);
+  const [diagnosticMessage, setDiagnosticMessage] = useState<string | null>(
+    initialDiagnostic ?? initialImpact?.diagnostic?.message ?? null
+  );
   const [range, setRange] = useState("7d");
   const [machineFilter, setMachineFilter] = useState("");
   const [locationFilter, setLocationFilter] = useState("");
@@ -170,9 +180,13 @@ export default function FinancialClient({
         });
         const json = await res.json().catch(() => ({}));
         if (!alive) return;
-        setImpact(json);
+        setImpact(json as ImpactResponse);
+        setDiagnosticMessage(typeof json?.diagnostic?.message === "string" ? json.diagnostic.message : null);
       } catch {
-        if (alive) setImpact(null);
+        if (alive) {
+          setImpact(null);
+          setDiagnosticMessage(null);
+        }
       } finally {
         if (forceRefresh) forceRefreshRef.current = false;
       }
@@ -255,6 +269,14 @@ export default function FinancialClient({
         </Link>
         .
       </div>
+
+      {diagnosticMessage && (
+        <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="font-semibold">{t("financial.diagnostic.title")}</div>
+          <div className="mt-1 text-amber-100/90">{diagnosticMessage}</div>
+          <div className="mt-1 text-amber-200/80">{t("financial.diagnostic.hint")}</div>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-4">
         {(impact?.currencySummaries ?? []).slice(0, 4).map((summary) => (

@@ -115,9 +115,12 @@ node -e 'const {PrismaClient}=require("@prisma/client");const p=new PrismaClient
 **When deploying** (e.g. for `https://mis.maliountech.com.mx`):
 
 1. **Build:** Run `npm run build` (Webpack).
-2. **Start:** Run `npm run start` (or your process manager) to serve the built app.
-3. If you previously built with Turbopack, run `rm -rf .next` then `npm run build` for a clean Webpack build.
-4. Hard-refresh the browser (or clear site data) after redeploying so clients don’t load old Turbopack chunks.
+2. **Migrate (required):** Run `npm run prisma:migrate:deploy` and confirm it exits successfully before restart.
+3. **Start/Restart:** Run `npm run start` (or your process manager such as `sudo systemctl restart mis-control-tower`) to serve the built app.
+4. **Schema drift check:** Verify `_prisma_migrations` includes `20260519190000_add_org_financial_formulas` after deploy.
+5. **Smoke check:** Open `/financial` as an OWNER user and confirm the page renders (no "Something went wrong").
+6. If you previously built with Turbopack, run `rm -rf .next` then `npm run build` for a clean Webpack build.
+7. Hard-refresh the browser (or clear site data) after redeploying so clients don’t load old Turbopack chunks.
 
 ## Logging and debugging
 

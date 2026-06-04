@@ -692,15 +692,15 @@ export async function POST(req: Request) {
               reasonId,
               kind: "downtime",
               episodeId: incidentKey,
-              durationSeconds: durationSeconds != null ? Math.max(0, Math.trunc(durationSeconds)) : null,
+              durationSeconds: Math.max(0, Math.trunc(durationSeconds ?? 0)),
               episodeEndTs: episodeEndTsMs != null ? new Date(episodeEndTsMs) : null,
               ...guardedWrite,
             },
             update: {
               kind: "downtime",
               episodeId: incidentKey,
-              durationSeconds: durationSeconds != null ? Math.max(0, Math.trunc(durationSeconds)) : null,
-              episodeEndTs: episodeEndTsMs != null ? new Date(episodeEndTsMs) : null,
+              ...(durationSeconds != null ? { durationSeconds: Math.max(0, Math.trunc(durationSeconds)) } : {}),
+              ...(episodeEndTsMs != null ? { episodeEndTs: new Date(episodeEndTsMs) } : {}),
               ...guardedWrite,
             },
           });

@@ -11,7 +11,8 @@ export async function GET(req: NextRequest) {
 
   const url = new URL(req.url);
   const hours = parseRecapSummaryHours(url.searchParams.get("hours"));
-  const summary = await getRecapSummaryCached({ orgId: session.orgId, hours });
+  const machineId = url.searchParams.get("machineId") ?? undefined;
+  const summary = await getRecapSummaryCached({ orgId: session.orgId, hours, machineId });
 
   return NextResponse.json(summary, {
     headers: {

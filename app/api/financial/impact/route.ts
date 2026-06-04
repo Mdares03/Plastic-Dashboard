@@ -7,6 +7,12 @@ import {
   FINANCIAL_IMPACT_TTL_SEC,
   getFinancialImpactCached,
 } from "@/lib/financial/cache";
+import {
+  createSchemaDriftDiagnostic,
+  getMissingColumnName,
+  isPrismaMissingColumnError,
+  logFinancialSchemaDrift,
+} from "@/lib/financial/diagnostics";
 
 const RANGE_MS: Record<string, number> = {
   "24h": 24 * 60 * 60 * 1000,
@@ -61,24 +67,50 @@ export async function GET(req: NextRequest) {
   const sku = url.searchParams.get("sku") ?? undefined;
   const currency = url.searchParams.get("currency") ?? undefined;
 
-  const result = await getFinancialImpactCached(
-    {
-      orgId: session.orgId,
-      start,
-      end,
-      machineId,
-      location,
-      sku,
-      currency,
-      includeEvents: false,
-    },
-    { refresh }
-  );
-
   const responseHeaders = new Headers({
     "Cache-Control": `private, max-age=${FINANCIAL_IMPACT_TTL_SEC}, stale-while-revalidate=${FINANCIAL_IMPACT_SWR_SEC}`,
     Vary: "Cookie",
   });
 
-  return NextResponse.json({ ok: true, ...result }, { headers: responseHeaders });
+  try {
+    const result = await getFinancialImpactCached(
+      {
+        orgId: session.orgId,
+        start,
+        end,
+        machineId,
+        location,
+        sku,
+        currency,
+        includeEvents: false,
+      },
+      { refresh }
+    );
+
+    return NextResponse.json({ ok: true, ...result }, { headers: responseHeaders });
+  } catch (error) {
+    if (!isPrismaMissingColumnError(error)) throw error;
+
+    logFinancialSchemaDrift({
+      route: "app/api/financial/impact",
+      orgId: session.orgId,
+      userId: session.userId,
+      error,
+    });
+
+    const diagnostic = createSchemaDriftDiagnostic(getMissingColumnName(error));
+    return NextResponse.json(
+      {
+        ok: true,
+        range: { start, end },
+        currencySummaries: [],
+        eventsEvaluated: 0,
+        eventsIncluded: 0,
+        events: [],
+        diagnostic,
+        filters: { machineId, location, sku, currency },
+      },
+      { headers: responseHeaders }
+    );
+  }
 }

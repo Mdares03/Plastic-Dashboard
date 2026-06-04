@@ -2,6 +2,7 @@
 
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
+import WeeklyReportButton from "@/components/reports/weekly/WeeklyReportButton";
 
 const ReportsCharts = lazy(() => import("./ReportsCharts"));
 
@@ -27,11 +28,16 @@ type ReportDowntime = {
   qualitySpikeCount: number;
   performanceDegradationCount: number;
   oeeDropCount: number;
+  downtimeAllSec?: number;
+  downtimeClassifiedSec?: number;
+  excludedUnclassifiedSec?: number;
+  excludedUnclassifiedPct?: number;
 };
 
 type ReportTrendPoint = { t: string; v: number | null };
 
 type ReportPayload = {
+  excludeUnclassified?: boolean;
   summary: ReportSummary;
   downtime: ReportDowntime;
   trend: {
@@ -227,12 +233,21 @@ function buildPdfHtml(
   report: ReportPayload,
   rangeLabel: string,
   filters: { machine: string; workOrder: string; sku: string },
+  options: { excludeUnclassified: boolean },
   t: Translator
 ) {
   const summary = report.summary;
   const downtime = report.downtime;
   const cycleBins = report.distribution.cycleTime;
   const insights = report.insights ?? [];
+  const downtimeAllSec =
+    downtime.downtimeAllSec ?? Math.max(0, (downtime.macrostopSec ?? 0) + (downtime.microstopSec ?? 0));
+  const downtimeClassifiedSec =
+    downtime.downtimeClassifiedSec ?? downtimeAllSec;
+  const excludedUnclassifiedSec =
+    downtime.excludedUnclassifiedSec ?? Math.max(0, downtimeAllSec - downtimeClassifiedSec);
+  const excludedUnclassifiedPct =
+    downtime.excludedUnclassifiedPct ?? (downtimeAllSec > 0 ? (excludedUnclassifiedSec / downtimeAllSec) * 100 : 0);
 
   return `
 <!doctype html>
@@ -256,6 +271,7 @@ function buildPdfHtml(
 <body>
   <h1>${t("reports.title")}</h1>
   <div class="meta">${t("reports.pdf.range")}: ${rangeLabel} | ${t("reports.pdf.machine")}: ${filters.machine} | ${t("reports.pdf.workOrder")}: ${filters.workOrder} | ${t("reports.pdf.sku")}: ${filters.sku}</div>
+  ${options.excludeUnclassified ? `<div class="meta"><strong>Filtered:</strong> Excluding reason codes UNCLASSIFIED/UNKNOWN</div>` : ""}
 
   <div class="grid">
     <div class="card">
@@ -289,6 +305,9 @@ function buildPdfHtml(
         <tr><td>${t("reports.loss.qualitySpike")}</td><td>${downtime.qualitySpikeCount}</td></tr>
         <tr><td>${t("reports.loss.perfDegradation")}</td><td>${downtime.performanceDegradationCount}</td></tr>
         <tr><td>${t("reports.loss.oeeDrop")}</td><td>${downtime.oeeDropCount}</td></tr>
+        <tr><td>Downtime (all)</td><td>${downtimeAllSec}</td></tr>
+        <tr><td>Downtime (classified)</td><td>${downtimeClassifiedSec}</td></tr>
+        <tr><td>Excluded unclassified</td><td>${excludedUnclassifiedSec} (${excludedUnclassifiedPct.toFixed(1)}%)</td></tr>
       </tbody>
     </table>
   </div>
@@ -348,6 +367,7 @@ export default function ReportsPageClient({
   const [machineId, setMachineId] = useState("");
   const [workOrderId, setWorkOrderId] = useState("");
   const [sku, setSku] = useState("");
+  const [excludeUnclassified, setExcludeUnclassified] = useState(false);
 
   const rangeLabel = useMemo(() => {
     if (range === "24h") return t("reports.rangeLabel.last24");
@@ -368,6 +388,7 @@ export default function ReportsPageClient({
         if (machineId) params.set("machineId", machineId);
         if (workOrderId) params.set("workOrderId", workOrderId);
         if (sku) params.set("sku", sku);
+        if (excludeUnclassified) params.set("excludeUnclassified", "1");
 
         const res = await fetch(`/api/reports?${params.toString()}`, {
           cache: "no-cache",
@@ -395,7 +416,7 @@ export default function ReportsPageClient({
       alive = false;
       controller.abort();
     };
-  }, [range, machineId, workOrderId, sku, t]);
+  }, [range, machineId, workOrderId, sku, excludeUnclassified, t]);
 
   useEffect(() => {
     let alive = true;
@@ -474,6 +495,15 @@ export default function ReportsPageClient({
     Microstop: "#FF7A00",
   };
 
+  const downtimeAllSec =
+    downtime?.downtimeAllSec ?? Math.max(0, (downtime?.macrostopSec ?? 0) + (downtime?.microstopSec ?? 0));
+  const downtimeClassifiedSec = downtime?.downtimeClassifiedSec ?? downtimeAllSec;
+  const excludedUnclassifiedSec =
+    downtime?.excludedUnclassifiedSec ?? Math.max(0, downtimeAllSec - downtimeClassifiedSec);
+  const excludedUnclassifiedPct =
+    downtime?.excludedUnclassifiedPct ??
+    (downtimeAllSec > 0 ? (excludedUnclassifiedSec / downtimeAllSec) * 100 : 0);
+
   const lossRows = useMemo(
     () => [
       { label: t("reports.loss.macrostop"), value: fmtDuration(downtime?.macrostopSec) },
@@ -485,8 +515,14 @@ export default function ReportsPageClient({
         label: t("reports.loss.perfDegradation"),
         value: downtime ? `${downtime.performanceDegradationCount}` : "--",
       },
+      { label: "Downtime (all)", value: fmtDuration(downtimeAllSec) },
+      { label: "Downtime (classified)", value: fmtDuration(downtimeClassifiedSec) },
+      {
+        label: "Excluded unclassified",
+        value: `${fmtDuration(excludedUnclassifiedSec)} (${fmtPct(excludedUnclassifiedPct)})`,
+      },
     ],
-    [downtime, t]
+    [downtime, downtimeAllSec, downtimeClassifiedSec, excludedUnclassifiedSec, excludedUnclassifiedPct, t]
   );
 
   const machineLabel = useMemo(() => {
@@ -496,6 +532,20 @@ export default function ReportsPageClient({
 
   const workOrderLabel = workOrderId || t("reports.filter.allWorkOrders");
   const skuLabel = sku || t("reports.filter.allSkus");
+  const weeklyReportHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("machineId", machineId || "all");
+    return `/reports/weekly?${params.toString()}`;
+  }, [machineId]);
+
+  const weeklyReportPrintHref = useMemo(() => {
+    const params = new URLSearchParams();
+    params.set("machineId", machineId || "all");
+    params.set("print", "1");
+    return `/reports/weekly?${params.toString()}`;
+  }, [machineId]);
+
+
 
   const handleExportCsv = () => {
     if (!report) return;
@@ -513,6 +563,7 @@ export default function ReportsPageClient({
         workOrder: workOrderLabel,
         sku: skuLabel,
       },
+      { excludeUnclassified },
       t
     );
 
@@ -534,6 +585,7 @@ export default function ReportsPageClient({
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <WeeklyReportButton previewHref={weeklyReportHref} printHref={weeklyReportPrintHref} />
           <button
             onClick={handleExportCsv}
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 sm:w-auto"
@@ -555,7 +607,7 @@ export default function ReportsPageClient({
           <div className="text-xs text-zinc-400">{rangeLabel}</div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-white/10 bg-black/20 p-3">
             <div className="text-[11px] text-zinc-400">{t("reports.filter.range")}</div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -622,6 +674,19 @@ export default function ReportsPageClient({
               ))}
             </datalist>
           </div>
+
+          <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+            <div className="text-[11px] text-zinc-400">Data quality</div>
+            <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={excludeUnclassified}
+                onChange={(e) => setExcludeUnclassified(e.target.checked)}
+              />
+              Exclude unclassified
+            </label>
+            <div className="mt-2 text-[11px] text-zinc-500">UNCLASSIFIED / UNKNOWN</div>
+          </div>
         </div>
       </div>
 
@@ -632,6 +697,14 @@ export default function ReportsPageClient({
             {error}
           </div>
         )}
+        {excludeUnclassified && !loading && !error ? (
+          <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+            <div className="font-semibold">Filtered view: excluding UNCLASSIFIED / UNKNOWN</div>
+            <div className="mt-1 text-xs text-amber-200">
+              All downtime: {fmtDuration(downtimeAllSec)} · Classified only: {fmtDuration(downtimeClassifiedSec)} · Excluded: {fmtDuration(excludedUnclassifiedSec)} ({fmtPct(excludedUnclassifiedPct)})
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">

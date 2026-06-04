@@ -1,17 +1,9 @@
 "use client";
 
 import type { EventRow } from "./types";
+import { formatElapsedSinceWithAgo } from "@/lib/time/elapsed";
 
 type Translator = (key: string, vars?: Record<string, string | number>) => string;
-
-function secondsAgo(ts: string | undefined, locale: string, fallback: string) {
-  if (!ts) return fallback;
-  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
-  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
-  if (diff < 60) return rtf.format(-diff, "second");
-  if (diff < 3600) return rtf.format(-Math.floor(diff / 60), "minute");
-  return rtf.format(-Math.floor(diff / 3600), "hour");
-}
 
 function severityClass(sev?: string) {
   const s = (sev ?? "").toLowerCase();
@@ -117,7 +109,7 @@ export default function OverviewTimeline({
                   ) : null}
                 </div>
                 <div className="shrink-0 text-xs text-zinc-400">
-                  {secondsAgo(e.ts, locale, t("common.never"))}
+                  {formatElapsedSinceWithAgo(e.ts, locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}
                 </div>
               </div>
             </div>

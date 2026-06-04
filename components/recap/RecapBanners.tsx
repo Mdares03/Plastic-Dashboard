@@ -1,17 +1,13 @@
 "use client";
 
 import { useI18n } from "@/lib/i18n/useI18n";
+import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 
 type Props = {
   moldChangeStartMs: number | null;
   offlineForMin: number | null;
   ongoingStopMin: number | null;
 };
-
-function toInt(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) return 0;
-  return Math.max(0, Math.round(value));
-}
 
 export default function RecapBanners({ moldChangeStartMs, offlineForMin, ongoingStopMin }: Props) {
   const { t, locale } = useI18n();
@@ -32,13 +28,17 @@ export default function RecapBanners({ moldChangeStartMs, offlineForMin, ongoing
 
       {showOffline ? (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-          {t("recap.banner.offline", { min: toInt(offlineForMin) })}
+          {t("recap.banner.offline", {
+            duration: formatElapsedFromMinutes(offlineForMin, { maxUnits: 2 }),
+          })}
         </div>
       ) : null}
 
       {ongoingStopMin != null && ongoingStopMin > 0 ? (
         <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200">
-          {t("recap.banner.ongoingStop", { min: toInt(ongoingStopMin) })}
+          {t("recap.banner.ongoingStop", {
+            duration: formatElapsedFromMinutes(ongoingStopMin, { maxUnits: 2 }),
+          })}
         </div>
       ) : null}
     </div>

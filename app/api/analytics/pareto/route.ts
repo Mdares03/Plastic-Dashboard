@@ -4,39 +4,58 @@ import { requireSession } from "@/lib/auth/requireSession";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
 import {
   applyDowntimeFilters,
+  isUnclassifiedReasonCode,
   loadDowntimeShiftContext,
   normalizeMicrostopLtMin,
   normalizeShiftFilter,
+  parseBooleanParam,
   resolvePlannedFilter,
 } from "@/lib/analytics/downtimeFilters";
 
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
 
+async function buildReasonLabelMap(orgId: string, reasonCodes: string[]) {
+  const codes = [...new Set(reasonCodes.map((code) => String(code ?? "").trim().toUpperCase()).filter(Boolean))];
+  if (!codes.length) return new Map<string, string>();
+  const rows = await prisma.reasonCatalogItem.findMany({
+    where: { orgId, reasonCode: { in: codes } },
+    select: { reasonCode: true, name: true, category: { select: { name: true } } },
+  });
+
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const code = String(row.reasonCode ?? "").trim().toUpperCase();
+    const category = String(row.category?.name ?? "").trim();
+    const detail = String(row.name ?? "").trim();
+    if (!code || !detail) continue;
+    out.set(code, category ? `${category} > ${detail}` : detail);
+  }
+  return out;
+}
+
 export async function GET(req: Request) {
-  // ✅ Session auth (cookie)
   const session = await requireSession();
   if (!session) return bad(401, "Unauthorized");
   const orgId = session.orgId;
 
   const url = new URL(req.url);
 
-  // ✅ Parse params INSIDE handler
   const range = coerceDowntimeRange(url.searchParams.get("range"));
   const start = rangeToStart(range);
 
-  const machineId = url.searchParams.get("machineId"); // optional
+  const machineId = url.searchParams.get("machineId");
   const kind = (url.searchParams.get("kind") || "downtime").toLowerCase();
   const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
   const planned = resolvePlannedFilter(url.searchParams.get("planned"), includeMoldChange);
   const shift = normalizeShiftFilter(url.searchParams.get("shift"));
   const microstopLtMin = normalizeMicrostopLtMin(url.searchParams.get("microstopLtMin"));
+  const excludeUnclassified = parseBooleanParam(url.searchParams.get("excludeUnclassified"));
 
   if (kind !== "downtime" && kind !== "scrap" && kind !== "planned-downtime") {
     return bad(400, "Invalid kind (downtime|scrap|planned-downtime)");
   }
 
-  // ✅ If machineId provided, verify it belongs to this org
   if (machineId) {
     const m = await prisma.machine.findFirst({
       where: { id: machineId, orgId },
@@ -46,6 +65,10 @@ export async function GET(req: Request) {
   }
 
   let itemsRaw: { reasonCode: string; reasonLabel: string; value: number; count: number }[] = [];
+  let totalMinutesAll: number | undefined;
+  let totalMinutesClassified: number | undefined;
+  let excludedUnclassifiedMinutes: number | undefined;
+  let excludedUnclassifiedPct: number | undefined;
 
   if (kind === "downtime" || kind === "planned-downtime") {
     const baseRows = await prisma.reasonEntry.findMany({
@@ -67,27 +90,62 @@ export async function GET(req: Request) {
 
     const effectivePlanned = kind === "planned-downtime" ? "planned" : planned;
     const shiftContext = shift === "all" ? null : await loadDowntimeShiftContext(orgId);
-    const filteredRows = applyDowntimeFilters(baseRows, {
+    const filteredRowsAll = applyDowntimeFilters(baseRows, {
       planned: effectivePlanned,
       shift,
       microstopLtMin,
       shiftContext,
     });
 
+    const filteredRowsClassified = filteredRowsAll.filter(
+      (row) => !isUnclassifiedReasonCode(row.reasonCode)
+    );
+
+    const filteredRowsForOutput = excludeUnclassified
+      ? filteredRowsClassified
+      : filteredRowsAll;
+
+    const secondsAll = filteredRowsAll.reduce(
+      (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+      0
+    );
+    const secondsClassified = filteredRowsClassified.reduce(
+      (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+      0
+    );
+
+    totalMinutesAll = Math.round((secondsAll / 60) * 10) / 10;
+    totalMinutesClassified = Math.round((secondsClassified / 60) * 10) / 10;
+    excludedUnclassifiedMinutes = Math.max(
+      0,
+      Math.round((totalMinutesAll - totalMinutesClassified) * 10) / 10
+    );
+    excludedUnclassifiedPct =
+      totalMinutesAll > 0
+        ? Math.round((excludedUnclassifiedMinutes / totalMinutesAll) * 10000) / 100
+        : 0;
+
+    const reasonLabelMap = await buildReasonLabelMap(
+      orgId,
+      filteredRowsForOutput.map((row) => row.reasonCode)
+    );
+
     const grouped = new Map<string, { reasonCode: string; reasonLabel: string; durationSeconds: number; count: number }>();
-    for (const row of filteredRows) {
-      const key = `${row.reasonCode}:::${row.reasonLabel ?? row.reasonCode}`;
+    for (const row of filteredRowsForOutput) {
+      const code = String(row.reasonCode ?? "").trim().toUpperCase();
+      if (!code) continue;
+      const resolvedLabel = reasonLabelMap.get(code) ?? row.reasonLabel ?? code;
       const slot =
-        grouped.get(key) ??
+        grouped.get(code) ??
         {
-          reasonCode: row.reasonCode,
-          reasonLabel: row.reasonLabel ?? row.reasonCode,
+          reasonCode: code,
+          reasonLabel: resolvedLabel,
           durationSeconds: 0,
           count: 0,
         };
       slot.durationSeconds += Math.max(0, row.durationSeconds ?? 0);
       slot.count += 1;
-      grouped.set(key, slot);
+      grouped.set(code, slot);
     }
 
     itemsRaw = [...grouped.values()]
@@ -99,7 +157,6 @@ export async function GET(req: Request) {
       }))
       .filter((x) => x.value > 0 || x.count > 0);
   } else {
-    // Scrap path unchanged.
     const grouped = await prisma.reasonEntry.groupBy({
       by: ["reasonCode", "reasonLabel"],
       where: {
@@ -166,14 +223,18 @@ export async function GET(req: Request) {
     shift,
     microstopLtMin,
     includeMoldChange,
-    range,       // ✅ now defined correctly
-    start,       // ✅ now defined correctly
+    excludeUnclassified,
+    range,
+    start,
     totalMinutesLost: kind === "downtime" || kind === "planned-downtime" ? total : undefined,
+    totalMinutesAll,
+    totalMinutesClassified,
+    excludedUnclassifiedMinutes,
+    excludedUnclassifiedPct,
     totalScrap: kind === "scrap" ? total : undefined,
     rows,
     top3,
     threshold80,
-    // (optional) keep old shape if anything else uses it:
     items: itemsRaw.map((x, i) => ({
       ...x,
       cumPct: rows[i]?.cumulativePct ?? 0,

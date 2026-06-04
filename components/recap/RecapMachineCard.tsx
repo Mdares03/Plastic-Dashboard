@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import type { RecapSummaryMachine, RecapTimelineResponse } from "@/lib/recap/types";
 import RecapMiniTimeline from "@/components/recap/RecapMiniTimeline";
+import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 
 type Props = {
   machine: RecapSummaryMachine;
@@ -28,11 +29,6 @@ function statusLabel(status: RecapSummaryMachine["status"], t: (key: string) => 
   return t("recap.status.offline");
 }
 
-function toInt(value: number | null | undefined) {
-  if (value == null || Number.isNaN(value)) return 0;
-  return Math.max(0, Math.round(value));
-}
-
 export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Props) {
   const { t, locale } = useI18n();
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
@@ -50,11 +46,11 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
   const lastSeenLabel =
     machine.lastActivityMin == null
       ? t("common.never")
-      : t("recap.card.lastActivity", { min: toInt(machine.lastActivityMin) });
+      : t("recap.card.lastActivity", {
+          duration: formatElapsedFromMinutes(machine.lastActivityMin, { maxUnits: 2 }),
+        });
 
-  const footerText = machine.activeWorkOrderId
-    ? t("recap.card.activeWorkOrder", { id: machine.activeWorkOrderId })
-    : lastSeenLabel;
+  const footerText = lastSeenLabel;
 
   const moldMinutes = machine.moldChange?.active ? machine.moldChange.elapsedMin : null;
 
@@ -122,6 +118,13 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
         <span>{t("recap.card.good")}: {machine.goodParts}</span>
         <span>{t("recap.card.scrap")}: {machine.scrap}</span>
         <span>{t("recap.card.stops")}: {machine.stopsCount}</span>
+        <span>{t("recap.card.cycleTime")}: {machine.cycleTime != null ? `${machine.cycleTime.toFixed(1)}s` : "—"}</span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-400">
+        <span>{t("machines.card.wo")}: {machine.activeWorkOrderId || t("common.na")}</span>
+        <span>{t("machines.card.sku")}: {machine.activeWorkOrderSku || t("common.na")}</span>
+        <span>{t("machines.card.mold")}: {machine.activeWorkOrderMold || t("common.na")}</span>
       </div>
 
       <div className="mt-3">
@@ -137,20 +140,25 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
 
       {machine.moldChange?.active ? (
         <div className="mt-3 rounded-lg border border-amber-400/40 bg-amber-400/10 px-2 py-1.5 text-xs text-amber-200">
-          {t("recap.card.moldChangeActive", { min: toInt(moldMinutes) })}
+          {t("recap.card.moldChangeActive", {
+            duration: formatElapsedFromMinutes(moldMinutes, { maxUnits: 2 }),
+          })}
         </div>
       ) : null}
 
       {machine.offlineForMin != null && machine.offlineForMin > 10 ? (
         <div className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">
-          {t("recap.banner.offline", { min: toInt(machine.offlineForMin) })}
+          {t("recap.banner.offline", {
+            duration: formatElapsedFromMinutes(machine.offlineForMin, { maxUnits: 2 }),
+          })}
         </div>
       ) : null}
 
       <div className={`mt-3 text-xs ${isUrgent ? "text-red-200 font-semibold" : isCalm ? "text-zinc-500" : "text-zinc-400"}`}>
         {isUrgent
-          ? t("recap.card.stoppedFor", { min: ongoingStopMin })
-              + (machine.activeWorkOrderId ? ` · WO ${machine.activeWorkOrderId}` : "")
+          ? t("recap.card.stoppedFor", {
+              duration: formatElapsedFromMinutes(ongoingStopMin, { maxUnits: 2 }),
+            })
           : machine.status === "idle"
           ? t("recap.card.idle")
           : footerText}

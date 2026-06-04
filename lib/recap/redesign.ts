@@ -64,6 +64,13 @@
     return Math.max(1, Math.min(72, parsed));
   }
 
+  function normalizeMachineIdFilter(input?: string | null) {
+    const token = String(input ?? "").trim();
+    if (!token) return undefined;
+    if (token.toLowerCase() === "all") return undefined;
+    return token;
+  }
+
   function parseTimeMinutes(input?: string | null) {
     if (!input) return null;
     const match = /^(\d{2}):(\d{2})$/.exec(input.trim());
@@ -432,6 +439,9 @@
       ongoingStopMin: status.ongoingStopMin,
       stateContext: status.stateContext,
       activeWorkOrderId: machine.workOrders.active?.id ?? null,
+      activeWorkOrderSku: machine.workOrders.active?.sku ?? null,
+      activeWorkOrderMold: machine.workOrders.active?.mold ?? null,
+      cycleTime: machine.cycleTime,
       moldChange: {
         active: machine.workOrders.moldChangeInProgress,
         startMs: machine.workOrders.moldChangeStartMs,
@@ -444,13 +454,14 @@
     };
   }
 
-  async function computeRecapSummary(params: { orgId: string; hours: number }) {
+  async function computeRecapSummary(params: { orgId: string; hours: number; machineId?: string }) {
     const now = new Date();
     const end = new Date(Math.floor(now.getTime() / 60000) * 60000);
     const start = new Date(end.getTime() - params.hours * 60 * 60 * 1000);
 
     const recap = await getRecapDataCached({
       orgId: params.orgId,
+      machineId: params.machineId,
       start,
       end,
     });
@@ -753,6 +764,7 @@
       minutes: row.minutes,
       count: row.count,
       percent: downtimeTotalMin > 0 ? round2((row.minutes / downtimeTotalMin) * 100) : 0,
+      planned: row.planned,
     }));
 
     const machineDetail: RecapMachineDetail = {
@@ -766,6 +778,7 @@
       stopsCount: machine.downtime.stopsCount,
       stopMinutes: downtimeTotalMin,
       activeWorkOrderId: machine.workOrders.active?.id ?? null,
+      cycleTime: machine.cycleTime,
       lastSeenMs: status.lastSeenMs,
       offlineForMin: status.offlineForMin,
       ongoingStopMin: status.ongoingStopMin,
@@ -805,8 +818,8 @@
     return response;
   }
 
-  function summaryCacheKey(params: { orgId: string; hours: number }) {
-    return ["recap-summary-v1", params.orgId, String(params.hours)];
+  function summaryCacheKey(params: { orgId: string; hours: number; machineId?: string }) {
+    return ["recap-summary-v2", params.orgId, params.machineId ?? "all", String(params.hours)];
   }
 
   function detailCacheKey(params: {
@@ -858,10 +871,11 @@
     };
   }
 
-  export async function getRecapSummaryCached(params: { orgId: string; hours: number }) {
+  export async function getRecapSummaryCached(params: { orgId: string; hours: number; machineId?: string }) {
+    const normalized = { ...params, machineId: normalizeMachineIdFilter(params.machineId) };
     const cache = unstable_cache(
-      () => computeRecapSummary(params),
-      summaryCacheKey(params),
+      () => computeRecapSummary(normalized),
+      summaryCacheKey(normalized),
       {
         revalidate: RECAP_CACHE_TTL_SEC,
         tags: [`recap:${params.orgId}`],

@@ -31,6 +31,17 @@ type LatestKpiRow = {
   cycleTime?: number | null;
 };
 
+export type ActiveWorkOrderRow = {
+  machineId: string;
+  workOrderId: string;
+  sku: string | null;
+  mold: string | null;
+  targetQty: number | null;
+  goodParts: number;
+  scrapParts: number;
+  cycleTime: number | null;
+};
+
 export type LatestMacrostopRow = {
   machineId: string;
   ts: Date;
@@ -152,25 +163,102 @@ export async function fetchLatestMacrostops(
   return Array.from(byMachine.values());
 }
 
+export async function fetchActiveWorkOrders(
+  orgId: string,
+  machineIds: string[]
+): Promise<ActiveWorkOrderRow[]> {
+  if (!machineIds.length) return [];
+  return prisma.machineWorkOrder.findMany({
+    where: {
+      orgId,
+      machineId: { in: machineIds },
+      status: { notIn: ["COMPLETED", "DONE", "CLOSED", "CANCELLED"] },
+    },
+    orderBy: [{ machineId: "asc" }, { updatedAt: "desc" }],
+    distinct: ["machineId"],
+    select: {
+      machineId: true,
+      workOrderId: true,
+      sku: true,
+      mold: true,
+      targetQty: true,
+      goodParts: true,
+      scrapParts: true,
+      cycleTime: true,
+    },
+  });
+}
+
+export async function fetchDowntimeCountsByWorkOrder(
+  orgId: string,
+  workOrderIds: string[]
+): Promise<Map<string, number>> {
+  const keys = [...new Set(workOrderIds.map((id) => String(id).trim()).filter(Boolean))];
+  if (!keys.length) return new Map<string, number>();
+
+  const grouped = await prisma.reasonEntry.groupBy({
+    by: ["workOrderId"],
+    where: {
+      orgId,
+      kind: "downtime",
+      episodeId: { not: null },
+      workOrderId: { in: keys },
+    },
+    _count: { _all: true },
+  });
+
+  const out = new Map<string, number>();
+  for (const row of grouped) {
+    const key = String(row.workOrderId ?? "").trim();
+    if (!key) continue;
+    out.set(key, row._count._all ?? 0);
+  }
+  return out;
+}
 
 export function mergeMachineOverviewRows(params: {
   machines: MachineBaseRow[];
   heartbeats: LatestHeartbeatRow[];
   kpis?: LatestKpiRow[];
   macrostops?: LatestMacrostopRow[];
+  activeWorkOrders?: ActiveWorkOrderRow[];
+  downtimeCountByWorkOrder?: Map<string, number>;
   includeKpi?: boolean;
 }): OverviewMachineRow[] {
-  const { machines, heartbeats, kpis = [], macrostops = [], includeKpi = false } = params;
+  const {
+    machines,
+    heartbeats,
+    kpis = [],
+    macrostops = [],
+    activeWorkOrders = [],
+    downtimeCountByWorkOrder = new Map<string, number>(),
+    includeKpi = false,
+  } = params;
   const heartbeatMap = new Map(heartbeats.map((row) => [row.machineId, row]));
   const kpiMap = new Map(kpis.map((row) => [row.machineId, row]));
   const macrostopMap = new Map(macrostops.map((row) => [row.machineId, row]));
-
+  const activeWorkOrderMap = new Map(activeWorkOrders.map((row) => [row.machineId, row]));
 
   return machines.map((machine) => ({
     ...machine,
     latestHeartbeat: (heartbeatMap.get(machine.id) ?? null) as OverviewMachineRow["latestHeartbeat"],
     latestKpi: includeKpi ? (kpiMap.get(machine.id) ?? null) : null,
     latestMacrostop: macrostopMap.get(machine.id) ?? null,
+    activeWorkOrder: (() => {
+      const row = activeWorkOrderMap.get(machine.id);
+      if (!row) return null;
+      return {
+        id: row.workOrderId,
+        workOrderId: row.workOrderId,
+        sku: row.sku,
+        mold: row.mold,
+        target: row.targetQty,
+        goodParts: row.goodParts,
+        scrapParts: row.scrapParts,
+        cycleTime: row.cycleTime,
+        stopsCount: downtimeCountByWorkOrder.get(row.workOrderId) ?? 0,
+      };
+    })(),
     heartbeats: undefined,
     kpiSnapshots: undefined,
   }));

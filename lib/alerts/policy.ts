@@ -19,6 +19,10 @@ const Rule = z.object({
 
 export const AlertPolicySchema = z.object({
   version: z.number().int().min(1).default(1),
+  // Master switch. When false, no alert notifications are sent regardless of
+  // per-role/per-event rules. Defaults to true so existing policies (which
+  // predate this field) keep their current behavior.
+  enabled: z.boolean().default(true),
   defaults: z.record(z.enum(ROLE_NAMES), RoleRule),
   rules: z.array(Rule),
 });
@@ -27,6 +31,7 @@ export type AlertPolicy = z.infer<typeof AlertPolicySchema>;
 
 export const DEFAULT_POLICY: AlertPolicy = {
   version: 1,
+  enabled: true,
   defaults: {
     MEMBER: { enabled: true, afterMinutes: 0, channels: ["email"] },
     ADMIN: { enabled: true, afterMinutes: 10, channels: ["email", "sms"] },

@@ -5,9 +5,11 @@ import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange
 import type { Prisma } from "@prisma/client";
 import {
   applyDowntimeFilters,
+  isUnclassifiedReasonCode,
   loadDowntimeShiftContext,
   normalizeMicrostopLtMin,
   normalizeShiftFilter,
+  parseBooleanParam,
   resolvePlannedFilter,
 } from "@/lib/analytics/downtimeFilters";
 
@@ -18,34 +20,51 @@ function toISO(d: Date | null | undefined) {
   return d ? d.toISOString() : null;
 }
 
+async function buildReasonLabelMap(orgId: string, reasonCodes: string[]) {
+  const codes = [...new Set(reasonCodes.map((code) => String(code ?? "").trim().toUpperCase()).filter(Boolean))];
+  if (!codes.length) return new Map<string, string>();
+
+  const rows = await prisma.reasonCatalogItem.findMany({
+    where: { orgId, reasonCode: { in: codes } },
+    select: { reasonCode: true, name: true, category: { select: { name: true } } },
+  });
+
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    const code = String(row.reasonCode ?? "").trim().toUpperCase();
+    const category = String(row.category?.name ?? "").trim();
+    const detail = String(row.name ?? "").trim();
+    if (!code || !detail) continue;
+    out.set(code, category ? `${category} > ${detail}` : detail);
+  }
+  return out;
+}
+
 export async function GET(req: Request) {
-  // ✅ Session auth (cookie)
   const session = await requireSession();
   if (!session) return bad(401, "Unauthorized");
   const orgId = session.orgId;
 
   const url = new URL(req.url);
 
-  // ✅ Params
   const range = coerceDowntimeRange(url.searchParams.get("range"));
   const start = rangeToStart(range);
 
-  const machineId = url.searchParams.get("machineId"); // optional
-  const reasonCode = url.searchParams.get("reasonCode"); // optional
+  const machineId = url.searchParams.get("machineId");
+  const reasonCode = url.searchParams.get("reasonCode");
   const includeMoldChange = url.searchParams.get("includeMoldChange") === "true";
   const planned = resolvePlannedFilter(url.searchParams.get("planned"), includeMoldChange);
   const shift = normalizeShiftFilter(url.searchParams.get("shift"));
   const microstopLtMin = normalizeMicrostopLtMin(url.searchParams.get("microstopLtMin"));
+  const excludeUnclassified = parseBooleanParam(url.searchParams.get("excludeUnclassified"));
 
   const limitRaw = url.searchParams.get("limit");
   const limit = Math.min(Math.max(Number(limitRaw || 200), 1), 500);
 
-  // Optional pagination: return events before this timestamp (capturedAt)
-  const before = url.searchParams.get("before"); // ISO string
+  const before = url.searchParams.get("before");
   const beforeDate = before ? new Date(before) : null;
   if (before && isNaN(beforeDate!.getTime())) return bad(400, "Invalid before timestamp");
 
-  // ✅ If machineId provided, verify it belongs to this org
   if (machineId) {
     const m = await prisma.machine.findFirst({
       where: { id: machineId, orgId },
@@ -54,8 +73,6 @@ export async function GET(req: Request) {
     if (!m) return bad(404, "Machine not found");
   }
 
-  // ✅ Query ReasonEntry as the "episode" table for downtime
-  // We only return rows that have an episodeId (true downtime episodes)
   const where: Prisma.ReasonEntryWhereInput = {
     orgId,
     kind: "downtime",
@@ -91,14 +108,25 @@ export async function GET(req: Request) {
   });
 
   const shiftContext = shift === "all" ? null : await loadDowntimeShiftContext(orgId);
-  const rows = applyDowntimeFilters(rowsRaw, {
+  const filteredRowsAll = applyDowntimeFilters(rowsRaw, {
     planned,
     shift,
     microstopLtMin,
     shiftContext,
-  }).slice(0, limit);
+  });
 
-  const events = rows.map((r) => {
+  const filteredRowsClassified = filteredRowsAll.filter(
+    (row) => !isUnclassifiedReasonCode(row.reasonCode)
+  );
+
+  const filteredRowsForOutput = (excludeUnclassified ? filteredRowsClassified : filteredRowsAll).slice(0, limit);
+
+  const reasonLabelMap = await buildReasonLabelMap(
+    orgId,
+    filteredRowsForOutput.map((row) => row.reasonCode)
+  );
+
+  const events = filteredRowsForOutput.map((r) => {
     const startAt = r.capturedAt;
     const endAt =
       r.episodeEndTs ??
@@ -117,7 +145,7 @@ export async function GET(req: Request) {
       machineName: r.machine?.name ?? null,
 
       reasonCode: r.reasonCode,
-      reasonLabel: r.reasonLabel ?? r.reasonCode,
+      reasonLabel: reasonLabelMap.get(String(r.reasonCode ?? "").trim().toUpperCase()) ?? r.reasonLabel ?? r.reasonCode,
       reasonText: r.reasonText ?? null,
 
       durationSeconds,
@@ -140,6 +168,28 @@ export async function GET(req: Request) {
       ? toISO(rowsRaw[rowsRaw.length - 1]?.capturedAt)
       : null;
 
+  const totalEventsAll = filteredRowsAll.length;
+  const totalEventsClassified = filteredRowsClassified.length;
+  const excludedUnclassifiedEvents = Math.max(0, totalEventsAll - totalEventsClassified);
+  const excludedUnclassifiedPct = totalEventsAll > 0
+    ? Math.round((excludedUnclassifiedEvents / totalEventsAll) * 10000) / 100
+    : 0;
+
+  const totalSecondsAll = filteredRowsAll.reduce(
+    (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+    0
+  );
+  const totalSecondsClassified = filteredRowsClassified.reduce(
+    (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+    0
+  );
+  const totalMinutesAll = Math.round((totalSecondsAll / 60) * 10) / 10;
+  const totalMinutesClassified = Math.round((totalSecondsClassified / 60) * 10) / 10;
+  const excludedUnclassifiedMinutes = Math.max(
+    0,
+    Math.round((totalMinutesAll - totalMinutesClassified) * 10) / 10
+  );
+
   return NextResponse.json({
     ok: true,
     orgId,
@@ -151,9 +201,17 @@ export async function GET(req: Request) {
     shift,
     microstopLtMin,
     includeMoldChange,
+    excludeUnclassified,
     limit,
     before: before ?? null,
-    nextBefore, // pass this back for pagination
+    nextBefore,
+    totalEventsAll,
+    totalEventsClassified,
+    excludedUnclassifiedEvents,
+    excludedUnclassifiedPct,
+    totalMinutesAll,
+    totalMinutesClassified,
+    excludedUnclassifiedMinutes,
     events,
   });
 }

@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/requireSession";
 import {
+  fetchActiveWorkOrders,
+  fetchDowntimeCountsByWorkOrder,
   fetchLatestHeartbeats,
+  fetchLatestKpis,
+  fetchLatestMacrostops,
   fetchMachineBase,
   mergeMachineOverviewRows,
 } from "@/lib/machines/withLatest";
@@ -16,14 +20,28 @@ export default async function MachinesPage() {
   if (!session) redirect("/login?next=/machines");
 
   const machines = await fetchMachineBase(session.orgId);
-  const heartbeats = await fetchLatestHeartbeats(
+  const machineIds = machines.map((machine) => machine.id);
+
+  const [heartbeats, kpis, macrostops, activeWorkOrders] = await Promise.all([
+    fetchLatestHeartbeats(session.orgId, machineIds),
+    fetchLatestKpis(session.orgId, machineIds),
+    fetchLatestMacrostops(session.orgId, machineIds),
+    fetchActiveWorkOrders(session.orgId, machineIds),
+  ]);
+
+  const downtimeCountByWorkOrder = await fetchDowntimeCountsByWorkOrder(
     session.orgId,
-    machines.map((machine) => machine.id)
+    activeWorkOrders.map((row) => row.workOrderId)
   );
+
   const rows = mergeMachineOverviewRows({
     machines,
     heartbeats,
-    includeKpi: false,
+    kpis,
+    macrostops,
+    activeWorkOrders,
+    downtimeCountByWorkOrder,
+    includeKpi: true,
   });
 
   const initialMachines = rows.map((machine) => ({
@@ -39,6 +57,34 @@ export default async function MachinesPage() {
           message: machine.latestHeartbeat.message ?? null,
           ip: machine.latestHeartbeat.ip ?? null,
           fwVersion: machine.latestHeartbeat.fwVersion ?? null,
+        }
+      : null,
+    latestKpi: machine.latestKpi
+      ? {
+          ts: toIso(machine.latestKpi.ts) ?? "",
+          oee: machine.latestKpi.oee ?? null,
+          cycleTime: machine.latestKpi.cycleTime ?? null,
+        }
+      : null,
+    latestMacrostop: machine.latestMacrostop
+      ? {
+          machineId: machine.latestMacrostop.machineId,
+          ts: toIso(machine.latestMacrostop.ts) ?? "",
+          status: machine.latestMacrostop.status,
+          startedAtMs: machine.latestMacrostop.startedAtMs,
+        }
+      : null,
+    activeWorkOrder: machine.activeWorkOrder
+      ? {
+          id: machine.activeWorkOrder.id,
+          workOrderId: machine.activeWorkOrder.workOrderId,
+          sku: machine.activeWorkOrder.sku,
+          mold: machine.activeWorkOrder.mold,
+          target: machine.activeWorkOrder.target,
+          goodParts: machine.activeWorkOrder.goodParts,
+          scrapParts: machine.activeWorkOrder.scrapParts,
+          cycleTime: machine.activeWorkOrder.cycleTime,
+          stopsCount: machine.activeWorkOrder.stopsCount,
         }
       : null,
   }));
