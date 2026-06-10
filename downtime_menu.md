@@ -29,6 +29,7 @@ Seguridad / Reset de seguridad
 Seguridad / Otro
 
 Molde / Cambio de molde
+Molde / En espera de arranque
 Molde / Ajuste de molde
 Molde / Limpieza de molde
 Molde / Falla de molde

@@ -62,7 +62,9 @@ export default function RecapMiniTimeline({
                 ? t("recap.timeline.type.macrostop")
                 : segment.type === "microstop" || segment.type === "slow-cycle"
                   ? t("recap.timeline.type.microstop")
-                  : t("recap.timeline.type.idle");
+                  : segment.type === "startup-wait"
+                    ? t("recap.timeline.type.startupWait")
+                    : t("recap.timeline.type.idle");
         const title = `${typeLabel} · ${formatTime(segment.startMs, locale)}-${formatTime(segment.endMs, locale)} · ${formatDuration(segment.startMs, segment.endMs)}${segment.label ? ` · ${segment.label}` : ""}`;
         const color = muted ? "bg-zinc-700 text-zinc-300" : TIMELINE_COLORS[segment.type];
 

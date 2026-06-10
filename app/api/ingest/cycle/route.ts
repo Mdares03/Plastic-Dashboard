@@ -106,6 +106,123 @@ const cycleSchema = z
   })
   .passthrough();
 
+// Max plausible startup-wait window. Beyond this the machine was almost
+// certainly idle/abandoned rather than "awaiting startup", so we don't record it.
+const STARTUP_WAIT_MAX_MS = 12 * 60 * 60 * 1000;
+const STARTUP_WAIT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+
+function eventDataObject(data: unknown): Record<string, unknown> {
+  let parsed: unknown = data;
+  if (typeof parsed === "string") {
+    try { parsed = JSON.parse(parsed); } catch { parsed = null; }
+  }
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Find the most recent resolved mold-change (its end_ms swap marker, plus a
+ * stable episode key) for a machine, looking back STARTUP_WAIT_LOOKBACK_MS.
+ */
+async function latestResolvedMoldChange(orgId: string, machineId: string) {
+  const since = new Date(Date.now() - STARTUP_WAIT_LOOKBACK_MS);
+  const events = await prisma.machineEvent.findMany({
+    where: { orgId, machineId, eventType: "mold-change", ts: { gte: since } },
+    orderBy: { ts: "desc" },
+    take: 50,
+    select: { ts: true, data: true },
+  });
+
+  for (const event of events) {
+    const data = eventDataObject(event.data);
+    const status = String(data.status ?? "").trim().toLowerCase();
+    if (status !== "resolved") continue;
+    const endRaw = asNumber(data.end_ms) ?? asNumber(data.endMs);
+    if (endRaw == null || endRaw <= 0) continue;
+    const startRaw = asNumber(data.start_ms) ?? asNumber(data.startMs);
+    const incidentKey =
+      (typeof data.incidentKey === "string" && data.incidentKey.trim()) ||
+      (typeof data.incident_key === "string" && (data.incident_key as string).trim()) ||
+      (startRaw != null ? `mold-change:${Math.trunc(startRaw)}` : `mold-change:${Math.trunc(endRaw)}`);
+    return { endMs: Math.trunc(endRaw), incidentKey };
+  }
+  return null;
+}
+
+async function recordStartupWaitReason(
+  orgId: string,
+  machineId: string,
+  rows: Array<{ ts: Date; workOrderId: string | null }>,
+) {
+  if (!rows.length) return;
+  const minNewCycleMs = Math.min(...rows.map((row) => row.ts.getTime()));
+
+  const mold = await latestResolvedMoldChange(orgId, machineId);
+  if (!mold) return;
+  // Only relevant if this batch contributed a cycle after the swap finished.
+  if (minNewCycleMs <= mold.endMs) return;
+
+  // The window closes at the FIRST cycle after the swap (may predate this batch).
+  const firstCycle = await prisma.machineCycle.findFirst({
+    where: { orgId, machineId, ts: { gt: new Date(mold.endMs) } },
+    orderBy: { ts: "asc" },
+    select: { ts: true, workOrderId: true },
+  });
+  if (!firstCycle) return;
+
+  const firstCycleMs = firstCycle.ts.getTime();
+  const gapMs = firstCycleMs - mold.endMs;
+  if (gapMs <= 0 || gapMs > STARTUP_WAIT_MAX_MS) return;
+
+  const episodeId = `startup-wait:${mold.incidentKey}`;
+  const reasonId = `evt:${machineId}:downtime:${episodeId}`;
+  const durationSeconds = Math.max(0, Math.trunc(gapMs / 1000));
+  const meta = {
+    source: "ingest:cycle",
+    incidentKey: episodeId,
+    moldIncidentKey: mold.incidentKey,
+    moldEndMs: mold.endMs,
+    firstCycleMs,
+    reason: {
+      type: "downtime",
+      categoryId: "espera-arranque",
+      categoryLabel: "En espera de arranque",
+      detailId: "espera-arranque",
+      detailLabel: "En espera de arranque",
+      reasonText: "En espera de arranque",
+    },
+  };
+
+  await prisma.reasonEntry.upsert({
+    where: { orgId_kind_episodeId: { orgId, kind: "downtime", episodeId } },
+    create: {
+      orgId,
+      machineId,
+      reasonId,
+      kind: "downtime",
+      episodeId,
+      durationSeconds,
+      episodeEndTs: new Date(firstCycleMs),
+      reasonCode: "ESPERA_ARRANQUE",
+      reasonLabel: "En espera de arranque",
+      reasonText: "En espera de arranque",
+      capturedAt: new Date(firstCycleMs),
+      workOrderId: firstCycle.workOrderId ?? rows[0].workOrderId ?? null,
+      schemaVersion: 1,
+      meta,
+    },
+    update: {
+      durationSeconds,
+      episodeEndTs: new Date(firstCycleMs),
+      reasonCode: "ESPERA_ARRANQUE",
+      reasonLabel: "En espera de arranque",
+      reasonText: "En espera de arranque",
+      meta,
+    },
+  });
+}
+
 export async function POST(req: Request) {
   const apiKey = req.headers.get("x-api-key");
   if (!apiKey) return NextResponse.json({ ok: false, error: "Missing api key" }, { status: 401 });
@@ -175,6 +292,15 @@ export async function POST(req: Request) {
   const result = await prisma.machineCycle.createMany({
     data: rows,
     skipDuplicates: true,
+  });
+
+  // "En espera de arranque": when this batch's first cycle resumes production
+  // after a resolved mold-change that had no cycle yet, record the gap from the
+  // swap end to that first cycle as an ESPERA_ARRANQUE downtime ReasonEntry so it
+  // flows into Pareto / recap / the downtime list as an unplanned reason.
+  // Idempotent on the mold incidentKey via the (orgId, kind, episodeId) unique.
+  await recordStartupWaitReason(machine.orgId, machine.id, rows).catch(() => {
+    // Never let this derivation break cycle ingest.
   });
 
   if (rows.length === 1) {

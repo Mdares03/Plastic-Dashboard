@@ -20,6 +20,7 @@
     RecapStateContext,
     RecapSummaryMachine,
     RecapSummaryResponse,
+    RecapTimelineSegment,
   } from "@/lib/recap/types";
 
   type DetailRangeInput = {
@@ -261,7 +262,8 @@
   function statusFromMachine(
     machine: RecapMachine,
     endMs: number,
-    events?: TimelineEventRow[]
+    events?: TimelineEventRow[],
+    segments?: RecapTimelineSegment[]
   ): {
     status: RecapMachineStatus;
     result: MachineStateResult;
@@ -276,6 +278,18 @@
 
     const activeMacrostop = detectActiveEpisode(events, "macrostop", endMs);
     const activeMoldChange = detectActiveEpisode(events, "mold-change", endMs);
+
+    // Startup-wait is "live" when the timeline's trailing segment is a startup-wait
+    // reaching the range end — i.e. the swap finished but no production cycle has
+    // arrived yet. Reusing the timeline derivation keeps live state and timeline
+    // in agreement (resolved mold end → first production).
+    const activeStartupWait = (() => {
+      if (!segments || segments.length === 0) return null;
+      const last = segments[segments.length - 1];
+      if (last.type !== "startup-wait") return null;
+      if (last.endMs < endMs - 2000) return null;
+      return { startedAtMs: last.startMs };
+    })();
 
     // Round 1 limitation: trackingEnabled and untrackedCycles inputs require KPI/cycle queries
     // we don't yet plumb here. We approximate from the legacy fields:
@@ -305,6 +319,7 @@
         trackingEnabled: trackingEnabledApprox,
         hasActiveWorkOrder,
         activeMoldChange,
+        activeStartupWait,
         activeMacrostop,
         lastCycleTsMs,
       },
@@ -417,11 +432,12 @@
   function toSummaryMachine(params: {
     machine: RecapMachine;
     miniTimeline: ReturnType<typeof compressTimelineSegments>;
+    segments?: RecapTimelineSegment[];
     rangeEndMs: number;
     events?: TimelineEventRow[];
   }): RecapSummaryMachine {
-    const { machine, miniTimeline, rangeEndMs, events } = params;
-    const status = statusFromMachine(machine, rangeEndMs, events);
+    const { machine, miniTimeline, segments, rangeEndMs, events } = params;
+    const status = statusFromMachine(machine, rangeEndMs, events, segments);
 
     return {
       machineId: machine.machineId,
@@ -491,6 +507,7 @@
       return toSummaryMachine({
         machine,
         miniTimeline,
+        segments,
         rangeEndMs: end.getTime(),
         events: timelineRows.eventsByMachine.get(machine.machineId),
       });
@@ -755,7 +772,8 @@
     const status = statusFromMachine(
       machine,
       range.end.getTime(),
-      timelineRows.eventsByMachine.get(params.machineId)
+      timelineRows.eventsByMachine.get(params.machineId),
+      timeline
     );
 
     const downtimeTotalMin = Math.max(0, machine.downtime.totalMin);

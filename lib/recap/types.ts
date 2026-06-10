@@ -90,6 +90,13 @@ export type RecapTimelineSegment =
       label: string;
     }
   | {
+      type: "startup-wait";
+      startMs: number;
+      endMs: number;
+      durationSec: number;
+      label: string;
+    }
+  | {
       type: "idle";
       startMs: number;
       endMs: number;
@@ -127,7 +134,13 @@ export type RecapQuery = {
   shift?: string;
 };
 
-export type RecapMachineStatus = "running" | "mold-change" | "stopped" | "offline" | "idle";
+export type RecapMachineStatus =
+  | "running"
+  | "mold-change"
+  | "startup-wait"
+  | "stopped"
+  | "offline"
+  | "idle";
 
 /**
  * Reason context — currently empty in practice because the only STOPPED cause

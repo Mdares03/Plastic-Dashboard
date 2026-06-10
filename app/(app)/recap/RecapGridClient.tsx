@@ -24,6 +24,7 @@ type Props = {
 const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
   running: "bg-emerald-400",
   "mold-change": "bg-amber-400",
+  "startup-wait": "bg-violet-400",
   stopped: "bg-red-500",
   offline: "bg-zinc-500",
   idle: "bg-zinc-400",
@@ -32,6 +33,7 @@ const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
 function statusLabel(status: RecapMachineStatus, t: (key: string) => string) {
   if (status === "running") return t("recap.status.running");
   if (status === "mold-change") return t("recap.status.moldChange");
+  if (status === "startup-wait") return t("recap.status.startupWait");
   if (status === "stopped") return t("recap.status.stopped");
   if (status === "idle") return t("recap.status.idle");
   return t("recap.status.offline");
@@ -62,9 +64,10 @@ function recapSortPriority(m: RecapSummaryMachine): number {
   if (m.status === "stopped" && (m.ongoingStopMin ?? 0) >= 5) return 0;
   if (m.status === "stopped") return 1;
   if (m.status === "mold-change") return 2;
-  if (m.status === "running") return 3;
-  if (m.status === "idle") return 4;
-  return 5;
+  if (m.status === "startup-wait") return 3;
+  if (m.status === "running") return 4;
+  if (m.status === "idle") return 5;
+  return 6;
 }
 
 function RecapListRow({ machine, t }: { machine: RecapSummaryMachine; t: TFunc }) {
@@ -297,7 +300,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
               className="rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-zinc-200"
             >
               <option value="all">{t("recap.filter.allStatuses")}</option>
-              {(["running", "mold-change", "stopped", "idle", "offline"] as const).map((status) => (
+              {(["running", "mold-change", "startup-wait", "stopped", "idle", "offline"] as const).map((status) => (
                 <option key={status} value={status}>
                   {statusLabel(status, t)}
                 </option>

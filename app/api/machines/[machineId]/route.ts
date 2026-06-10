@@ -75,6 +75,56 @@ function activeEpisodeStartMs(
   return bestStart;
 }
 
+/**
+ * End (ms) of the most recent *resolved* episode of `type` within the stale
+ * window, or null. For mold-change this is the "Finalizar cambio" end_ms marker —
+ * the boundary where the startup-wait window begins.
+ */
+function resolvedEpisodeEndMs(
+  rows: ReadonlyArray<{ eventType: string | null; ts: Date; data: unknown }>,
+  type: string,
+  nowMs: number,
+  staleMs: number,
+): number | null {
+  type Ep = { firstTsMs: number; lastTsMs: number; lastStatus: string; endMs: number | null };
+  const episodes = new Map<string, Ep>();
+  for (const row of rows) {
+    if (String(row.eventType || "").toLowerCase() !== type) continue;
+    const data = eventDataObject(row.data);
+    if (isTruthyFlag(data.is_auto_ack) || isTruthyFlag(data.isAutoAck)) continue;
+    if (isTruthyFlag(data.is_update) || isTruthyFlag(data.isUpdate)) continue;
+    const status = String(data.status ?? "").trim().toLowerCase();
+    const incidentKey =
+      String(data.incidentKey ?? data.incident_key ?? "").trim() || `${type}:${row.ts.getTime()}`;
+    const tsMs = row.ts.getTime();
+    const endRaw = Number(data.end_ms ?? data.endMs);
+    const endMs = Number.isFinite(endRaw) && endRaw > 0 ? endRaw : null;
+    const existing = episodes.get(incidentKey);
+    if (!existing) {
+      episodes.set(incidentKey, { firstTsMs: tsMs, lastTsMs: tsMs, lastStatus: status, endMs });
+      continue;
+    }
+    existing.firstTsMs = Math.min(existing.firstTsMs, tsMs);
+    if (endMs != null) existing.endMs = Math.max(existing.endMs ?? endMs, endMs);
+    if (tsMs >= existing.lastTsMs) {
+      existing.lastTsMs = tsMs;
+      existing.lastStatus = status;
+    }
+  }
+  let bestEnd: number | null = null;
+  let bestTs = -Infinity;
+  for (const ep of episodes.values()) {
+    if (ep.lastStatus !== "resolved") continue;
+    const end = ep.endMs ?? ep.lastTsMs;
+    if (nowMs - end > staleMs) continue; // too old → not a live wait
+    if (ep.lastTsMs > bestTs) {
+      bestTs = ep.lastTsMs;
+      bestEnd = end;
+    }
+  }
+  return bestEnd;
+}
+
 const ALLOWED_EVENT_TYPES = new Set([
   "slow-cycle",
   "microstop",
@@ -400,6 +450,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
   const moldStartMs = activeEpisodeStartMs(rawEvents, "mold-change", nowMs, MOLD_ACTIVE_STALE_MS);
   // A mold change is over once production resumes after it started.
   const moldOngoing = moldStartMs != null && !cyclesOut.some((c) => c.t > moldStartMs);
+  // "En espera de arranque": the operator finished the swap (resolved mold-change
+  // with end_ms) but no production cycle has arrived since. The window is live
+  // until the first cycle lands.
+  const moldResolvedEndMs = resolvedEpisodeEndMs(rawEvents, "mold-change", nowMs, MOLD_ACTIVE_STALE_MS);
+  const startupWaiting =
+    !moldOngoing &&
+    moldResolvedEndMs != null &&
+    !cyclesOut.some((c) => c.t > moldResolvedEndMs);
   const macroActive = activeEpisodeStartMs(rawEvents, "macrostop", nowMs, STOP_ACTIVE_STALE_MS) != null;
   const microActive =
     activeEpisodeStartMs(rawEvents, "microstop", nowMs, STOP_ACTIVE_STALE_MS) != null ||
@@ -410,6 +468,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
   let currentState: MachinePulseState;
   if (offline) currentState = "offline";
   else if (moldOngoing) currentState = "mold-change";
+  else if (startupWaiting && !macroActive) currentState = "startup-wait";
   else if (macroActive || hbStatus === "STOP" || hbStatus === "DOWN") currentState = "stopped";
   else if (microActive) currentState = "microstop";
   else if (hbStatus === "IDLE") currentState = "idle";

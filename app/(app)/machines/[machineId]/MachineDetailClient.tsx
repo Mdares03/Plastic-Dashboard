@@ -457,12 +457,13 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-zinc-300">
-        {(["production", "mold-change", "macrostop", "microstop", "idle"] as const).map((type) => (
+        {(["production", "mold-change", "startup-wait", "macrostop", "microstop", "idle"] as const).map((type) => (
           <div key={type} className="flex items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${TIMELINE_COLORS[type]}`} />
             <span>
               {type === "production" ? t("recap.timeline.type.production") : null}
               {type === "mold-change" ? t("recap.timeline.type.moldChange") : null}
+              {type === "startup-wait" ? t("recap.timeline.type.startupWait") : null}
               {type === "macrostop" ? t("recap.timeline.type.macrostop") : null}
               {type === "microstop" ? t("recap.timeline.type.microstop") : null}
               {type === "idle" ? t("recap.timeline.type.idle") : null}
@@ -494,7 +495,9 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
                       ? t("recap.timeline.type.macrostop")
                       : segment.type === "microstop" || segment.type === "slow-cycle"
                         ? t("recap.timeline.type.microstop")
-                        : t("recap.timeline.type.idle");
+                        : segment.type === "startup-wait"
+                          ? t("recap.timeline.type.startupWait")
+                          : t("recap.timeline.type.idle");
               const title = `${typeLabel} · ${formatDuration(segment.startMs, segment.endMs)}`;
 
               return (

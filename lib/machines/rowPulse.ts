@@ -8,6 +8,7 @@
 
 export type MachinePulseState =
   | "mold-change"
+  | "startup-wait"
   | "stopped"
   | "microstop"
   | "idle"
@@ -19,11 +20,21 @@ export type MachinePulseState =
  * Used by the Recap list, whose rows carry miniTimeline segments directly.
  */
 export function pulseStateFromSegmentType(
-  type: "production" | "mold-change" | "macrostop" | "microstop" | "slow-cycle" | "idle" | "offline",
+  type:
+    | "production"
+    | "mold-change"
+    | "macrostop"
+    | "microstop"
+    | "slow-cycle"
+    | "startup-wait"
+    | "idle"
+    | "offline",
 ): MachinePulseState {
   switch (type) {
     case "mold-change":
       return "mold-change";
+    case "startup-wait":
+      return "startup-wait";
     case "macrostop":
       return "stopped";
     case "microstop":
@@ -48,6 +59,8 @@ export function rowPulse(state: MachinePulseState, opts?: { urgent?: boolean }):
   switch (state) {
     case "mold-change":
       return `${base} border-l-4 border-l-sky-400 animate-row-pulse-blue`;
+    case "startup-wait":
+      return `${base} border-l-4 border-l-violet-400 animate-row-pulse-violet`;
     case "stopped":
       return opts?.urgent
         ? `${base} border-l-4 border-l-red-500 animate-row-pulse-red-strong`

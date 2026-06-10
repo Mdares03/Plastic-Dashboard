@@ -6,10 +6,11 @@ import type { TimelineEventRow } from "@/lib/recap/timeline";
  * State precedence (top wins):
  *   1. OFFLINE             — heartbeat dead
  *   2. MOLD_CHANGE         — operator initiated mold swap
- *   3. STOPPED             — should be producing, isn't
- *   4. DATA_LOSS           — producing but tracking off (operator forgot START)
- *   5. IDLE                — nothing loaded, nothing running, nothing expected
- *   6. RUNNING             — healthy
+ *   3. STARTUP_WAIT        — swap finished, not producing yet ("en espera de arranque")
+ *   4. STOPPED             — should be producing, isn't
+ *   5. DATA_LOSS           — producing but tracking off (operator forgot START)
+ *   6. IDLE                — nothing loaded, nothing running, nothing expected
+ *   7. RUNNING             — healthy
  *
  * Inputs are intentionally raw and computed by the caller, not fetched here,
  * so this module stays pure (testable, no DB/Prisma dependency).
@@ -18,6 +19,7 @@ import type { TimelineEventRow } from "@/lib/recap/timeline";
 export type MachineStateName =
   | "offline"
   | "mold-change"
+  | "startup-wait"
   | "stopped"
   | "data-loss"
   | "idle"
@@ -29,6 +31,11 @@ export type MachineStateResult =
       state: "mold-change";
       moldChangeStartMs: number | null;
       moldChangeMin: number;
+    }
+  | {
+      state: "startup-wait";
+      startupWaitStartMs: number | null;
+      startupWaitMin: number;
     }
   | {
       state: "stopped";
@@ -54,6 +61,13 @@ export type MachineStateInputs = {
 
   /** Active mold-change event (from timeline events) */
   activeMoldChange: { startedAtMs: number } | null;
+
+  /**
+   * Startup-wait window: the operator finished the mold swap (resolved
+   * mold-change) but no production cycle has arrived yet. `startedAtMs` is the
+   * resolved mold-change end_ms. Null when not in a startup-wait.
+   */
+  activeStartupWait: { startedAtMs: number } | null;
 
   /** Active macrostop event (from timeline events) — fires when tracking on + no cycles */
   activeMacrostop: { startedAtMs: number } | null;
@@ -99,7 +113,22 @@ export function classifyMachineState(
     };
   }
 
-  // 3. DATA_LOSS — tracking off but cycles arriving. Operator forgot START.
+  // 3. STARTUP_WAIT — swap finished, machine not producing yet ("en espera de
+  // arranque"). An explicit, operator-acknowledged "not producing yet" beats a
+  // generic STOPPED, but a genuine macrostop is checked after (so it still wins
+  // when present alongside the wait).
+  if (inputs.activeStartupWait) {
+    return {
+      state: "startup-wait",
+      startupWaitStartMs: inputs.activeStartupWait.startedAtMs,
+      startupWaitMin: Math.max(
+        0,
+        Math.floor((nowMs - inputs.activeStartupWait.startedAtMs) / 60000)
+      ),
+    };
+  }
+
+  // 4. DATA_LOSS — tracking off but cycles arriving. Operator forgot START.
   // Check this BEFORE STOPPED because cycles ARE arriving (so the "no cycles" branch
   // would never fire), but we still want to flag it.
 

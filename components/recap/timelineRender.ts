@@ -6,6 +6,7 @@ export const TIMELINE_COLORS: Record<RecapTimelineSegment["type"], string> = {
   macrostop: "bg-red-500 text-white",
   microstop: "bg-orange-500 text-black",
   "slow-cycle": "bg-orange-500 text-black",
+  "startup-wait": "bg-violet-500 text-white",
   idle: "bg-zinc-700 text-zinc-300",
 };
 
@@ -86,6 +87,14 @@ export function normalizeTimelineSegments(
         endMs,
         reason: segment.reason,
         reasonLabel: segment.reasonLabel ?? segment.reason,
+        durationSec: Math.max(0, Math.trunc((endMs - startMs) / 1000)),
+        label: segment.label,
+      });
+    } else if (segment.type === "startup-wait") {
+      out.push({
+        type: "startup-wait",
+        startMs,
+        endMs,
         durationSec: Math.max(0, Math.trunc((endMs - startMs) / 1000)),
         label: segment.label,
       });

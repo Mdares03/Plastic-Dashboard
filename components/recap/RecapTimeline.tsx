@@ -15,6 +15,7 @@ const COLORS: Record<RecapTimelineSegment["type"], string> = {
   macrostop: "bg-red-500 text-white",
   microstop: "bg-orange-500 text-black",
   "slow-cycle": "bg-amber-500 text-black",
+  "startup-wait": "bg-violet-500 text-white",
   idle: "bg-zinc-600 text-zinc-300",
 };
 const MIN_SEGMENT_PCT = 0.3;
@@ -33,7 +34,13 @@ function fmtDuration(startMs: number, endMs: number) {
 }
 
 function shouldMergeByType(type: RecapTimelineSegment["type"]) {
-  return type === "macrostop" || type === "microstop" || type === "slow-cycle" || type === "idle";
+  return (
+    type === "macrostop" ||
+    type === "microstop" ||
+    type === "slow-cycle" ||
+    type === "startup-wait" ||
+    type === "idle"
+  );
 }
 
 function normalizeForRender(segments: RecapTimelineSegment[], startMs: number, endMs: number) {

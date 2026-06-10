@@ -38,6 +38,13 @@ type RawSegment =
       reason: string | null;
       durationSec: number;
       label: string;
+    }
+  | {
+      type: "startup-wait";
+      startMs: number;
+      endMs: number;
+      priority: number;
+      label: string;
     };
 
 export type TimelineCycleRow = {
@@ -57,6 +64,10 @@ export type TimelineEventRow = {
 
 const PRIORITY: Record<string, number> = {
   idle: 0,
+  // "startup-wait" sits just above idle but below production and every stop type:
+  // a real macrostop/microstop during the wait still wins, and the first production
+  // cycle (which ends the wait) wins too. It only beats raw idle.
+  "startup-wait": 0.5,
   production: 1,
   microstop: 2,
   "slow-cycle": 2,
@@ -190,6 +201,7 @@ function isEquivalent(a: RecapTimelineSegment, b: RecapTimelineSegment) {
   ) {
     return a.type === b.type && a.reason === b.reason;
   }
+  if (a.type === "startup-wait" && b.type === "startup-wait") return true;
   return false;
 }
 
@@ -464,6 +476,17 @@ function buildSegmentsFromBoundaries(rawSegments: RawSegment[], rangeStartMs: nu
       continue;
     }
 
+    if (winner.type === "startup-wait") {
+      timeline.push({
+        type: "startup-wait",
+        startMs: intervalStart,
+        endMs: intervalEnd,
+        durationSec: Math.max(0, Math.trunc((intervalEnd - intervalStart) / 1000)),
+        label: winner.label,
+      });
+      continue;
+    }
+
     const stopType = normalizeStopType(winner.type);
     timeline.push({
       type: stopType,
@@ -484,6 +507,7 @@ function segmentPriority(type: RecapTimelineSegment["type"]) {
   if (type === "macrostop") return 3;
   if (type === "microstop" || type === "slow-cycle") return 2;
   if (type === "production") return 1;
+  if (type === "startup-wait") return 0.5;
   return 0;
 }
 
@@ -518,6 +542,15 @@ function cloneForRange(segment: RecapTimelineSegment, startMs: number, endMs: nu
       endMs,
       reason: segment.reason,
       reasonLabel: segment.reasonLabel ?? segment.reason,
+      durationSec: Math.max(0, Math.trunc((endMs - startMs) / 1000)),
+      label: segment.label,
+    };
+  }
+  if (segment.type === "startup-wait") {
+    return {
+      type: "startup-wait",
+      startMs,
+      endMs,
       durationSec: Math.max(0, Math.trunc((endMs - startMs) / 1000)),
       label: segment.label,
     };
@@ -723,6 +756,25 @@ export function buildTimelineSegments(input: {
         durationSec: Math.max(0, Math.trunc((endMs - startMs) / 1000)),
         label: episode.toMoldId ? `Cambio molde ${episode.toMoldId}` : "Cambio molde",
       });
+
+      // "En espera de arranque": once the operator finishes the swap (resolved
+      // mold-change), the machine is not yet producing. The gap from the swap end
+      // to the first production cycle (or the range edge if none yet) is the
+      // startup-wait window. It used to fall into idle; carve it out so it can be
+      // named, measured, and surfaced.
+      if (episode.statusResolved) {
+        const waitStartMs = endMs;
+        const waitEndMs = firstProductionMsAfter(waitStartMs) ?? rangeEndMs;
+        if (waitEndMs > waitStartMs) {
+          rawSegments.push({
+            type: "startup-wait",
+            startMs: waitStartMs,
+            endMs: waitEndMs,
+            priority: PRIORITY["startup-wait"],
+            label: "En espera de arranque",
+          });
+        }
+      }
       continue;
     }
 

@@ -16,6 +16,7 @@ type Props = {
 const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
   running: "bg-emerald-400",
   "mold-change": "bg-amber-400",
+  "startup-wait": "bg-violet-400",
   stopped: "bg-red-500",
   offline: "bg-zinc-500",
   idle: "bg-zinc-400",
@@ -24,6 +25,7 @@ const STATUS_DOT: Record<RecapSummaryMachine["status"], string> = {
 function statusLabel(status: RecapSummaryMachine["status"], t: (key: string) => string) {
   if (status === "running") return t("recap.status.running");
   if (status === "mold-change") return t("recap.status.moldChange");
+  if (status === "startup-wait") return t("recap.status.startupWait");
   if (status === "stopped") return t("recap.status.stopped");
   if (status === "idle") return t("recap.status.idle");
   return t("recap.status.offline");

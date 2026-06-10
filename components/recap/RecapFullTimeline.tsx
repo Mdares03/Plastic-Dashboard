@@ -84,7 +84,9 @@ export default function RecapFullTimeline({
                         ? t("recap.timeline.type.macrostop")
                         : segment.type === "microstop" || segment.type === "slow-cycle"
                           ? t("recap.timeline.type.microstop")
-                          : t("recap.timeline.type.idle");
+                          : segment.type === "startup-wait"
+                            ? t("recap.timeline.type.startupWait")
+                            : t("recap.timeline.type.idle");
                 const title = `${typeLabel} · ${formatTime(segment.startMs, locale)}-${formatTime(
                   segment.endMs,
                   locale

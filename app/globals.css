@@ -128,11 +128,16 @@ body {
   0%, 100% { background-color: rgba(24, 24, 27, 0.55); box-shadow: 0 0 10px rgba(0, 0, 0, 0.35); }
   50%      { background-color: rgba(39, 39, 42, 0.85); box-shadow: 0 0 22px rgba(0, 0, 0, 0.55); }
 }
+@keyframes row-pulse-violet {
+  0%, 100% { background-color: rgba(139, 92, 246, 0.12); box-shadow: 0 0 14px rgba(139, 92, 246, 0.20); }
+  50%      { background-color: rgba(139, 92, 246, 0.30); box-shadow: 0 0 30px rgba(139, 92, 246, 0.48); }
+}
 
 .animate-row-pulse-blue       { animation: row-pulse-blue 1.8s ease-in-out infinite; }
 .animate-row-pulse-red        { animation: row-pulse-red 1.8s ease-in-out infinite; }
 .animate-row-pulse-red-strong { animation: row-pulse-red-strong 1.4s ease-in-out infinite; }
 .animate-row-pulse-orange     { animation: row-pulse-orange 1.8s ease-in-out infinite; }
+.animate-row-pulse-violet     { animation: row-pulse-violet 1.8s ease-in-out infinite; }
 .animate-row-pulse-dark       { animation: row-pulse-dark 2.4s ease-in-out infinite; }
 
 @media (prefers-reduced-motion: reduce) {
@@ -140,6 +145,7 @@ body {
   .animate-row-pulse-red,
   .animate-row-pulse-red-strong,
   .animate-row-pulse-orange,
+  .animate-row-pulse-violet,
   .animate-row-pulse-dark { animation: none; }
 }
 
