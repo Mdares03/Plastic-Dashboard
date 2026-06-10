@@ -24,6 +24,11 @@
 .DS_Store
 *.pem
 
+# secrets & editor backups (git is the backup — never commit .bak files)
+cookies.txt
+*.bak
+*.bak.*
+
 # debug
 npm-debug.log*
 yarn-debug.log*

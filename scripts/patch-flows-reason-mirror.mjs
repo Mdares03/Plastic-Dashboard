@@ -6,7 +6,7 @@
  */
 import { readFileSync, writeFileSync } from "fs";
 
-const path = new URL("../flows_may_4_26.json", import.meta.url).pathname;
+const path = new URL("../edge/archive/flows_may_4_26.json", import.meta.url).pathname;
 const j = JSON.parse(readFileSync(path, "utf8"));
 
 const applyId = "abbec199700a5e29";

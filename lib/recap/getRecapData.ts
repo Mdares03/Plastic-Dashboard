@@ -251,7 +251,7 @@ export function parseRecapQuery(input: {
   };
 }
 
-async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
+export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> & {
   machineId?: string;
   start: Date;
   end: Date;
