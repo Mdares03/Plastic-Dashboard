@@ -15,7 +15,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:reason-catalog": "node scripts/seed-reason-catalog-from-xlsx.mjs",
     "db:dry-run-cutoff": "dotenv -e .env -- node scripts/db-dry-run-cutoff.mjs",
-    "baseline:capture": "dotenv -e .env -- tsx scripts/capture-baseline.ts"
+    "baseline:capture": "dotenv -e .env -- tsx scripts/capture-baseline.ts",
+    "drift:check": "dotenv -e .env.backup_prod_pointing -- tsx scripts/metrics/drift-check.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
