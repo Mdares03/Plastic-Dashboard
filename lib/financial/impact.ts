@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { MAX_OPEN_EPISODE_MS } from "@/lib/metrics";
 import { getCompiledFinancialFormulas } from "@/lib/financial/cache";
 import {
   createSchemaDriftDiagnostic,
@@ -462,6 +463,9 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
       const lastCycleTimestamp = safeNumber(inner?.last_cycle_timestamp ?? blob?.last_cycle_timestamp);
       const isCycleGapStop = theoreticalSec != null && theoreticalSec > 0 && lastCycleTimestamp == null;
       durationSec = isCycleGapStop ? Math.max(0, rawDurationSec - theoreticalSec) : rawDurationSec;
+      // R5: cap an open/runaway stoppage at 12h so a never-resolved or clock-skewed
+      // event (the events table holds many >12h, up to ~67h) can't inflate cost.
+      durationSec = Math.min(durationSec, MAX_OPEN_EPISODE_MS / 1000);
       if (!durationSec || durationSec <= 0) continue;
       const durationMin = durationSec / 60;
       const scope = buildFormulaScope(profile, { mode: "idle", durationMin });
