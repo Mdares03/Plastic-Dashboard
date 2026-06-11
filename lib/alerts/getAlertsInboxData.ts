@@ -1,5 +1,12 @@
 import { normalizeShiftOverrides } from "@/lib/settings";
 import { prisma } from "@/lib/prisma";
+import { MAX_OPEN_EPISODE_MS } from "@/lib/metrics";
+
+/** R5: cap a displayed stoppage duration at 12h, congruent with the downtime-
+ *  events list and financial impact (an open/runaway event must not show ~67h). */
+function capEpisodeSec(sec: number | null): number | null {
+  return sec == null ? null : Math.min(sec, MAX_OPEN_EPISODE_MS / 1000);
+}
 
 const RANGE_MS: Record<string, number> = {
   "24h": 24 * 60 * 60 * 1000,
@@ -356,7 +363,7 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
       location: ev.machine?.location ?? null,
       workOrderId: ev.workOrderId ?? null,
       sku: ev.sku ?? null,
-      durationSec: extractDurationSec(ev.data),
+      durationSec: capEpisodeSec(extractDurationSec(ev.data)),
       status: statusLabel,
       shift: shiftName,
       alertId: safeString(payload?.alert_id ?? inner?.alert_id),
