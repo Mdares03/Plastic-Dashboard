@@ -48,7 +48,10 @@ type AlertsInboxEvent = {
   incidentKey?: string | null;
   isUpdate?: boolean;
   isAutoAck?: boolean;
+  notifications?: NotificationStats | null;
 };
+
+type NotificationStats = { sent: number; suppressed: number; failed: number };
 
 function pickRange(range: string, start?: Date | null, end?: Date | null) {
   const now = new Date();
@@ -375,8 +378,47 @@ export async function getAlertsInboxData(params: AlertsInboxParams) {
 
   const finalEvents = includeUpdates ? mapped : collapseAlertEvents(mapped);
 
+  // Surface delivery outcome per incident (sent / suppressed / failed) so the
+  // inbox shows that throttled alerts were *intentionally* held, not lost — the
+  // observable proof of the circuit breaker (Phase 4).
+  const incidentKeys = [
+    ...new Set(finalEvents.map((e) => e.incidentKey).filter((k): k is string => !!k)),
+  ];
+  const statsByIncident = new Map<string, NotificationStats>();
+  if (incidentKeys.length) {
+    const grouped = await prisma.alertNotification.groupBy({
+      by: ["incidentKey", "status"],
+      where: { orgId, incidentKey: { in: incidentKeys } },
+      _count: { _all: true },
+    });
+    for (const g of grouped) {
+      if (!g.incidentKey) continue;
+      const cur = statsByIncident.get(g.incidentKey) ?? { sent: 0, suppressed: 0, failed: 0 };
+      const count = g._count._all ?? 0;
+      if (g.status === "sent") cur.sent += count;
+      else if (g.status === "suppressed") cur.suppressed += count;
+      else if (g.status === "failed") cur.failed += count;
+      statsByIncident.set(g.incidentKey, cur);
+    }
+  }
+
+  const eventsWithStats = finalEvents.map((e) => ({
+    ...e,
+    notifications: e.incidentKey
+      ? statsByIncident.get(e.incidentKey) ?? { sent: 0, suppressed: 0, failed: 0 }
+      : null,
+  }));
+
+  const notificationSummary: NotificationStats = { sent: 0, suppressed: 0, failed: 0 };
+  for (const s of statsByIncident.values()) {
+    notificationSummary.sent += s.sent;
+    notificationSummary.suppressed += s.suppressed;
+    notificationSummary.failed += s.failed;
+  }
+
   return {
     range: { range: picked.range, start: picked.start, end: picked.end },
-    events: finalEvents,
+    events: eventsWithStats,
+    notificationSummary,
   };
 }
