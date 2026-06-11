@@ -1,6 +1,8 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { normalizeShiftOverrides, type ShiftOverrideDay } from "@/lib/settings";
+import { computeDowntime, computeWindowRates, resolveWindow } from "@/lib/metrics";
+import type { KpiSample, ReasonRow } from "@/lib/metrics";
 import type { RecapMachine, RecapQuery, RecapResponse } from "@/lib/recap/types";
 
 type ShiftLike = {
@@ -171,18 +173,6 @@ function normalizeShiftAlias(shift?: string | null) {
   return null;
 }
 
-function eventDurationSec(data: unknown) {
-  const inner = extractEventData(data);
-  return (
-    safeNum(inner.stoppage_duration_seconds) ??
-    safeNum(inner.stop_duration_seconds) ??
-    safeNum(inner.duration_seconds) ??
-    safeNum(inner.duration_sec) ??
-    safeNum(inner.durationSeconds) ??
-    0
-  );
-}
-
 function extractEventData(data: unknown) {
   let blob = data;
   if (typeof blob === "string") {
@@ -324,6 +314,8 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
           availability: true,
           performance: true,
           quality: true,
+          trackingEnabled: true,
+          productionStarted: true,
         },
       }),
       prisma.machineEvent.findMany({
@@ -429,6 +421,14 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
     ]);
 
   const timeZone = settings?.timezone || "UTC";
+  // R6 — the recap range is a caller-supplied window; carry its resolution so
+  // the R4 rate cap and R5 downtime clamp share one [start, end].
+  const window = resolveWindow({
+    mode: params.shift ? "shift" : "custom",
+    timezone: timeZone,
+    start: params.start,
+    end: params.end,
+  });
   const shiftOverrides = normalizeShiftOverrides(settings?.shiftScheduleOverridesJson);
   const orderedEnabledShifts = shifts.filter((s) => s.enabled !== false).sort((a, b) => a.sortOrder - b.sortOrder);
   const shiftIndex = params.shift ? Number(params.shift.replace("shift", "")) - 1 : -1;
@@ -697,67 +697,62 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
 
     const sortedKpis = [...dedupedKpis].sort((a, b) => a.ts.getTime() - b.ts.getTime());
     const latestKpi = sortedKpis[sortedKpis.length - 1] ?? null;
-    const weightedAvg = (field: "oee" | "availability" | "performance" | "quality") => {
-      if (!sortedKpis.length) return null;
-      let totalMs = 0;
-      let weightedSum = 0;
+    // R4 — window rates are the time-weighted average of production snapshots
+    // (trackingEnabled && productionStarted), each sample's weight capped at 10
+    // min. The previous local weightedAvg had the weighting but neither the
+    // production filter nor the cap; computeWindowRates is now the one authority.
+    const kpiSamples: KpiSample[] = sortedKpis.map((kpi) => ({
+      ts: kpi.ts,
+      oee: safeNum(kpi.oee),
+      availability: safeNum(kpi.availability),
+      performance: safeNum(kpi.performance),
+      quality: safeNum(kpi.quality),
+      trackingEnabled: kpi.trackingEnabled,
+      productionStarted: kpi.productionStarted,
+    }));
+    const windowRates = computeWindowRates(kpiSamples, window.end);
 
-      for (let i = 0; i < sortedKpis.length; i += 1) {
-        const current = sortedKpis[i];
-        const nextTsMs = (sortedKpis[i + 1]?.ts ?? params.end).getTime();
-        const dt = Math.max(0, nextTsMs - current.ts.getTime());
-        if (dt <= 0) continue;
-        weightedSum += (safeNum(current[field]) ?? 0) * dt;
-        totalMs += dt;
-      }
-
-      return totalMs > 0 ? round2(weightedSum / totalMs) : null;
-    };
-
-    let stopDurSecFromEvents = 0;
+    // R5 — stop EVENTS are counted for the live "stops" tile only; their
+    // durations are NOT summed into downtime (ReasonEntry is the authority).
     let stopsCount = 0;
     for (const event of machineEvents) {
       const type = String(event.eventType || "").toLowerCase();
       if (!STOP_TYPES.has(type)) continue;
       if (!isRealStopEvent(event.data)) continue;
       stopsCount += 1;
-      stopDurSecFromEvents += eventDurationSec(event.data);
     }
 
-    // Mold change is planned changeover. We DO count it here so it stays visible and
-    // goal-trackable in the recap downtime list (tagged planned), but it never flows into
-    // OEE/Availability — those come from machineKpiSnapshot upstream, not these sums.
-    const reasonAgg = new Map<string, { reasonLabel: string; seconds: number; count: number; planned: boolean }>();
-    let stopDurSecFromReasons = 0;
-    let plannedStopDurSec = 0;
-    for (const reason of machineReasons) {
-      if (String(reason.kind).toLowerCase() !== "downtime") continue;
+    // R5 — downtime totals come from ReasonEntry ONLY (the old
+    // max(eventSum, reasonSum) double-authority is abolished). Episodes are
+    // clamped to the window and capped at 12 h inside computeDowntime. Mold
+    // change stays visible (tagged planned) but never flows into OEE — those
+    // come from machineKpiSnapshot upstream, not these sums. `stopsCount` is the
+    // count of live stop EVENTS (informational), not a downtime duration.
+    const downtimeReasonRows: ReasonRow[] = machineReasons.map((reason) => {
       const code = String(reason.reasonCode ?? "").trim().toUpperCase();
-      const planned = code === "MOLD_CHANGE";
-      const label = reasonLabelByCode.get(code) ?? reason.reasonLabel?.trim() ?? code;
-      const safeLabel = label || "Sin razón";
-      const seconds = Math.max(0, safeNum(reason.durationSeconds) ?? 0);
-      stopDurSecFromReasons += seconds;
-      if (planned) plannedStopDurSec += seconds;
-      const agg = reasonAgg.get(safeLabel) ?? { reasonLabel: safeLabel, seconds: 0, count: 0, planned };
-      agg.seconds += seconds;
-      agg.count += 1;
-      reasonAgg.set(safeLabel, agg);
-    }
+      return {
+        kind: reason.kind,
+        reasonCode: code,
+        // Prefer the catalog-enriched label so the recap list reads the same as before.
+        reasonLabel: reasonLabelByCode.get(code) ?? reason.reasonLabel?.trim() ?? code,
+        durationSeconds: safeNum(reason.durationSeconds),
+        capturedAt: reason.capturedAt,
+        episodeEndTs: null,
+        scrapQty: safeNum(reason.scrapQty),
+        workOrderId: normalizeToken(reason.workOrderId) || null,
+      };
+    });
+    const downtime = computeDowntime(downtimeReasonRows, window);
+    const topReasons = downtime.byReason.slice(0, 3).map((row) => ({
+      reasonLabel: row.reasonLabel,
+      minutes: row.minutes,
+      count: row.count,
+      planned: row.planned,
+    }));
 
-    const topReasons = [...reasonAgg.values()]
-      .sort((a, b) => b.seconds - a.seconds)
-      .slice(0, 3)
-      .map((row) => ({
-        reasonLabel: row.reasonLabel,
-        minutes: round2(row.seconds / 60),
-        count: row.count,
-        planned: row.planned,
-      }));
-
-    const totalMin = round2(Math.max(stopDurSecFromEvents, stopDurSecFromReasons) / 60);
-    const plannedMin = round2(plannedStopDurSec / 60);
-    const unplannedMin = round2(Math.max(0, totalMin - plannedMin));
+    const totalMin = downtime.totalMin;
+    const plannedMin = downtime.plannedMin;
+    const unplannedMin = downtime.unplannedMin;
 
     let ongoingStopMin: number | null = null;
     const latestStatus = String(latestHb?.status ?? "").toUpperCase();
@@ -903,10 +898,10 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
         bySku,
       },
       oee: {
-        avg: weightedAvg("oee"),
-        availability: weightedAvg("availability"),
-        performance: weightedAvg("performance"),
-        quality: weightedAvg("quality"),
+        avg: windowRates.oee,
+        availability: windowRates.availability,
+        performance: windowRates.performance,
+        quality: windowRates.quality,
       },
       downtime: {
         totalMin,
