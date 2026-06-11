@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { dedupeCycles } from "@/lib/metrics";
 import type { CyclePerfRow, MachineCostProfile } from "@/lib/reports/types";
 import { isTemporarilyBlockedWorkOrder } from "@/lib/workOrders/temporaryBlocklist";
 
@@ -36,6 +37,8 @@ export async function getCyclePerformanceByWorkOrder(params: {
       machineId: true,
       workOrderId: true,
       sku: true,
+      ts: true,
+      cycleCount: true,
       actualCycleTime: true,
       goodDelta: true,
       scrapDelta: true,
@@ -108,7 +111,17 @@ export async function getCyclePerformanceByWorkOrder(params: {
     }
   >();
 
+  // R2: dedupe cycle deltas per machine so unitsProduced matches the production
+  // report (a duplicated row must not inflate one WO's output).
+  const cyclesByMachine = new Map<string, typeof filteredCycles>();
   for (const cycle of filteredCycles) {
+    const list = cyclesByMachine.get(cycle.machineId) ?? [];
+    list.push(cycle);
+    cyclesByMachine.set(cycle.machineId, list);
+  }
+  const dedupedCycles = [...cyclesByMachine.values()].flatMap((list) => dedupeCycles(list));
+
+  for (const cycle of dedupedCycles) {
     if (!cycle.workOrderId) continue;
     const k = key(cycle.machineId, cycle.workOrderId);
     const prev =

@@ -22,10 +22,14 @@ import type {
 
 const trunc0 = (v: number | null | undefined) => Math.max(0, Math.trunc(v ?? 0));
 
-/** R2 — dedup cycle rows on the (ts, cycleCount) natural key (per machine). */
-export function dedupeCycles(cycles: CycleDelta[]): CycleDelta[] {
+/**
+ * R2 — dedup cycle rows on the (ts, cycleCount) natural key (per machine).
+ * Generic so callers keep their richer row type (machineId, sku, …) — the dedup
+ * key only needs `ts` + `cycleCount` from CycleDelta.
+ */
+export function dedupeCycles<T extends CycleDelta>(cycles: T[]): T[] {
   const seen = new Set<string>();
-  const out: CycleDelta[] = [];
+  const out: T[] = [];
   for (const c of cycles) {
     const key = `${c.ts.getTime()}:${c.cycleCount ?? ""}`;
     if (seen.has(key)) continue;

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { dedupeCycles } from "@/lib/metrics";
 import type { MachineCostProfile, ScrapRow } from "@/lib/reports/types";
 
 type SkuAgg = {
@@ -44,6 +45,8 @@ export async function getScrapTopSkus(params: {
         machineId: true,
         workOrderId: true,
         sku: true,
+        ts: true,
+        cycleCount: true,
         goodDelta: true,
         scrapDelta: true,
       },
@@ -79,12 +82,22 @@ export async function getScrapTopSkus(params: {
     }
   }
 
-  const totalUnitsBySku = new Map<string, number>();
+  // R2: dedupe cycle deltas per machine before summing the scrap-% denominator,
+  // so totalUnits matches the production report's good+scrap counts.
+  const cyclesByMachine = new Map<string, typeof cycleRows>();
   for (const cycle of cycleRows) {
-    const sku = cycle.sku ?? (cycle.workOrderId ? skuByWorkOrder.get(`${cycle.machineId}::${cycle.workOrderId}`) : null);
-    if (!sku) continue;
-    const units = Math.max(0, Number(cycle.goodDelta ?? 0)) + Math.max(0, Number(cycle.scrapDelta ?? 0));
-    totalUnitsBySku.set(sku, (totalUnitsBySku.get(sku) ?? 0) + units);
+    const list = cyclesByMachine.get(cycle.machineId) ?? [];
+    list.push(cycle);
+    cyclesByMachine.set(cycle.machineId, list);
+  }
+  const totalUnitsBySku = new Map<string, number>();
+  for (const list of cyclesByMachine.values()) {
+    for (const cycle of dedupeCycles(list)) {
+      const sku = cycle.sku ?? (cycle.workOrderId ? skuByWorkOrder.get(`${cycle.machineId}::${cycle.workOrderId}`) : null);
+      if (!sku) continue;
+      const units = Math.max(0, Number(cycle.goodDelta ?? 0)) + Math.max(0, Number(cycle.scrapDelta ?? 0));
+      totalUnitsBySku.set(sku, (totalUnitsBySku.get(sku) ?? 0) + units);
+    }
   }
 
   const skuAgg = new Map<string, SkuAgg>();

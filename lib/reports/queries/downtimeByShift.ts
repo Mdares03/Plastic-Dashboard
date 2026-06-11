@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { episodeWindowMinutes } from "@/lib/metrics";
 import { loadShiftPlanningContext, resolveShiftName } from "@/lib/reports/queries/shiftPlanning";
 
 export async function getDowntimeByShift(params: {
@@ -21,6 +22,7 @@ export async function getDowntimeByShift(params: {
       },
       select: {
         capturedAt: true,
+        episodeEndTs: true,
         durationSeconds: true,
       },
     }),
@@ -33,7 +35,8 @@ export async function getDowntimeByShift(params: {
     if (!shiftName) continue;
 
     const prev = agg.get(shiftName) ?? { shiftName, minutes: 0, events: 0 };
-    prev.minutes += Math.max(0, Number(row.durationSeconds ?? 0)) / 60;
+    // R5: clamp to window + 12h cap, same authority as recap/reports/losses.
+    prev.minutes += episodeWindowMinutes(row, from, to);
     prev.events += 1;
     agg.set(shiftName, prev);
   }
