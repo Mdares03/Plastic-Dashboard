@@ -2,6 +2,9 @@ import { prisma } from "@/lib/prisma";
 import { sendEmail } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import { AlertPolicySchema, DEFAULT_POLICY } from "@/lib/alerts/policy";
+import { checkCircuitBreaker, shouldNotifyIncident } from "@/lib/alerts/throttle";
+
+const HOUR_MS = 60 * 60 * 1000;
 
 type Recipient = {
   userId?: string;
@@ -187,19 +190,26 @@ function buildAlertMessage(params: {
   return { subject, text, html };
 }
 
-async function shouldSendNotification(params: {
-  eventIds: string[];
-  ruleId: string;
+/**
+ * Last delivered notification for this exact (incidentKey, statusKey, role,
+ * channel, recipient) tuple — the per-incident dedup state fed to throttle.
+ */
+async function lastSentAtFor(params: {
+  orgId: string;
+  incidentKey: string;
+  statusKey: "active" | "resolved";
   role: string;
   channel: string;
   contactId?: string;
   userId?: string;
-  repeatMinutes?: number;
-}) {
+}): Promise<Date | null> {
   const existing = await prisma.alertNotification.findFirst({
     where: {
-      eventId: { in: params.eventIds },
-      ruleId: params.ruleId,
+      orgId: params.orgId,
+      incidentKey: params.incidentKey,
+      status: "sent",
+      // ruleId encodes the status phase ("<ruleId>:active" | ":resolved")
+      ruleId: { endsWith: `:${params.statusKey}` },
       role: params.role,
       channel: params.channel,
       ...(params.contactId ? { contactId: params.contactId } : {}),
@@ -208,28 +218,31 @@ async function shouldSendNotification(params: {
     orderBy: { sentAt: "desc" },
     select: { sentAt: true },
   });
-
-  if (!existing) return true;
-  const repeatMin = Number(params.repeatMinutes ?? 0);
-  if (!repeatMin || repeatMin <= 0) return false;
-  const elapsed = Date.now() - new Date(existing.sentAt).getTime();
-  return elapsed >= repeatMin * 60 * 1000;
+  return existing?.sentAt ?? null;
 }
 
-async function resolveAlertEventIds(orgId: string, alertId: string, fallbackId: string) {
-  const events = await prisma.machineEvent.findMany({
-    where: {
-      orgId,
-      data: {
-        path: ["alert_id"],
-        equals: alertId,
-      },
-    },
-    select: { id: true },
+/** Count delivered (status='sent') notifications in the last hour, org-wide. */
+async function orgSentLastHour(orgId: string, since: Date): Promise<number> {
+  return prisma.alertNotification.count({
+    where: { orgId, status: "sent", sentAt: { gte: since } },
   });
-  const ids = events.map((row) => row.id);
-  if (!ids.includes(fallbackId)) ids.push(fallbackId);
-  return ids;
+}
+
+/** Count delivered notifications in the last hour for one recipient. */
+async function contactSentLastHour(
+  params: { orgId: string; contactId?: string; userId?: string },
+  since: Date,
+): Promise<number> {
+  if (!params.contactId && !params.userId) return 0;
+  return prisma.alertNotification.count({
+    where: {
+      orgId: params.orgId,
+      status: "sent",
+      sentAt: { gte: since },
+      ...(params.contactId ? { contactId: params.contactId } : {}),
+      ...(params.userId ? { userId: params.userId } : {}),
+    },
+  });
 }
 
 async function recordNotification(params: {
@@ -238,6 +251,7 @@ async function recordNotification(params: {
   eventId: string;
   eventType: string;
   ruleId: string;
+  incidentKey: string;
   role: string;
   channel: string;
   contactId?: string;
@@ -252,6 +266,7 @@ async function recordNotification(params: {
       eventId: params.eventId,
       eventType: params.eventType,
       ruleId: params.ruleId,
+      incidentKey: params.incidentKey,
       role: params.role,
       channel: params.channel,
       contactId: params.contactId ?? null,
@@ -332,10 +347,50 @@ export async function evaluateAlertsForEvent(eventId: string) {
     where: { id: event.machineId },
     select: { name: true, code: true },
   });
+
+  // Incident identity: the edge's unified incidentKey (the whole point of this
+  // overhaul). Fall back to alert_id, then a per-event key so a keyless event is
+  // still circuit-broken even if it can't be incident-deduped.
+  const incidentKey =
+    readString(payload?.incidentKey ?? payload?.incident_key ?? inner?.incidentKey ?? inner?.incident_key) ||
+    alertId ||
+    `${eventType}:${event.id}`;
+  const statusKey: "active" | "resolved" = status === "resolved" ? "resolved" : "active";
+  const now = new Date();
+  const since = new Date(now.getTime() - HOUR_MS);
+
+  const incidentWhere = {
+    orgId_machineId_incidentKey: {
+      orgId: event.orgId,
+      machineId: event.machineId,
+      incidentKey,
+    },
+  };
+  await prisma.alertIncident.upsert({
+    where: incidentWhere,
+    create: {
+      orgId: event.orgId,
+      machineId: event.machineId,
+      incidentKey,
+      eventType,
+      status: statusKey,
+      firstSeen: now,
+      lastSeen: now,
+      ...(statusKey === "resolved" ? { resolvedAt: now } : {}),
+    },
+    update: {
+      lastSeen: now,
+      eventType,
+      ...(statusKey === "resolved" ? { status: "resolved", resolvedAt: now } : {}),
+    },
+  });
+
+  // Circuit-breaker running counts: org baseline fetched once, per-recipient
+  // baseline fetched per recipient; both incremented locally as we send within
+  // this evaluation so caps hold even for a fan-out to many recipients.
+  let orgSent = await orgSentLastHour(event.orgId, since);
+  const localContactSent = new Map<string, number>();
   const delivered = new Set<string>();
-  const notificationEventIds = alertId
-    ? await resolveAlertEventIds(event.orgId, alertId, event.id)
-    : [event.id];
 
   for (const [roleName, roleRule] of Object.entries(rule.roles)) {
     if (!roleRule?.enabled) continue;
@@ -353,26 +408,81 @@ export async function evaluateAlertsForEvent(eventId: string) {
       durationMin,
     });
 
+    const recipientId = (r: (typeof recipients)[number]) =>
+      r.userId ?? r.contactId ?? r.email ?? r.phone ?? "";
+
     for (const recipient of recipients) {
+      // Per-recipient hourly baseline (shared across this recipient's channels).
+      const rKey = recipientId(recipient);
+      if (!localContactSent.has(rKey)) {
+        localContactSent.set(
+          rKey,
+          await contactSentLastHour(
+            { orgId: event.orgId, contactId: recipient.contactId, userId: recipient.userId },
+            since,
+          ),
+        );
+      }
+
       for (const channel of roleRule.channels ?? []) {
         const canSend =
           channel === "email" ? !!recipient.email : channel === "sms" ? !!recipient.phone : false;
         if (!canSend) continue;
-        const key = `${channel}:${recipient.userId ?? recipient.contactId ?? recipient.email ?? recipient.phone ?? ""}`;
+        const key = `${channel}:${rKey}`;
         if (delivered.has(key)) continue;
 
-        const statusKey = status === "resolved" ? "resolved" : "active";
         const ruleKey = `${rule.id}:${statusKey}`;
-        const allowed = await shouldSendNotification({
-          eventIds: notificationEventIds,
-          ruleId: ruleKey,
+
+        // Gate 1 — per-incident dedup: one active + one resolved per recipient/
+        // channel (active repeats only after repeatMinutes).
+        const lastSentAt = await lastSentAtFor({
+          orgId: event.orgId,
+          incidentKey,
+          statusKey,
           role: roleName,
           channel,
           contactId: recipient.contactId,
           userId: recipient.userId,
-          repeatMinutes: rule.repeatMinutes,
         });
-        if (!allowed) continue;
+        if (
+          !shouldNotifyIncident({
+            state: { lastSentAt },
+            statusKey,
+            repeatMinutes: rule.repeatMinutes,
+            now,
+          })
+        ) {
+          continue;
+        }
+
+        // Gate 2 — circuit breaker: hard hourly ceilings per contact and per org.
+        const breaker = checkCircuitBreaker({
+          contactSentLastHour: localContactSent.get(rKey) ?? 0,
+          orgSentLastHour: orgSent,
+          maxPerContactPerHour: policy.maxPerContactPerHour,
+          maxPerOrgPerHour: policy.maxPerOrgPerHour,
+        });
+        if (!breaker.allowed) {
+          await recordNotification({
+            orgId: event.orgId,
+            machineId: event.machineId,
+            eventId: event.id,
+            eventType,
+            ruleId: ruleKey,
+            incidentKey,
+            role: roleName,
+            channel,
+            contactId: recipient.contactId,
+            userId: recipient.userId,
+            status: "suppressed",
+            error: breaker.reason,
+          });
+          await prisma.alertIncident.update({
+            where: incidentWhere,
+            data: { suppressedCount: { increment: 1 } },
+          });
+          continue;
+        }
 
         try {
           if (channel === "email") {
@@ -395,6 +505,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
             eventId: event.id,
             eventType,
             ruleId: ruleKey,
+            incidentKey,
             role: roleName,
             channel,
             contactId: recipient.contactId,
@@ -402,6 +513,12 @@ export async function evaluateAlertsForEvent(eventId: string) {
             status: "sent",
           });
           delivered.add(key);
+          orgSent += 1;
+          localContactSent.set(rKey, (localContactSent.get(rKey) ?? 0) + 1);
+          await prisma.alertIncident.update({
+            where: incidentWhere,
+            data: { notifyCount: { increment: 1 }, lastNotifiedAt: now },
+          });
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : "notification_failed";
           await recordNotification({
@@ -410,6 +527,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
             eventId: event.id,
             eventType,
             ruleId: ruleKey,
+            incidentKey,
             role: roleName,
             channel,
             contactId: recipient.contactId,

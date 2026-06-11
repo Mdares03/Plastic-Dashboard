@@ -21,6 +21,7 @@ model Org {
   sessions                   Session[]
   alertContacts              AlertContact[]
   alertNotifications         AlertNotification[]
+  alertIncidents             AlertIncident[]
   alertPolicies              AlertPolicy?
   downtimeActions            DowntimeAction[]
   locationFinancialOverrides LocationFinancialOverride[]
@@ -132,6 +133,7 @@ model Machine {
   kpiSnapshots         MachineKpiSnapshot[]
   reasonEntries        ReasonEntry[]
   alertNotifications   AlertNotification[]
+  alertIncidents       AlertIncident[]
   downtimeActions      DowntimeAction[]
   financialOverrides   MachineFinancialOverride[]
   settings             MachineSettings?
@@ -470,29 +472,59 @@ model AlertContact {
 }
 
 model AlertNotification {
-  id        String        @id @default(uuid())
-  orgId     String        @map("org_id")
-  machineId String        @map("machine_id")
-  eventId   String        @map("event_id")
-  eventType String        @map("event_type")
-  ruleId    String        @map("rule_id")
-  role      String
-  channel   String
-  contactId String?       @map("contact_id")
-  userId    String?       @map("user_id")
-  sentAt    DateTime      @default(now()) @map("sent_at")
-  status    String
-  error     String?
-  contact   AlertContact? @relation(fields: [contactId], references: [id])
-  machine   Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  org       Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  user      User?         @relation(fields: [userId], references: [id])
+  id          String        @id @default(uuid())
+  orgId       String        @map("org_id")
+  machineId   String        @map("machine_id")
+  eventId     String        @map("event_id")
+  eventType   String        @map("event_type")
+  ruleId      String        @map("rule_id")
+  incidentKey String?       @map("incident_key")
+  role        String
+  channel     String
+  contactId   String?       @map("contact_id")
+  userId      String?       @map("user_id")
+  sentAt      DateTime      @default(now()) @map("sent_at")
+  status      String
+  error       String?
+  contact     AlertContact? @relation(fields: [contactId], references: [id])
+  machine     Machine       @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org         Org           @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User?         @relation(fields: [userId], references: [id])
 
   @@index([orgId, machineId, sentAt])
   @@index([orgId, eventId, role, channel])
+  @@index([orgId, incidentKey, role, channel])
+  // Circuit-breaker hourly counts (status='sent') per org and per contact.
+  @@index([orgId, status, sentAt])
+  @@index([contactId, status, sentAt])
   @@index([userId])
   @@index([contactId])
   @@map("alert_notifications")
+}
+
+/// One row per real incident (keyed on the edge's incidentKey). Tracks the
+/// incident lifecycle and notification state so the engine sends exactly one
+/// "active" and one "resolved" per incident (with optional repeat), instead of
+/// one email per event ping — the CEO-spam fix. See lib/alerts/throttle.ts.
+model AlertIncident {
+  id           String    @id @default(uuid())
+  orgId        String    @map("org_id")
+  machineId    String    @map("machine_id")
+  incidentKey  String    @map("incident_key")
+  eventType    String    @map("event_type")
+  status       String    @default("active") // active | resolved
+  firstSeen    DateTime  @default(now()) @map("first_seen")
+  lastSeen     DateTime  @default(now()) @map("last_seen")
+  lastNotifiedAt DateTime? @map("last_notified_at")
+  resolvedAt   DateTime? @map("resolved_at")
+  notifyCount  Int       @default(0) @map("notify_count")
+  suppressedCount Int    @default(0) @map("suppressed_count")
+  machine      Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org          Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, machineId, incidentKey])
+  @@index([orgId, machineId, status])
+  @@map("alert_incidents")
 }
 
 model OrgShift {
