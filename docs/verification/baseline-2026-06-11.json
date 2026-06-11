@@ -1,0 +1,4634 @@
+{
+  "capturedAt": "2026-06-11T07:49:33.079Z",
+  "gitCommit": "96ec9ac",
+  "database": "postgresql://***@127.0.0.1:5432/control_tower_db?schema=public&connection_limit=70&pool_timeout=60",
+  "note": "Baseline of CURRENT (pre-overhaul) computation paths. Read-only capture.",
+  "orgs": [
+    {
+      "orgId": "71262b20-8f3f-4095-a2d0-f89c3443efd8",
+      "orgName": "MaliounTech",
+      "timezone": "UTC",
+      "machines": [],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": []
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T00:00:00.000Z",
+          "to": "2026-06-10T23:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T00:00:00.000Z",
+                  "to": "2026-06-10T23:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:33.862Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:33.868Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:33.874Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": "6f14b84a-10c7-4276-8c20-03e90ef123a8",
+      "orgName": "Kognitia",
+      "timezone": "UTC",
+      "machines": [],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": []
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T00:00:00.000Z",
+          "to": "2026-06-10T23:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T00:00:00.000Z",
+                  "to": "2026-06-10T23:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:33.891Z"
+                },
+                "org": {
+                  "name": "Kognitia",
+                  "plant": "Kognitia"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:33.895Z"
+                },
+                "org": {
+                  "name": "Kognitia",
+                  "plant": "Kognitia"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:33.900Z"
+                },
+                "org": {
+                  "name": "Kognitia",
+                  "plant": "Kognitia"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": "26b2e23f-132a-402a-b5c0-fccf80d068a3",
+      "orgName": "MaliounTech",
+      "timezone": "America/Monterrey",
+      "machines": [
+        {
+          "id": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+          "name": "Demo"
+        }
+      ],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": [
+              {
+                "id": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                "name": "Demo",
+                "code": "1001",
+                "location": "MaliounTech",
+                "createdAt": "2026-04-21T16:12:30.155Z",
+                "updatedAt": "2026-04-22T17:41:39.356Z",
+                "latestHeartbeat": null,
+                "latestKpi": null,
+                "latestMacrostop": null,
+                "activeWorkOrder": null
+              }
+            ]
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T06:00:00.000Z",
+          "to": "2026-06-11T05:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Shift 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Shift 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "machineName": "Demo",
+                    "location": "MaliounTech",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-5",
+                        "sku": "Plato",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T17:41:33.605Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T06:00:00.000Z",
+                  "to": "2026-06-11T05:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:33.972Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [
+                  "3d988565-bc6b-4146-b4cd-d77e05b27801"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "name": "Demo",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 2",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 3",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-5",
+                    "sku": "Plato",
+                    "machineName": "Demo",
+                    "target": 100000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Shift 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Shift 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "machineName": "Demo",
+                    "location": "MaliounTech",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-5",
+                        "sku": "Plato",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T17:41:33.605Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:33.993Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [
+                  "3d988565-bc6b-4146-b4cd-d77e05b27801"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "name": "Demo",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-03",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 2",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 3",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-5",
+                    "sku": "Plato",
+                    "machineName": "Demo",
+                    "target": 100000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Shift 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Shift 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "machineName": "Demo",
+                    "location": "MaliounTech",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-5",
+                        "sku": "Plato",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T17:41:33.605Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:34.012Z"
+                },
+                "org": {
+                  "name": "MaliounTech",
+                  "plant": "MaliounTech"
+                },
+                "machineIds": [
+                  "3d988565-bc6b-4146-b4cd-d77e05b27801"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "3d988565-bc6b-4146-b4cd-d77e05b27801",
+                    "name": "Demo",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-05-11",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-12",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-13",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-14",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-15",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-16",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-17",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-18",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-19",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-20",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-21",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-22",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-23",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-24",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-25",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-26",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-27",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-28",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-29",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-30",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-31",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-01",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-02",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-03",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 2",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Shift 3",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-5",
+                    "sku": "Plato",
+                    "machineName": "Demo",
+                    "target": 100000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": "21588b2c-e0db-416c-b431-0f317a8b0419",
+      "orgName": "Maquilas Plasticas",
+      "timezone": "America/Monterrey",
+      "machines": [
+        {
+          "id": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+          "name": "CHEN HSONG"
+        },
+        {
+          "id": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+          "name": "Inyectora"
+        }
+      ],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": [
+              {
+                "id": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                "name": "Inyectora",
+                "code": "1001",
+                "location": "Plutarco",
+                "createdAt": "2026-01-22T04:52:11.803Z",
+                "updatedAt": "2026-04-22T18:44:27.270Z",
+                "latestHeartbeat": null,
+                "latestKpi": null,
+                "latestMacrostop": null,
+                "activeWorkOrder": null
+              },
+              {
+                "id": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                "name": "CHEN HSONG",
+                "code": "JM268-MK6.6",
+                "location": "Plutarco",
+                "createdAt": "2026-01-20T19:03:08.845Z",
+                "updatedAt": "2026-01-21T05:00:58.493Z",
+                "latestHeartbeat": null,
+                "latestKpi": null,
+                "latestMacrostop": null,
+                "activeWorkOrder": null
+              }
+            ]
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T06:00:00.000Z",
+          "to": "2026-06-11T05:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "M"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "T"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "machineName": "CHEN HSONG",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-2",
+                        "sku": "YoguFrut",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-01-21T05:00:58.479Z",
+                      "uptimePct": null
+                    }
+                  },
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "machineName": "Inyectora",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": null,
+                    "workOrders": {
+                      "completed": [],
+                      "active": null,
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T18:44:27.270Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T06:00:00.000Z",
+                  "to": "2026-06-11T05:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:34.047Z"
+                },
+                "org": {
+                  "name": "Maquilas Plasticas",
+                  "plant": "Plutarco"
+                },
+                "machineIds": [
+                  "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                  "197c4df4-8906-4bd5-8492-e41df5cc60b8"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "name": "Inyectora",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  },
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "name": "CHEN HSONG",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "M",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "T",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-2",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-1",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "M"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "T"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "machineName": "CHEN HSONG",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-2",
+                        "sku": "YoguFrut",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-01-21T05:00:58.479Z",
+                      "uptimePct": null
+                    }
+                  },
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "machineName": "Inyectora",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": null,
+                    "workOrders": {
+                      "completed": [],
+                      "active": null,
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T18:44:27.270Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:34.064Z"
+                },
+                "org": {
+                  "name": "Maquilas Plasticas",
+                  "plant": "Plutarco"
+                },
+                "machineIds": [
+                  "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                  "197c4df4-8906-4bd5-8492-e41df5cc60b8"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "name": "Inyectora",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  },
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "name": "CHEN HSONG",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-03",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "M",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "T",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-2",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-1",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "M"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "T"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "machineName": "CHEN HSONG",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 14.5,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OT-2",
+                        "sku": "YoguFrut",
+                        "mold": null,
+                        "cycleTime": 14.5,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-01-21T05:00:58.479Z",
+                      "uptimePct": null
+                    }
+                  },
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "machineName": "Inyectora",
+                    "location": "Plutarco",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": null,
+                    "workOrders": {
+                      "completed": [],
+                      "active": null,
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-04-22T18:44:27.270Z",
+                      "uptimePct": null
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:34.082Z"
+                },
+                "org": {
+                  "name": "Maquilas Plasticas",
+                  "plant": "Plutarco"
+                },
+                "machineIds": [
+                  "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                  "197c4df4-8906-4bd5-8492-e41df5cc60b8"
+                ],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "7730c6f7-315d-48fc-9f2d-2c6fd087c28b",
+                    "name": "Inyectora",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  },
+                  {
+                    "machineId": "197c4df4-8906-4bd5-8492-e41df5cc60b8",
+                    "name": "CHEN HSONG",
+                    "oee": 0,
+                    "availability": 0,
+                    "performance": 0,
+                    "quality": 0,
+                    "unitsProduced": 0,
+                    "unitsTarget": 0,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-05-11",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-12",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-13",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-14",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-15",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-16",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-17",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-18",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-19",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-20",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-21",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-22",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-23",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-24",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-25",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-26",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-27",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-28",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-29",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-30",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-31",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-01",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-02",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-03",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 0,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "M",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "T",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "OT-2",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-1",
+                    "sku": "YoguFrut",
+                    "machineName": "CHEN HSONG",
+                    "target": 1000000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": "7eae9e2d-1c88-41d7-9133-08887d54b395",
+      "orgName": "BEMIS",
+      "timezone": "UTC",
+      "machines": [],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": []
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T00:00:00.000Z",
+          "to": "2026-06-10T23:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T00:00:00.000Z",
+                  "to": "2026-06-10T23:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:34.102Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T00:00:00.000Z",
+                  "end": "2026-06-10T23:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:34.106Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [],
+                "machines": []
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:34.111Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [],
+                "production": {
+                  "good": 0,
+                  "target": 0,
+                  "pct": 0
+                },
+                "oeeAvg": 0,
+                "availabilityAvg": 0,
+                "performanceAvg": 0,
+                "qualityAvg": 0,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": false,
+                  "hasScrapCost": false,
+                  "hasAnyCost": false
+                },
+                "machines": [],
+                "oeeTrend7d": [],
+                "topLosses": [],
+                "workOrderCycles": [],
+                "downtimeByReason": [],
+                "downtimeByShift": [],
+                "scrapTopSkus": [],
+                "workOrderStatus": [],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "orgId": "6d2abda2-88e8-4d1d-8f2b-85e2e0d973e5",
+      "orgName": "BEMIS",
+      "timezone": "America/Monterrey",
+      "machines": [
+        {
+          "id": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+          "name": "M4-2"
+        },
+        {
+          "id": "6861bd05-e975-48b6-ad86-0017ba995779",
+          "name": "M4-5"
+        }
+      ],
+      "live": [
+        {
+          "label": "overview.summary",
+          "ok": true,
+          "data": {
+            "machines": [
+              {
+                "id": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                "name": "M4-2",
+                "code": "BEM-M42",
+                "location": "BEMIS",
+                "createdAt": "2026-04-29T20:52:24.477Z",
+                "updatedAt": "2026-06-10T00:07:05.262Z",
+                "latestHeartbeat": {
+                  "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                  "ts": "2026-06-10T00:06:43.234Z",
+                  "tsServer": "2026-06-10T00:06:42.678Z",
+                  "status": "ONLINE",
+                  "message": "NR heartbeat",
+                  "ip": "192.168.18.33",
+                  "fwVersion": "raspi-nodered-1.0"
+                },
+                "latestKpi": null,
+                "latestMacrostop": null,
+                "activeWorkOrder": null
+              },
+              {
+                "id": "6861bd05-e975-48b6-ad86-0017ba995779",
+                "name": "M4-5",
+                "code": "BEM-M45",
+                "location": "BEMIS",
+                "createdAt": "2026-04-22T17:39:59.369Z",
+                "updatedAt": "2026-06-10T16:14:49.134Z",
+                "latestHeartbeat": {
+                  "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                  "ts": "2026-06-10T16:13:43.266Z",
+                  "tsServer": "2026-06-10T16:13:47.794Z",
+                  "status": "ONLINE",
+                  "message": "NR heartbeat",
+                  "ip": "192.168.18.33",
+                  "fwVersion": "raspi-nodered-1.0"
+                },
+                "latestKpi": null,
+                "latestMacrostop": null,
+                "activeWorkOrder": null
+              }
+            ]
+          }
+        }
+      ],
+      "windows": [
+        {
+          "window": "yesterday",
+          "from": "2026-06-10T06:00:00.000Z",
+          "to": "2026-06-11T05:59:59.999Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Turno 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Turno 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                    "machineName": "M4-2",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 0,
+                      "scrapParts": 0,
+                      "totalCycles": 0,
+                      "bySku": []
+                    },
+                    "oee": {
+                      "avg": null,
+                      "availability": null,
+                      "performance": null,
+                      "quality": null
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 120,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OTBM-002",
+                        "sku": "Asiento 170",
+                        "mold": null,
+                        "cycleTime": 120,
+                        "progressPct": 0,
+                        "startedAt": null
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T00:07:05.261Z",
+                      "uptimePct": null
+                    }
+                  },
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "machineName": "M4-5",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 209,
+                      "scrapParts": 0,
+                      "totalCycles": 209,
+                      "bySku": [
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5465413 070",
+                          "good": 209,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        }
+                      ]
+                    },
+                    "oee": {
+                      "avg": 100,
+                      "availability": 100,
+                      "performance": 100,
+                      "quality": 100
+                    },
+                    "downtime": {
+                      "totalMin": 0,
+                      "plannedMin": 0,
+                      "unplannedMin": 0,
+                      "stopsCount": 0,
+                      "topReasons": [],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 155,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "230982",
+                        "sku": "7T5465413 070",
+                        "mold": "PLS125A",
+                        "cycleTime": 155,
+                        "progressPct": 29.03,
+                        "startedAt": "2026-06-10T06:00:16.664Z"
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T16:14:49.133Z",
+                      "uptimePct": 100
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-10T06:00:00.000Z",
+                  "to": "2026-06-11T05:59:59.999Z",
+                  "generatedAt": "2026-06-11T07:49:34.422Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [
+                  "6861bd05-e975-48b6-ad86-0017ba995779"
+                ],
+                "production": {
+                  "good": 563,
+                  "target": 720,
+                  "pct": 78.19444444444444
+                },
+                "oeeAvg": 100,
+                "availabilityAvg": 100,
+                "performanceAvg": 100,
+                "qualityAvg": 100,
+                "estimatedLossMXN": 0,
+                "classificationRate": 0,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "name": "M4-5",
+                    "oee": 100,
+                    "availability": 100,
+                    "performance": 100,
+                    "quality": 100,
+                    "unitsProduced": 209,
+                    "unitsTarget": 720,
+                    "topLossReasonLabel": "Sin pérdida relevante",
+                    "topLossMinutes": 0
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-09",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 100,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [],
+                "workOrderCycles": [
+                  {
+                    "workOrderId": "230982",
+                    "sku": "7T5465413 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 155,
+                    "actualAvgCycleSec": 154.74631578947387,
+                    "deltaPct": -0.16366723259750415,
+                    "unitsProduced": 209
+                  }
+                ],
+                "downtimeByReason": [],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Turno 2",
+                    "minutes": 0,
+                    "events": 0
+                  },
+                  {
+                    "shiftName": "Turno 3",
+                    "minutes": 0,
+                    "events": 0
+                  }
+                ],
+                "scrapTopSkus": [],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "1231080",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231079",
+                    "sku": "7T5458148 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231077",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231078",
+                    "sku": "7T5458147 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230981",
+                    "sku": "7T2639949 070",
+                    "machineName": "M4-5",
+                    "target": 1060,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230957",
+                    "sku": "7T5466862 070",
+                    "machineName": "M4-5",
+                    "target": 640,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-TEST-CAV",
+                    "sku": "RAMBOX",
+                    "machineName": "M4-5",
+                    "target": 100,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230824",
+                    "sku": "7T5458160 070",
+                    "machineName": "M4-5",
+                    "target": 1350,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230550",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230547",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": []
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-10T06:00:00.000Z",
+                  "end": "2026-06-11T05:59:59.999Z"
+                },
+                "currencySummaries": [],
+                "eventsEvaluated": 0,
+                "eventsIncluded": 0,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling7d",
+          "from": "2026-06-04T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Turno 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Turno 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                    "machineName": "M4-2",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 5700,
+                      "scrapParts": 0,
+                      "totalCycles": 1425,
+                      "bySku": [
+                        {
+                          "machineName": "M4-2",
+                          "sku": "Asiento 170",
+                          "good": 5700,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        }
+                      ]
+                    },
+                    "oee": {
+                      "avg": 39.5,
+                      "availability": 41.74,
+                      "performance": 87.45,
+                      "quality": 100
+                    },
+                    "downtime": {
+                      "totalMin": 450.1,
+                      "plannedMin": 0,
+                      "unplannedMin": 450.1,
+                      "stopsCount": 58,
+                      "topReasons": [
+                        {
+                          "reasonLabel": "Unclassified",
+                          "minutes": 450.1,
+                          "count": 58,
+                          "planned": false
+                        }
+                      ],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 120,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OTBM-002",
+                        "sku": "Asiento 170",
+                        "mold": null,
+                        "cycleTime": 120,
+                        "progressPct": 5.7,
+                        "startedAt": "2026-06-04T07:50:47.940Z"
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T00:07:05.261Z",
+                      "uptimePct": 100
+                    }
+                  },
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "machineName": "M4-5",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 1920,
+                      "scrapParts": 0,
+                      "totalCycles": 1920,
+                      "bySku": [
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T2639948 070",
+                          "good": 811,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5465413 070",
+                          "good": 563,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5466862 070",
+                          "good": 285,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7t5466371 070",
+                          "good": 261,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        }
+                      ]
+                    },
+                    "oee": {
+                      "avg": 70.98,
+                      "availability": 71.11,
+                      "performance": 99.75,
+                      "quality": 99.8
+                    },
+                    "downtime": {
+                      "totalMin": 2510.38,
+                      "plannedMin": 926.28,
+                      "unplannedMin": 1584.1,
+                      "stopsCount": 83,
+                      "topReasons": [
+                        {
+                          "reasonLabel": "Unclassified",
+                          "minutes": 1572.42,
+                          "count": 83,
+                          "planned": false
+                        },
+                        {
+                          "reasonLabel": "Cambio molde",
+                          "minutes": 926.28,
+                          "count": 4,
+                          "planned": true
+                        },
+                        {
+                          "reasonLabel": "MANTENIMIENTO > FUGA DE AGUA EN MAQUINA",
+                          "minutes": 7.57,
+                          "count": 1,
+                          "planned": false
+                        }
+                      ],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 155,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "230982",
+                        "sku": "7T5465413 070",
+                        "mold": "PLS125A",
+                        "cycleTime": 155,
+                        "progressPct": 78.19,
+                        "startedAt": "2026-06-09T14:48:35.256Z"
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T16:14:49.133Z",
+                      "uptimePct": 100
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-06-04T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:49:49.556Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [
+                  "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                  "6861bd05-e975-48b6-ad86-0017ba995779"
+                ],
+                "production": {
+                  "good": 61925,
+                  "target": 111510,
+                  "pct": 55.53313604161062
+                },
+                "oeeAvg": 57.465636747042765,
+                "availabilityAvg": 59.11861190061427,
+                "performanceAvg": 90.82441551298035,
+                "qualityAvg": 99.91951040616141,
+                "estimatedLossMXN": 18599.117333333328,
+                "classificationRate": 0.03597122302158273,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                    "name": "M4-2",
+                    "oee": 43.88005497861901,
+                    "availability": 46.47385461209525,
+                    "performance": 85.00954489920551,
+                    "quality": 100,
+                    "unitsProduced": 5700,
+                    "unitsTarget": 100000,
+                    "topLossReasonLabel": "Unclassified",
+                    "topLossMinutes": 450.1000000000001
+                  },
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "name": "M4-5",
+                    "oee": 77.8736178022481,
+                    "availability": 78.11330580408354,
+                    "performance": 99.55939435650384,
+                    "quality": 99.79860059646697,
+                    "unitsProduced": 1920,
+                    "unitsTarget": 11510,
+                    "topLossReasonLabel": "Unclassified",
+                    "topLossMinutes": 1572.416666666667
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-06-03",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 75.15757575757533,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 68.17890088321897,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 74.46145287958106,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 34.79576796789492,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 37.226197458455516,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 100,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [
+                  {
+                    "reasonCode": "UNCLASSIFIED",
+                    "reasonLabel": "Unclassified",
+                    "minutes": 1969.766666666667,
+                    "events": 134,
+                    "estimatedCostMXN": 1969.766666666667
+                  },
+                  {
+                    "reasonCode": "MOLD_CHANGE",
+                    "reasonLabel": "Cambio molde",
+                    "minutes": 515.6666666666666,
+                    "events": 3,
+                    "estimatedCostMXN": 515.6666666666666
+                  },
+                  {
+                    "reasonCode": "DTMTO-19",
+                    "reasonLabel": "MANTENIMIENTO > FUGA DE AGUA EN MAQUINA",
+                    "minutes": 7.566666666666666,
+                    "events": 1,
+                    "estimatedCostMXN": 7.566666666666666
+                  }
+                ],
+                "workOrderCycles": [
+                  {
+                    "workOrderId": "230980",
+                    "sku": "7T2639948 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 105,
+                    "actualAvgCycleSec": 245.1867348951914,
+                    "deltaPct": 133.51117609065847,
+                    "unitsProduced": 811
+                  },
+                  {
+                    "workOrderId": "OTBM-002",
+                    "sku": "Asiento 170",
+                    "machineName": "M4-2",
+                    "targetCycleSec": 120,
+                    "actualAvgCycleSec": 268.7109501754385,
+                    "deltaPct": 123.9257918128654,
+                    "unitsProduced": 5700
+                  },
+                  {
+                    "workOrderId": "230970",
+                    "sku": "7t5466371 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 150,
+                    "actualAvgCycleSec": 168.29954789272028,
+                    "deltaPct": 12.199698595146856,
+                    "unitsProduced": 261
+                  },
+                  {
+                    "workOrderId": "230978",
+                    "sku": "7T5466862 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 138,
+                    "actualAvgCycleSec": 125.75822456140355,
+                    "deltaPct": -8.870851767098875,
+                    "unitsProduced": 285
+                  },
+                  {
+                    "workOrderId": "230982",
+                    "sku": "7T5465413 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 155,
+                    "actualAvgCycleSec": 154.41102486678517,
+                    "deltaPct": -0.379983956912794,
+                    "unitsProduced": 563
+                  }
+                ],
+                "downtimeByReason": [
+                  {
+                    "reasonCode": "UNCLASSIFIED",
+                    "reasonLabel": "Unclassified",
+                    "minutes": 1969.766666666667,
+                    "events": 134
+                  },
+                  {
+                    "reasonCode": "MOLD_CHANGE",
+                    "reasonLabel": "Cambio molde",
+                    "minutes": 515.6666666666666,
+                    "events": 3
+                  },
+                  {
+                    "reasonCode": "DTMTO-19",
+                    "reasonLabel": "MANTENIMIENTO > FUGA DE AGUA EN MAQUINA",
+                    "minutes": 7.566666666666666,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "ESPERA_ARRANQUE",
+                    "reasonLabel": "En espera de arranque",
+                    "minutes": 4.116666666666666,
+                    "events": 1
+                  }
+                ],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Turno 3",
+                    "minutes": 1113.083333333333,
+                    "events": 64
+                  },
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 829.9833333333333,
+                    "events": 34
+                  },
+                  {
+                    "shiftName": "Turno 2",
+                    "minutes": 554.0500000000001,
+                    "events": 41
+                  }
+                ],
+                "scrapTopSkus": [
+                  {
+                    "sku": "7T5466862 070",
+                    "scrapUnits": 0,
+                    "totalUnits": 285,
+                    "scrapPct": 0,
+                    "topReasonLabel": "Scrap > Ráfagas",
+                    "estimatedCostMXN": 0
+                  }
+                ],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "1231079",
+                    "sku": "7T5458148 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231080",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231077",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231078",
+                    "sku": "7T5458147 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230981",
+                    "sku": "7T2639949 070",
+                    "machineName": "M4-5",
+                    "target": 1060,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230957",
+                    "sku": "7T5466862 070",
+                    "machineName": "M4-5",
+                    "target": 640,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-TEST-CAV",
+                    "sku": "RAMBOX",
+                    "machineName": "M4-5",
+                    "target": 100,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230824",
+                    "sku": "7T5458160 070",
+                    "machineName": "M4-5",
+                    "target": 1350,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230547",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230550",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": [
+                  {
+                    "title": "Reducir Unclassified",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 1969.766666666667,
+                    "eta": "7 días",
+                    "relatedReasonCode": "UNCLASSIFIED"
+                  },
+                  {
+                    "title": "Reducir Cambio molde",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 515.6666666666666,
+                    "eta": "7 días",
+                    "relatedReasonCode": "MOLD_CHANGE"
+                  },
+                  {
+                    "title": "Reducir MANTENIMIENTO > FUGA DE AGUA EN MAQUINA",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 7.566666666666666,
+                    "eta": "7 días",
+                    "relatedReasonCode": "DTMTO-19"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-06-04T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [
+                  {
+                    "currency": "MXN",
+                    "totals": {
+                      "total": 8338.351899999996,
+                      "slowCycle": 250.3018999999999,
+                      "microstop": 2747.2499999999995,
+                      "macrostop": 5340.799999999999,
+                      "scrap": 0
+                    },
+                    "byDay": [
+                      {
+                        "day": "2026-06-04",
+                        "total": 681.76155,
+                        "slowCycle": 25.261550000000003,
+                        "microstop": 551.85,
+                        "macrostop": 104.65,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-05",
+                        "total": 614.9318999999998,
+                        "slowCycle": 104.63190000000002,
+                        "microstop": 510.29999999999995,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-06",
+                        "total": 451.62109999999996,
+                        "slowCycle": 34.021100000000004,
+                        "microstop": 417.6,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-07",
+                        "total": 97.35420000000002,
+                        "slowCycle": 12.004199999999999,
+                        "microstop": 85.35000000000001,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-08",
+                        "total": 6184.317699999998,
+                        "slowCycle": 25.06769999999999,
+                        "microstop": 923.1,
+                        "macrostop": 5236.15,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-09",
+                        "total": 308.36545,
+                        "slowCycle": 49.31544999999999,
+                        "microstop": 259.05,
+                        "macrostop": 0,
+                        "scrap": 0
+                      }
+                    ]
+                  }
+                ],
+                "eventsEvaluated": 40957,
+                "eventsIncluded": 647,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        },
+        {
+          "window": "rolling30d",
+          "from": "2026-05-12T07:49:33.079Z",
+          "to": "2026-06-11T07:49:33.079Z",
+          "captures": [
+            {
+              "label": "recap",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "availableShifts": [
+                  {
+                    "id": "shift1",
+                    "name": "Shift 1"
+                  },
+                  {
+                    "id": "shift2",
+                    "name": "Turno 2"
+                  },
+                  {
+                    "id": "shift3",
+                    "name": "Turno 3"
+                  }
+                ],
+                "machines": [
+                  {
+                    "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                    "machineName": "M4-2",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 26752,
+                      "scrapParts": 0,
+                      "totalCycles": 6688,
+                      "bySku": [
+                        {
+                          "machineName": "M4-2",
+                          "sku": "Asiento 170",
+                          "good": 26752,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        }
+                      ]
+                    },
+                    "oee": {
+                      "avg": 43.08,
+                      "availability": 45.88,
+                      "performance": 85.67,
+                      "quality": 99.98
+                    },
+                    "downtime": {
+                      "totalMin": 1909.2,
+                      "plannedMin": 0,
+                      "unplannedMin": 1909.2,
+                      "stopsCount": 261,
+                      "topReasons": [
+                        {
+                          "reasonLabel": "Unclassified",
+                          "minutes": 1882.2,
+                          "count": 259,
+                          "planned": false
+                        }
+                      ],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 120,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "OTBM-002",
+                        "sku": "Asiento 170",
+                        "mold": null,
+                        "cycleTime": 120,
+                        "progressPct": 26.75,
+                        "startedAt": "2026-05-18T18:27:35.961Z"
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T00:07:05.261Z",
+                      "uptimePct": 100
+                    }
+                  },
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "machineName": "M4-5",
+                    "location": "BEMIS",
+                    "production": {
+                      "goodParts": 11877,
+                      "scrapParts": 59,
+                      "totalCycles": 11877,
+                      "bySku": [
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5458161 070",
+                          "good": 3691,
+                          "scrap": 2,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T630058",
+                          "good": 1428,
+                          "scrap": 9,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T630240",
+                          "good": 1066,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T2639948 070",
+                          "good": 811,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5465412 070",
+                          "good": 714,
+                          "scrap": 3,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5458160 070",
+                          "good": 696,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7t5466371 070",
+                          "good": 633,
+                          "scrap": 6,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5465413 070",
+                          "good": 622,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5465367 070",
+                          "good": 614,
+                          "scrap": 8,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5466392 070",
+                          "good": 597,
+                          "scrap": 23,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5458147 070",
+                          "good": 426,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5466862 070",
+                          "good": 285,
+                          "scrap": 0,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5458148 070",
+                          "good": 163,
+                          "scrap": 6,
+                          "target": null,
+                          "progressPct": null
+                        },
+                        {
+                          "machineName": "M4-5",
+                          "sku": "7T5457993",
+                          "good": 131,
+                          "scrap": 2,
+                          "target": null,
+                          "progressPct": null
+                        }
+                      ]
+                    },
+                    "oee": {
+                      "avg": 74.69,
+                      "availability": 76.78,
+                      "performance": 96.41,
+                      "quality": 99.24
+                    },
+                    "downtime": {
+                      "totalMin": 8789.8,
+                      "plannedMin": 2459.68,
+                      "unplannedMin": 6330.12,
+                      "stopsCount": 724,
+                      "topReasons": [
+                        {
+                          "reasonLabel": "Unclassified",
+                          "minutes": 6122.02,
+                          "count": 709,
+                          "planned": false
+                        },
+                        {
+                          "reasonLabel": "Cambio molde",
+                          "minutes": 2459.68,
+                          "count": 23,
+                          "planned": true
+                        },
+                        {
+                          "reasonLabel": "PROCESOS > REARRANQUE",
+                          "minutes": 80.05,
+                          "count": 2,
+                          "planned": false
+                        }
+                      ],
+                      "ongoingStopMin": null
+                    },
+                    "cycleTime": 155,
+                    "workOrders": {
+                      "completed": [],
+                      "active": {
+                        "id": "230982",
+                        "sku": "7T5465413 070",
+                        "mold": "PLS125A",
+                        "cycleTime": 155,
+                        "progressPct": 78.19,
+                        "startedAt": "2026-06-09T14:48:35.256Z"
+                      },
+                      "moldChangeInProgress": false,
+                      "moldChangeStartMs": null
+                    },
+                    "heartbeat": {
+                      "lastSeenAt": "2026-06-10T16:14:49.133Z",
+                      "uptimePct": 100
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "label": "reports",
+              "ok": true,
+              "data": {
+                "period": {
+                  "from": "2026-05-12T07:49:33.079Z",
+                  "to": "2026-06-11T07:49:33.079Z",
+                  "generatedAt": "2026-06-11T07:50:05.785Z"
+                },
+                "org": {
+                  "name": "BEMIS",
+                  "plant": "BEMIS"
+                },
+                "machineIds": [
+                  "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                  "6861bd05-e975-48b6-ad86-0017ba995779"
+                ],
+                "production": {
+                  "good": 71763,
+                  "target": 131213,
+                  "pct": 54.69198936081029
+                },
+                "oeeAvg": 60.93677675204801,
+                "availabilityAvg": 63.4402678455338,
+                "performanceAvg": 90.8482934598926,
+                "qualityAvg": 99.55037218826416,
+                "estimatedLossMXN": 86515.20624999976,
+                "classificationRate": 0.04578313253012048,
+                "classificationTarget": 0.8,
+                "financialVisibility": {
+                  "hasMachineCost": true,
+                  "hasScrapCost": true,
+                  "hasAnyCost": true
+                },
+                "machines": [
+                  {
+                    "machineId": "b667f867-20fd-4aa2-afdb-10c23493f3dc",
+                    "name": "M4-2",
+                    "oee": 44.43979511166499,
+                    "availability": 47.38749588246941,
+                    "performance": 84.96081098884743,
+                    "quality": 99.97731734633433,
+                    "unitsProduced": 26752,
+                    "unitsTarget": 100000,
+                    "topLossReasonLabel": "Unclassified",
+                    "topLossMinutes": 1882.2000000000003
+                  },
+                  {
+                    "machineId": "6861bd05-e975-48b6-ad86-0017ba995779",
+                    "name": "M4-5",
+                    "oee": 77.0040006416423,
+                    "availability": 79.0748540263077,
+                    "performance": 96.58240295155616,
+                    "quality": 99.13454924606727,
+                    "unitsProduced": 11877,
+                    "unitsTarget": 31213,
+                    "topLossReasonLabel": "Unclassified",
+                    "topLossMinutes": 6122.01666666668
+                  }
+                ],
+                "oeeTrend7d": [
+                  {
+                    "date": "2026-05-11",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-12",
+                    "oee": 75.54492099322793,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-13",
+                    "oee": 72.57738515901053,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-14",
+                    "oee": 73.72379958246344,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-15",
+                    "oee": 55.29289617486342,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-16",
+                    "oee": 30.456263269639066,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-17",
+                    "oee": 33.18950892857142,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-18",
+                    "oee": 63.71758652946673,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-19",
+                    "oee": 62.227310924369675,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-20",
+                    "oee": 66.05085452271734,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-21",
+                    "oee": 91.2657291666649,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-22",
+                    "oee": 77.734061318773,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-23",
+                    "oee": 70.03579861111095,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-24",
+                    "oee": 49.73677083333206,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-25",
+                    "oee": 59.12717466945016,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-26",
+                    "oee": 33.18592734225617,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-27",
+                    "oee": 55.264709968739155,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-28",
+                    "oee": 42.54482352941174,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-29",
+                    "oee": 54.89292803970225,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-30",
+                    "oee": 84.79572916666758,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-05-31",
+                    "oee": 35.06765432098787,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-01",
+                    "oee": 48.78691871455566,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-02",
+                    "oee": 76.17746672785752,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-03",
+                    "oee": 79.00940952380748,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-04",
+                    "oee": 77.18854545454484,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-05",
+                    "oee": 68.17890088321897,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-06",
+                    "oee": 74.46145287958106,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-07",
+                    "oee": 0,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-08",
+                    "oee": 34.79576796789492,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-09",
+                    "oee": 37.226197458455516,
+                    "target": 90
+                  },
+                  {
+                    "date": "2026-06-10",
+                    "oee": 100,
+                    "target": 90
+                  }
+                ],
+                "topLosses": [
+                  {
+                    "reasonCode": "UNCLASSIFIED",
+                    "reasonLabel": "Unclassified",
+                    "minutes": 6971.016666666676,
+                    "events": 792,
+                    "estimatedCostMXN": 6971.016666666676
+                  },
+                  {
+                    "reasonCode": "MOLD_CHANGE",
+                    "reasonLabel": "Cambio molde",
+                    "minutes": 1603.2333333333333,
+                    "events": 21,
+                    "estimatedCostMXN": 1603.2333333333333
+                  },
+                  {
+                    "reasonCode": "DTPRC-13",
+                    "reasonLabel": "PROCESOS > REARRANQUE",
+                    "minutes": 80.05000000000001,
+                    "events": 2,
+                    "estimatedCostMXN": 80.05000000000001
+                  }
+                ],
+                "workOrderCycles": [
+                  {
+                    "workOrderId": "230814",
+                    "sku": "7T5458160 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 100,
+                    "actualAvgCycleSec": 373.0721408045983,
+                    "deltaPct": 273.0721408045983,
+                    "unitsProduced": 696
+                  },
+                  {
+                    "workOrderId": "230544",
+                    "sku": "7T5465413 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 155,
+                    "actualAvgCycleSec": 406.70757627118644,
+                    "deltaPct": 162.39198469108803,
+                    "unitsProduced": 59
+                  },
+                  {
+                    "workOrderId": "230980",
+                    "sku": "7T2639948 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 105,
+                    "actualAvgCycleSec": 245.1867348951914,
+                    "deltaPct": 133.51117609065847,
+                    "unitsProduced": 811
+                  },
+                  {
+                    "workOrderId": "OTBM-002",
+                    "sku": "Asiento 170",
+                    "machineName": "M4-2",
+                    "targetCycleSec": 120,
+                    "actualAvgCycleSec": 274.5512242822961,
+                    "deltaPct": 128.79268690191344,
+                    "unitsProduced": 26752
+                  },
+                  {
+                    "workOrderId": "230546",
+                    "sku": "7T630240",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 180,
+                    "actualAvgCycleSec": 296.87182142857165,
+                    "deltaPct": 64.9287896825398,
+                    "unitsProduced": 448
+                  },
+                  {
+                    "workOrderId": "230910",
+                    "sku": "7T5458148 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 160,
+                    "actualAvgCycleSec": 251.83134355828219,
+                    "deltaPct": 57.39458972392637,
+                    "unitsProduced": 163
+                  },
+                  {
+                    "workOrderId": "230876",
+                    "sku": "7T630240",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 180,
+                    "actualAvgCycleSec": 265.0827508090615,
+                    "deltaPct": 47.26819489392306,
+                    "unitsProduced": 618
+                  },
+                  {
+                    "workOrderId": "230969",
+                    "sku": "7T5466392 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 136,
+                    "actualAvgCycleSec": 163.4958244680851,
+                    "deltaPct": 20.21751799123904,
+                    "unitsProduced": 188
+                  },
+                  {
+                    "workOrderId": "1230969",
+                    "sku": "7T5466392 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 136,
+                    "actualAvgCycleSec": 162.38927383863097,
+                    "deltaPct": 19.403877822522773,
+                    "unitsProduced": 409
+                  },
+                  {
+                    "workOrderId": "230871",
+                    "sku": "7T5465367 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 105,
+                    "actualAvgCycleSec": 117.21774429967425,
+                    "deltaPct": 11.635946952070714,
+                    "unitsProduced": 614
+                  },
+                  {
+                    "workOrderId": "230825",
+                    "sku": "7T5458161 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 100,
+                    "actualAvgCycleSec": 110.78582362503356,
+                    "deltaPct": 10.785823625033558,
+                    "unitsProduced": 3691
+                  },
+                  {
+                    "workOrderId": "230875",
+                    "sku": "7T630058",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 180,
+                    "actualAvgCycleSec": 198.8508456449835,
+                    "deltaPct": 10.472692024990838,
+                    "unitsProduced": 907
+                  },
+                  {
+                    "workOrderId": "230978",
+                    "sku": "7T5466862 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 138,
+                    "actualAvgCycleSec": 125.75822456140355,
+                    "deltaPct": -8.870851767098875,
+                    "unitsProduced": 285
+                  },
+                  {
+                    "workOrderId": "230970",
+                    "sku": "7t5466371 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 150,
+                    "actualAvgCycleSec": 159.91008688783575,
+                    "deltaPct": 6.606724591890497,
+                    "unitsProduced": 633
+                  },
+                  {
+                    "workOrderId": "230545",
+                    "sku": "7T630058",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 180,
+                    "actualAvgCycleSec": 171.47486564299408,
+                    "deltaPct": -4.7361857538921805,
+                    "unitsProduced": 521
+                  },
+                  {
+                    "workOrderId": "230897",
+                    "sku": "7T5457993",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 186,
+                    "actualAvgCycleSec": 180.08229007633588,
+                    "deltaPct": -3.1815644750882366,
+                    "unitsProduced": 131
+                  },
+                  {
+                    "workOrderId": "230812",
+                    "sku": "7T5465412 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 155,
+                    "actualAvgCycleSec": 157.6092422969188,
+                    "deltaPct": 1.6833821270443923,
+                    "unitsProduced": 714
+                  },
+                  {
+                    "workOrderId": "1230548",
+                    "sku": "7T5458147 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 186,
+                    "actualAvgCycleSec": 183.43220422535208,
+                    "deltaPct": -1.3805353627139352,
+                    "unitsProduced": 426
+                  },
+                  {
+                    "workOrderId": "230982",
+                    "sku": "7T5465413 070",
+                    "machineName": "M4-5",
+                    "targetCycleSec": 155,
+                    "actualAvgCycleSec": 154.41102486678517,
+                    "deltaPct": -0.379983956912794,
+                    "unitsProduced": 563
+                  }
+                ],
+                "downtimeByReason": [
+                  {
+                    "reasonCode": "UNCLASSIFIED",
+                    "reasonLabel": "Unclassified",
+                    "minutes": 6971.016666666676,
+                    "events": 792
+                  },
+                  {
+                    "reasonCode": "MOLD_CHANGE",
+                    "reasonLabel": "Cambio molde",
+                    "minutes": 1603.2333333333333,
+                    "events": 21
+                  },
+                  {
+                    "reasonCode": "DTPRC-13",
+                    "reasonLabel": "PROCESOS > REARRANQUE",
+                    "minutes": 80.05000000000001,
+                    "events": 2
+                  },
+                  {
+                    "reasonCode": "DTMTO-40",
+                    "reasonLabel": "MANTENIMIENTO > AJUSTE DE ROBOT",
+                    "minutes": 26.333333333333336,
+                    "events": 2
+                  },
+                  {
+                    "reasonCode": "DTPLN-02",
+                    "reasonLabel": "PLANEACION > CAMBIO DE MOLDE",
+                    "minutes": 23.333333333333336,
+                    "events": 2
+                  },
+                  {
+                    "reasonCode": "DTMTO-30",
+                    "reasonLabel": "MANTENIMIENTO > FALLA EN TINA DE ENFRIAMIENTO",
+                    "minutes": 15.5,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTTDM-09",
+                    "reasonLabel": "MOLDES > LIMPIEZA DE TAPA",
+                    "minutes": 11.333333333333334,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTPRC-14",
+                    "reasonLabel": "PROCESOS > CICLO LENTO",
+                    "minutes": 8.933333333333334,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTMTO-14",
+                    "reasonLabel": "MANTENIMIENTO > FALLA EN SISTEMA DE VALVE GATES (MAQUINA)",
+                    "minutes": 8.75,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTMTO-08",
+                    "reasonLabel": "MANTENIMIENTO > FALLA EN UNIDAD DE INYECCION",
+                    "minutes": 8.333333333333334,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTMTO-19",
+                    "reasonLabel": "MANTENIMIENTO > FUGA DE AGUA EN MAQUINA",
+                    "minutes": 7.566666666666666,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTMAT-04",
+                    "reasonLabel": "MATERIALES > VACÍO DE TOLVA",
+                    "minutes": 6.466666666666667,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "ESPERA_ARRANQUE",
+                    "reasonLabel": "En espera de arranque",
+                    "minutes": 4.116666666666666,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTTDM-01",
+                    "reasonLabel": "MOLDES > MANCHAS DE GAS",
+                    "minutes": 3.4833333333333334,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTPRC-15",
+                    "reasonLabel": "PROCESOS > FUGA DE AGUA",
+                    "minutes": 2.966666666666667,
+                    "events": 1
+                  },
+                  {
+                    "reasonCode": "DTPRC-12",
+                    "reasonLabel": "PROCESOS > ARRANQUE",
+                    "minutes": 0.9333333333333333,
+                    "events": 1
+                  }
+                ],
+                "downtimeByShift": [
+                  {
+                    "shiftName": "Shift 1",
+                    "minutes": 3429.4833333333327,
+                    "events": 313
+                  },
+                  {
+                    "shiftName": "Turno 3",
+                    "minutes": 2933.816666666666,
+                    "events": 283
+                  },
+                  {
+                    "shiftName": "Turno 2",
+                    "minutes": 2419.0499999999975,
+                    "events": 234
+                  }
+                ],
+                "scrapTopSkus": [
+                  {
+                    "sku": "7T5466392 070",
+                    "scrapUnits": 23,
+                    "totalUnits": 597,
+                    "scrapPct": 3.8525963149078724,
+                    "topReasonLabel": "Scrap > Incompletas",
+                    "estimatedCostMXN": 23
+                  },
+                  {
+                    "sku": "7T630058",
+                    "scrapUnits": 9,
+                    "totalUnits": 1428,
+                    "scrapPct": 0.6302521008403361,
+                    "topReasonLabel": "Scrap > Otros",
+                    "estimatedCostMXN": 9
+                  },
+                  {
+                    "sku": "7T5465367 070",
+                    "scrapUnits": 8,
+                    "totalUnits": 614,
+                    "scrapPct": 1.3029315960912053,
+                    "topReasonLabel": "Scrap > Grumos",
+                    "estimatedCostMXN": 8
+                  }
+                ],
+                "workOrderStatus": [
+                  {
+                    "workOrderId": "1231079",
+                    "sku": "7T5458148 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231080",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231077",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "1231078",
+                    "sku": "7T5458147 070",
+                    "machineName": "M4-5",
+                    "target": 1600,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230981",
+                    "sku": "7T2639949 070",
+                    "machineName": "M4-5",
+                    "target": 1060,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230957",
+                    "sku": "7T5466862 070",
+                    "machineName": "M4-5",
+                    "target": 640,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "OT-TEST-CAV",
+                    "sku": "RAMBOX",
+                    "machineName": "M4-5",
+                    "target": 100,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230824",
+                    "sku": "7T5458160 070",
+                    "machineName": "M4-5",
+                    "target": 1350,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230547",
+                    "sku": "7T5457993 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  },
+                  {
+                    "workOrderId": "230550",
+                    "sku": "7T5458149 070",
+                    "machineName": "M4-5",
+                    "target": 2000,
+                    "completed": 0,
+                    "pctComplete": 0,
+                    "status": "PENDING"
+                  }
+                ],
+                "recommendedActions": [
+                  {
+                    "title": "Reducir Unclassified",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 6971.016666666676,
+                    "eta": "7 días",
+                    "relatedReasonCode": "UNCLASSIFIED"
+                  },
+                  {
+                    "title": "Reducir Cambio molde",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 1603.2333333333333,
+                    "eta": "7 días",
+                    "relatedReasonCode": "MOLD_CHANGE"
+                  },
+                  {
+                    "title": "Reducir PROCESOS > REARRANQUE",
+                    "owner": "Operaciones",
+                    "estimatedRecoveryMXN": 80.05000000000001,
+                    "eta": "7 días",
+                    "relatedReasonCode": "DTPRC-13"
+                  }
+                ]
+              }
+            },
+            {
+              "label": "financial.impact",
+              "ok": true,
+              "data": {
+                "range": {
+                  "start": "2026-05-12T07:49:33.079Z",
+                  "end": "2026-06-11T07:49:33.079Z"
+                },
+                "currencySummaries": [
+                  {
+                    "currency": "MXN",
+                    "totals": {
+                      "total": 28514.196100000026,
+                      "slowCycle": 2527.246100000001,
+                      "microstop": 20285.650000000012,
+                      "macrostop": 5643.299999999999,
+                      "scrap": 58
+                    },
+                    "byDay": [
+                      {
+                        "day": "2026-05-12",
+                        "total": 853.5468500000001,
+                        "slowCycle": 11.54685,
+                        "microstop": 842,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-13",
+                        "total": 84.15,
+                        "slowCycle": 0,
+                        "microstop": 84.15,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-14",
+                        "total": 1946.0757999999998,
+                        "slowCycle": 47.57580000000001,
+                        "microstop": 1898.5,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-15",
+                        "total": 1326.4147999999982,
+                        "slowCycle": 100.86480000000003,
+                        "microstop": 1180.25,
+                        "macrostop": 45.3,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-16",
+                        "total": 1323.4779500000002,
+                        "slowCycle": 17.22795,
+                        "microstop": 1280.9,
+                        "macrostop": 25.349999999999998,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-17",
+                        "total": 1732.1373500000004,
+                        "slowCycle": 19.587349999999997,
+                        "microstop": 1687.15,
+                        "macrostop": 25.4,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-18",
+                        "total": 2534.81925,
+                        "slowCycle": 40.31925000000001,
+                        "microstop": 2439.1,
+                        "macrostop": 55.4,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-19",
+                        "total": 874.9702,
+                        "slowCycle": 127.27019999999999,
+                        "microstop": 717.45,
+                        "macrostop": 30.25,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-20",
+                        "total": 769.4468999999996,
+                        "slowCycle": 258.9469000000001,
+                        "microstop": 510.49999999999994,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-21",
+                        "total": 491.4637000000002,
+                        "slowCycle": 164.51370000000006,
+                        "microstop": 326.95,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-22",
+                        "total": 883.2485999999999,
+                        "slowCycle": 384.8486,
+                        "microstop": 498.40000000000003,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-23",
+                        "total": 1209.7230999999995,
+                        "slowCycle": 535.7231,
+                        "microstop": 674,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-24",
+                        "total": 140.6339,
+                        "slowCycle": 19.4339,
+                        "microstop": 121.19999999999999,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-25",
+                        "total": 868.2972499999993,
+                        "slowCycle": 210.44725000000003,
+                        "microstop": 657.8499999999999,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-26",
+                        "total": 646.3967,
+                        "slowCycle": 2.5467,
+                        "microstop": 643.85,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-27",
+                        "total": 691.5761999999995,
+                        "slowCycle": 134.1762,
+                        "microstop": 557.3999999999999,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-05-28",
+                        "total": 906.8169999999999,
+                        "slowCycle": 96.81700000000001,
+                        "microstop": 782.0000000000001,
+                        "macrostop": 0,
+                        "scrap": 28
+                      },
+                      {
+                        "day": "2026-05-29",
+                        "total": 450.43035000000003,
+                        "slowCycle": 3.88035,
+                        "microstop": 422.55,
+                        "macrostop": 0,
+                        "scrap": 24
+                      },
+                      {
+                        "day": "2026-05-30",
+                        "total": 231.14984999999996,
+                        "slowCycle": 7.299849999999999,
+                        "microstop": 217.84999999999997,
+                        "macrostop": 0,
+                        "scrap": 6
+                      },
+                      {
+                        "day": "2026-05-31",
+                        "total": 196.98010000000002,
+                        "slowCycle": 8.430100000000001,
+                        "microstop": 188.55,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-01",
+                        "total": 840.9662500000001,
+                        "slowCycle": 30.11625,
+                        "microstop": 765.6500000000001,
+                        "macrostop": 45.2,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-02",
+                        "total": 482.46815,
+                        "slowCycle": 40.91814999999999,
+                        "microstop": 411.1,
+                        "macrostop": 30.450000000000003,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-03",
+                        "total": 652.34275,
+                        "slowCycle": 13.642750000000001,
+                        "microstop": 593.55,
+                        "macrostop": 45.150000000000006,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-04",
+                        "total": 720.0727499999999,
+                        "slowCycle": 26.07275,
+                        "microstop": 589.35,
+                        "macrostop": 104.65,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-05",
+                        "total": 614.9318999999998,
+                        "slowCycle": 104.63190000000002,
+                        "microstop": 510.29999999999995,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-06",
+                        "total": 451.62109999999996,
+                        "slowCycle": 34.021100000000004,
+                        "microstop": 417.6,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-07",
+                        "total": 97.35420000000002,
+                        "slowCycle": 12.004199999999999,
+                        "microstop": 85.35000000000001,
+                        "macrostop": 0,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-08",
+                        "total": 6184.317699999998,
+                        "slowCycle": 25.06769999999999,
+                        "microstop": 923.1,
+                        "macrostop": 5236.15,
+                        "scrap": 0
+                      },
+                      {
+                        "day": "2026-06-09",
+                        "total": 308.36545,
+                        "slowCycle": 49.31544999999999,
+                        "microstop": 259.05,
+                        "macrostop": 0,
+                        "scrap": 0
+                      }
+                    ]
+                  }
+                ],
+                "eventsEvaluated": 209232,
+                "eventsIncluded": 4844,
+                "events": [],
+                "filters": {}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

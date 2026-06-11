@@ -1,0 +1,13 @@
+{
+  "capturedAt": "2026-06-11T07:20:03.163Z",
+  "database": "DATABASE_URL (redacted)",
+  "totals": {
+    "completedWorkOrders": 0,
+    "workOrdersWithDrift": 0,
+    "driftRatePct": 0,
+    "absGoodDrift": 0,
+    "absScrapDrift": 0,
+    "absCycleDrift": 0
+  },
+  "worstByGoodDrift": []
+}

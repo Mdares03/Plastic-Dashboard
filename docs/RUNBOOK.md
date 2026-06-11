@@ -9,10 +9,52 @@
 |---|--------|------------------|--------|
 | 1 | Revoke leaked session (was `cookies.txt`) | `node scripts/security/revoke-leaked-session.mjs --apply` | dry-run ready |
 | 2 | Rotate `Machine.apiKey` (keys appear in committed flow exports) + update Pi `current_config` | `node scripts/security/rotate-machine-apikey.mjs --apply` | dry-run ready |
-| 3 | Baseline KPI capture (read-only, pulls live business data) | `npm run baseline:capture` | script ready, awaiting go |
-| 4 | Phase 2 data cleanup (stale downtime episodes, stuck mold events) | `scripts/cleanup/*` | not yet written |
+| 3 | Baseline KPI capture (read-only) | `npm run baseline:capture` | ✅ run 2026-06-11 → `docs/verification/baseline-2026-06-11.json` |
+| 4 | R3 counter-drift check (read-only) | `npx dotenv -e .env -- tsx scripts/metrics/drift-check.ts` | ✅ run 2026-06-11 → `docs/verification/drift-2026-06-11.json` (0 completed WOs; see note) |
+| 5 | Phase 2 data cleanup (stale downtime episodes, stuck mold events) | `scripts/cleanup/0{1,2}-*.mjs --apply` | dry-run ready, backup taken, **awaiting go** |
 
 Run all `--apply` actions only after a fresh `pg_dump` backup.
+
+> **Drift-check note (2026-06-11):** R3 reconciles only **COMPLETED** work orders.
+> This DB has 30 PENDING + 9 RUNNING work orders and **zero COMPLETED**, so the
+> drift exhibit is legitimately empty — work orders never transition to COMPLETED
+> in the current edge flow. Flag for the trust report; re-run after the edge
+> closes work orders (Phase 6).
+
+## Phase 2 — prod data hygiene
+
+Dry-run-by-default cleanup scripts (`scripts/cleanup/`). Pattern follows
+`scripts/db-dry-run-cutoff.mjs`: no flag = report only, `--apply` = write.
+
+| Script | Fixes | Dry-run finding (2026-06-11) |
+|--------|-------|------------------------------|
+| `01-stale-downtime-episodes.mjs` | Clamp `ReasonEntry.durationSeconds` > 12 h to the R5 cap; report genuine overlap duplicates | 2 runaway episodes (67.6 h, 27.5 h); **0** real duplicates |
+| `02-stuck-mold-events.mjs` | Synthesize the missing `resolved` MachineEvent for stuck `active` mold-change incidents | 7 stuck incidents (all >150 h old, machine `6861…`) |
+| `03-sanity-check.mjs` | Read-only guard rails (A–D); non-zero exit on failure | Pre-cleanup: A & D fail (expected); B & C pass |
+
+**Procedure:**
+
+```bash
+# 1. fresh backup of the two affected tables
+pg_dump -U mdares -d control_tower_db -t '"ReasonEntry"' -t '"MachineEvent"' \
+  -Fc -f backups/phase2-pre-cleanup-$(date +%Y%m%d-%H%M%S).dump
+
+# 2. review dry-runs
+node scripts/cleanup/01-stale-downtime-episodes.mjs
+node scripts/cleanup/02-stuck-mold-events.mjs
+node scripts/cleanup/03-sanity-check.mjs        # expect A & D to fail pre-cleanup
+
+# 3. apply
+node scripts/cleanup/01-stale-downtime-episodes.mjs --apply
+node scripts/cleanup/02-stuck-mold-events.mjs --apply
+
+# 4. verify + re-capture the "after" exhibits
+node scripts/cleanup/03-sanity-check.mjs        # must exit 0 (allPass:true)
+npm run baseline:capture                        # "after-cleanup" snapshot
+```
+
+**Rollback:** restore the affected tables from the dump:
+`pg_restore -U mdares -d control_tower_db --clean -t '"ReasonEntry"' -t '"MachineEvent"' <dump>`.
 
 ## Environment topology (verified 2026-06-10)
 
