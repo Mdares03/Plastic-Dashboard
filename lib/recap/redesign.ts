@@ -11,6 +11,7 @@
   } from "@/lib/recap/timeline";
   import { classifyMachineState, type MachineStateResult } from "@/lib/recap/machineState";
   import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
+  import { resolveWindow, zonedToUtcDate } from "@/lib/metrics";
   import type {
     RecapDetailResponse,
     RecapMachine,
@@ -101,7 +102,8 @@
       const year = Number(value("year"));
       const month = Number(value("month"));
       const day = Number(value("day"));
-      const hour = Number(value("hour"));
+      const hourRaw = Number(value("hour"));
+      const hour = hourRaw === 24 ? 0 : hourRaw; // Intl renders local midnight as "24" under hour12:false
       const minute = Number(value("minute"));
       const weekday = value("weekday");
 
@@ -125,54 +127,6 @@
         minutesOfDay: ts.getUTCHours() * 60 + ts.getUTCMinutes(),
       };
     }
-  }
-
-  function parseOffsetMinutes(offsetLabel: string | null) {
-    if (!offsetLabel) return null;
-    const normalized = offsetLabel.replace("UTC", "GMT");
-    const match = /^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/.exec(normalized);
-    if (!match) return null;
-    const sign = match[1] === "-" ? -1 : 1;
-    const hour = Number(match[2]);
-    const minute = Number(match[3] ?? "0");
-    if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
-    return sign * (hour * 60 + minute);
-  }
-
-  function getTzOffsetMinutes(utcDate: Date, timeZone: string) {
-    try {
-      const parts = new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        timeZoneName: "shortOffset",
-        hour: "2-digit",
-      }).formatToParts(utcDate);
-      const offsetPart = parts.find((part) => part.type === "timeZoneName")?.value ?? null;
-      return parseOffsetMinutes(offsetPart);
-    } catch {
-      return null;
-    }
-  }
-
-  function zonedToUtcDate(input: {
-    year: number;
-    month: number;
-    day: number;
-    hours: number;
-    minutes: number;
-    timeZone: string;
-  }) {
-    const baseUtc = Date.UTC(input.year, input.month - 1, input.day, input.hours, input.minutes, 0, 0);
-    const guessDate = new Date(baseUtc);
-    const offsetA = getTzOffsetMinutes(guessDate, input.timeZone);
-    if (offsetA == null) return guessDate;
-
-    let corrected = new Date(baseUtc - offsetA * 60000);
-    const offsetB = getTzOffsetMinutes(corrected, input.timeZone);
-    if (offsetB != null && offsetB !== offsetA) {
-      corrected = new Date(baseUtc - offsetB * 60000);
-    }
-
-    return corrected;
   }
 
   function addDays(input: { year: number; month: number; day: number }, days: number) {
@@ -667,26 +621,13 @@
         select: { timezone: true },
       });
       const timeZone = settings?.timezone || "America/Mexico_City";
-      const localNow = getLocalParts(now, timeZone);
-      const today = { year: localNow.year, month: localNow.month, day: localNow.day };
-      const yesterday = addDays(today, -1);
-      const start = zonedToUtcDate({
-        ...yesterday,
-        hours: 0,
-        minutes: 0,
-        timeZone,
-      });
-      const end = zonedToUtcDate({
-        ...today,
-        hours: 0,
-        minutes: 0,
-        timeZone,
-      });
+      // R6: single window authority — same calendar-yesterday resolver every view uses.
+      const win = resolveWindow({ mode: "yesterday", timezone: timeZone, now });
       return {
         requestedMode,
         mode: requestedMode,
-        start,
-        end,
+        start: win.start,
+        end: win.end,
         shiftAvailable,
       } as const;
     }

@@ -49,4 +49,24 @@ describe("R6 — window authority", () => {
     const w = resolveWindow({ mode: "custom", timezone: "UTC", start, end });
     expect(w).toMatchObject({ start, end, mode: "custom", timezone: "UTC" });
   });
+
+  // DST regression: a fixed ±24h step lands in the wrong calendar day on the two
+  // transition days per year. Calendar days must stay whole regardless of 23h/25h.
+  it("yesterday stays whole the day after spring-forward (23h yesterday)", () => {
+    const tz = "America/New_York"; // DST began 2026-03-08
+    const now = new Date("2026-03-09T15:00:00.000Z");
+    const w = resolveWindow({ mode: "yesterday", timezone: tz, now });
+    // yesterday = all of Mar 8 (EST midnight 05:00Z → EDT midnight 04:00Z, a 23h day)
+    expect(w.start.toISOString()).toBe("2026-03-08T05:00:00.000Z");
+    expect(w.end.toISOString()).toBe("2026-03-09T04:00:00.000Z");
+  });
+
+  it("today stays whole on the fall-back day (25h today)", () => {
+    const tz = "America/New_York"; // DST ended 2026-11-01
+    const now = new Date("2026-11-01T15:00:00.000Z");
+    const w = resolveWindow({ mode: "today", timezone: tz, now });
+    // today = all of Nov 1 (EDT midnight 04:00Z → EST midnight 05:00Z, a 25h day)
+    expect(w.start.toISOString()).toBe("2026-11-01T04:00:00.000Z");
+    expect(w.end.toISOString()).toBe("2026-11-02T05:00:00.000Z");
+  });
 });

@@ -141,12 +141,18 @@ export function resolveWindow(input: ResolveWindowInput): ResolvedWindow {
   switch (input.mode) {
     case "today": {
       const start = startOfLocalDay(now, timezone);
-      const end = new Date(start.getTime() + DAY_MS);
+      // Tomorrow's local midnight. Stepping +36h lands solidly inside tomorrow
+      // regardless of a 23h/25h DST day, then snaps to its midnight — a fixed
+      // +DAY_MS would be 1h off on the two DST-transition days per year.
+      const end = startOfLocalDay(new Date(start.getTime() + DAY_MS + DAY_MS / 2), timezone);
       return { start, end, ...base };
     }
     case "yesterday": {
       const todayStart = startOfLocalDay(now, timezone);
-      const start = startOfLocalDay(new Date(todayStart.getTime() - DAY_MS), timezone);
+      // Step back 12h (into yesterday afternoon, DST-safe) then take its midnight.
+      // A fixed -DAY_MS overshoots into two-days-ago the day after spring-forward,
+      // when yesterday was only 23h long.
+      const start = startOfLocalDay(new Date(todayStart.getTime() - DAY_MS / 2), timezone);
       return { start, end: todayStart, ...base };
     }
     case "7d":
