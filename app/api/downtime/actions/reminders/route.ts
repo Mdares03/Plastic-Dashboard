@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireSession } from "@/lib/auth/requireSession";
 import { buildDowntimeActionReminderEmail, sendEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/appUrl";
 
@@ -36,21 +35,29 @@ function buildActionUrl(baseUrl: string, action: { machineId: string | null; rea
   return qs ? `${baseUrl}/downtime?${qs}` : `${baseUrl}/downtime`;
 }
 
-async function authorizeRequest(req: Request) {
+type AuthResult =
+  | { ok: true }
+  | { ok: false; status: number; error: string };
+
+function authorizeRequest(req: Request): AuthResult {
   const secret = process.env.DOWNTIME_ACTION_REMINDER_SECRET;
+  // Fail-closed: this endpoint fans out emails across every org, so it is a
+  // cron-only, secret-gated job. Without the secret configured there is no safe
+  // caller — refuse rather than fall back to any logged-in session (which let
+  // any member trigger an org-wide reminder blast).
   if (!secret) {
-    const session = await requireSession();
-    return { ok: !!session };
+    return { ok: false, status: 503, error: "Reminder endpoint not configured" };
   }
   const authHeader = req.headers.get("authorization") || "";
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : null;
   const urlToken = new URL(req.url).searchParams.get("token");
-  return { ok: token === secret || urlToken === secret };
+  if (token === secret || urlToken === secret) return { ok: true };
+  return { ok: false, status: 401, error: "Unauthorized" };
 }
 
 export async function POST(req: Request) {
-  const auth = await authorizeRequest(req);
-  if (!auth.ok) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const auth = authorizeRequest(req);
+  if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
 
   const sp = new URL(req.url).searchParams;
   const dueInDays = Number(sp.get("dueInDays") || DEFAULT_DUE_DAYS);

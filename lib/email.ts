@@ -47,6 +47,45 @@ function getTransporter() {
   return cachedTransport;
 }
 
+/** SMTP send attempts (1 try + 2 retries) for transient failures. */
+const EMAIL_MAX_ATTEMPTS = 3;
+/** Backoff before retry N (ms): ~0.5s, ~1.5s. */
+const EMAIL_RETRY_BACKOFF_MS = [500, 1500];
+
+type SmtpErrorShape = {
+  name?: string;
+  message?: string;
+  code?: string;
+  command?: string;
+  response?: unknown;
+  responseCode?: number;
+  stack?: string;
+};
+
+/**
+ * Transient = worth retrying: network blips (ECONNRESET/ETIMEDOUT/…), connection
+ * errors, and SMTP 4xx "try again later" replies. Permanent (5xx, bad recipient,
+ * auth) is not retried — retrying can't fix it and just delays the failure record.
+ */
+function isTransientSmtpError(err: SmtpErrorShape): boolean {
+  const code = String(err?.code ?? "").toUpperCase();
+  if (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ESOCKET" ||
+    code === "ECONNECTION" ||
+    code === "EAI_AGAIN" ||
+    code === "ETIMEOUT"
+  ) {
+    return true;
+  }
+  const rc = Number(err?.responseCode);
+  if (Number.isFinite(rc) && rc >= 400 && rc < 500) return true; // 4xx = greylist/try-later
+  return false;
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export async function sendEmail(payload: EmailPayload) {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
   if (!from) {
@@ -59,56 +98,62 @@ export async function sendEmail(payload: EmailPayload) {
   });
 
   const transporter = getTransporter();
-  try {
-    const info = await transporter.sendMail({
-      from,
-      to: payload.to,
-      subject: payload.subject,
-      text: payload.text,
-      html: payload.html,
-      headers: {
-        "X-Mailer": "MIS Control Tower",
-      },
+  let lastErr: unknown;
 
-      replyTo: from,
-    });
+  for (let attempt = 1; attempt <= EMAIL_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const info = await transporter.sendMail({
+        from,
+        to: payload.to,
+        subject: payload.subject,
+        text: payload.text,
+        html: payload.html,
+        headers: {
+          "X-Mailer": "MIS Control Tower",
+        },
 
-    // Nodemailer response details:
-    const pending = "pending" in info ? (info as { pending?: string[] }).pending : undefined;
-    logLine("email.send.ok", {
-      to: payload.to,
-      from,
-      messageId: info.messageId,
-      response: info.response,
-      accepted: info.accepted,
-      rejected: info.rejected,
-      pending,
-    });
+        replyTo: from,
+      });
 
-    return info;
-  } catch (err: unknown) {
-    const error = err as {
-      name?: string;
-      message?: string;
-      code?: string;
-      command?: string;
-      response?: unknown;
-      responseCode?: number;
-      stack?: string;
-    };
-    logLine("email.send.err", {
-      to: payload.to,
-      from,
-      name: error?.name,
-      message: error?.message,
-      code: error?.code,
-      command: error?.command,
-      response: error?.response,
-      responseCode: error?.responseCode,
-      stack: error?.stack,
-    });
-    throw err;
+      // Nodemailer response details:
+      const pending = "pending" in info ? (info as { pending?: string[] }).pending : undefined;
+      logLine("email.send.ok", {
+        to: payload.to,
+        from,
+        attempt,
+        messageId: info.messageId,
+        response: info.response,
+        accepted: info.accepted,
+        rejected: info.rejected,
+        pending,
+      });
+
+      return info;
+    } catch (err: unknown) {
+      lastErr = err;
+      const error = err as SmtpErrorShape;
+      const transient = isTransientSmtpError(error);
+      const willRetry = transient && attempt < EMAIL_MAX_ATTEMPTS;
+      logLine("email.send.err", {
+        to: payload.to,
+        from,
+        attempt,
+        transient,
+        willRetry,
+        name: error?.name,
+        message: error?.message,
+        code: error?.code,
+        command: error?.command,
+        response: error?.response,
+        responseCode: error?.responseCode,
+        stack: error?.stack,
+      });
+      if (!willRetry) throw err;
+      await sleep(EMAIL_RETRY_BACKOFF_MS[attempt - 1] ?? 1500);
+    }
   }
+
+  throw lastErr;
 }
 
 export function buildVerifyEmail(params: { appName: string; verifyUrl: string }) {
