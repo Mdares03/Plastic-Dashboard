@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { MAX_OPEN_EPISODE_MS } from "@/lib/metrics";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
 import type { Prisma } from "@prisma/client";
 import {
@@ -134,7 +135,13 @@ export async function GET(req: Request) {
         ? new Date(startAt.getTime() + r.durationSeconds * 1000)
         : null);
 
-    const durationSeconds = r.durationSeconds ?? null;
+    // R5: cap the displayed duration at 12h (open/runaway episodes), congruent
+    // with the aggregate pareto/coverage totals. Timestamps left as recorded.
+    const rawSeconds =
+      r.durationSeconds ??
+      (r.episodeEndTs ? Math.max(0, (r.episodeEndTs.getTime() - startAt.getTime()) / 1000) : null);
+    const durationSeconds =
+      rawSeconds != null ? Math.round(Math.min(rawSeconds, MAX_OPEN_EPISODE_MS / 1000)) : null;
     const durationMinutes =
       durationSeconds != null ? Math.round((durationSeconds / 60) * 10) / 10 : null;
 

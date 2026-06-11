@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { episodeWindowMinutes } from "@/lib/metrics";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
 import {
   applyDowntimeFilters,
@@ -43,6 +44,7 @@ export async function GET(req: Request) {
 
   const range = coerceDowntimeRange(url.searchParams.get("range"));
   const start = rangeToStart(range);
+  const windowEnd = new Date(); // rolling window ends now (R5 clamp upper bound)
 
   const machineId = url.searchParams.get("machineId");
   const kind = (url.searchParams.get("kind") || "downtime").toLowerCase();
@@ -83,6 +85,7 @@ export async function GET(req: Request) {
         reasonLabel: true,
         durationSeconds: true,
         capturedAt: true,
+        episodeEndTs: true,
         meta: true,
         episodeId: true,
       },
@@ -105,17 +108,20 @@ export async function GET(req: Request) {
       ? filteredRowsClassified
       : filteredRowsAll;
 
-    const secondsAll = filteredRowsAll.reduce(
-      (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+    // R5: each episode contributes its window-overlap minutes, capped at 12h —
+    // same authority as recap/reports/losses, so the pareto total can't drift
+    // above the dashboard's downtime number.
+    const minutesAll = filteredRowsAll.reduce(
+      (acc, row) => acc + episodeWindowMinutes(row, start, windowEnd),
       0
     );
-    const secondsClassified = filteredRowsClassified.reduce(
-      (acc, row) => acc + Math.max(0, row.durationSeconds ?? 0),
+    const minutesClassified = filteredRowsClassified.reduce(
+      (acc, row) => acc + episodeWindowMinutes(row, start, windowEnd),
       0
     );
 
-    totalMinutesAll = Math.round((secondsAll / 60) * 10) / 10;
-    totalMinutesClassified = Math.round((secondsClassified / 60) * 10) / 10;
+    totalMinutesAll = Math.round(minutesAll * 10) / 10;
+    totalMinutesClassified = Math.round(minutesClassified * 10) / 10;
     excludedUnclassifiedMinutes = Math.max(
       0,
       Math.round((totalMinutesAll - totalMinutesClassified) * 10) / 10
@@ -130,7 +136,7 @@ export async function GET(req: Request) {
       filteredRowsForOutput.map((row) => row.reasonCode)
     );
 
-    const grouped = new Map<string, { reasonCode: string; reasonLabel: string; durationSeconds: number; count: number }>();
+    const grouped = new Map<string, { reasonCode: string; reasonLabel: string; minutes: number; count: number }>();
     for (const row of filteredRowsForOutput) {
       const code = String(row.reasonCode ?? "").trim().toUpperCase();
       if (!code) continue;
@@ -140,10 +146,10 @@ export async function GET(req: Request) {
         {
           reasonCode: code,
           reasonLabel: resolvedLabel,
-          durationSeconds: 0,
+          minutes: 0,
           count: 0,
         };
-      slot.durationSeconds += Math.max(0, row.durationSeconds ?? 0);
+      slot.minutes += episodeWindowMinutes(row, start, windowEnd);
       slot.count += 1;
       grouped.set(code, slot);
     }
@@ -152,7 +158,7 @@ export async function GET(req: Request) {
       .map((g) => ({
         reasonCode: g.reasonCode,
         reasonLabel: g.reasonLabel,
-        value: Math.round((g.durationSeconds / 60) * 10) / 10,
+        value: Math.round(g.minutes * 10) / 10,
         count: g.count,
       }))
       .filter((x) => x.value > 0 || x.count > 0);

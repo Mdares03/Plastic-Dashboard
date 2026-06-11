@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { episodeWindowMinutes } from "@/lib/metrics";
 import { coerceDowntimeRange, rangeToStart } from "@/lib/analytics/downtimeRange";
 
 const bad = (status: number, error: string) =>
@@ -16,6 +17,7 @@ export async function GET(req: Request) {
   // ✅ Parse params INSIDE handler
   const range = coerceDowntimeRange(url.searchParams.get("range"));
   const start = rangeToStart(range);
+  const windowEnd = new Date(); // rolling window ends now (R5 clamp upper bound)
 
   const machineId = url.searchParams.get("machineId"); // optional
   const kind = (url.searchParams.get("kind") || "downtime").toLowerCase();
@@ -42,13 +44,14 @@ export async function GET(req: Request) {
       kind: "downtime",
       capturedAt: { gte: start },
     },
-    select: { durationSeconds: true, episodeId: true },
+    select: { durationSeconds: true, capturedAt: true, episodeEndTs: true, episodeId: true },
   });
 
   const receivedEpisodes = new Set(rows.map((r) => r.episodeId).filter(Boolean)).size;
 
+  // R5: window-clamp + 12h cap each episode, congruent with the pareto/recap totals.
   const receivedMinutes =
-    Math.round((rows.reduce((acc, r) => acc + (r.durationSeconds ?? 0), 0) / 60) * 10) / 10;
+    Math.round(rows.reduce((acc, r) => acc + episodeWindowMinutes(r, start, windowEnd), 0) * 10) / 10;
 
   return NextResponse.json({
     ok: true,
