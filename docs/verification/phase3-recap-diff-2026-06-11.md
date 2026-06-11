@@ -55,3 +55,25 @@ lifetime WO goal, so weekly pct reads low for multi-week WOs. This is honest (no
 inflation) but the "Production vs Target" tile may want either a prorated target or
 a relabel to "in-window output vs WO goal". Deferred to the UI-label pass — the
 data is now correct and congruent.
+
+---
+
+## reports/oee.ts (#7) + oeeTrend.ts (#10) — R4 time-weighting + R7 null gaps
+
+`getOeeSnapshot` plain-averaged snapshots (the path that disagreed with Recap's
+time-weighted average); now uses `computeWindowRates` (R4) per machine and for the
+org roll-up. `getOeeTrend7d` plain-averaged per day and emitted **0** for empty
+days; now time-weights each day (R4) and emits **null** gaps (R7) — the chart
+tooltip shows "—" and recharts gaps the line instead of faking a drop to 0%.
+
+**Congruence proof — Reports OEE now == Recap OEE, to the decimal:**
+
+| window | machine | Reports OEE (before→after) | Recap OEE | |
+|---|---|---|---|---|
+| 7d  | M4-2 | 43.9 → 43.84 | 43.84 | ✓ |
+| 7d  | M4-5 | 77.9 → 77.57 | 77.57 | ✓ |
+| 30d | M4-2 | 44.4 → 44.42 | 44.42 | ✓ |
+| 30d | M4-5 | 77.0 → 76.75 | 76.75 | ✓ |
+
+The same KPI on two screens is now produced by one function (`computeWindowRates`),
+so they cannot disagree. `tsc` clean; 30 golden tests green.

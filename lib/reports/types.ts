@@ -19,7 +19,7 @@ export interface WeeklyReport {
   };
 
   machines: MachineSnapshot[];
-  oeeTrend7d: { date: string; oee: number; target: number }[];
+  oeeTrend7d: { date: string; oee: number | null; target: number }[];
   topLosses: LossRow[];
 
   workOrderCycles: CyclePerfRow[];

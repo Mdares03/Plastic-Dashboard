@@ -1,36 +1,10 @@
 import { prisma } from "@/lib/prisma";
+import { computeWindowRates, type KpiSample } from "@/lib/metrics";
 import type { MachineSnapshot } from "@/lib/reports/types";
 
-function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
-}
-
-function clampPct(value: number) {
+function clampPct(value: number | null) {
+  if (value == null) return 0; // R7-null is a UI-layer follow-up; shape stays numeric here
   return Math.max(0, Math.min(100, value));
-}
-
-type AvgAccumulator = {
-  oeeSum: number;
-  oeeCount: number;
-  aSum: number;
-  aCount: number;
-  pSum: number;
-  pCount: number;
-  qSum: number;
-  qCount: number;
-};
-
-function emptyAccumulator(): AvgAccumulator {
-  return {
-    oeeSum: 0,
-    oeeCount: 0,
-    aSum: 0,
-    aCount: 0,
-    pSum: 0,
-    pCount: 0,
-    qSum: 0,
-    qCount: 0,
-  };
 }
 
 export async function getOeeSnapshot(params: {
@@ -61,6 +35,7 @@ export async function getOeeSnapshot(params: {
       },
       select: {
         machineId: true,
+        ts: true,
         oee: true,
         availability: true,
         performance: true,
@@ -101,48 +76,31 @@ export async function getOeeSnapshot(params: {
     }),
   ]);
 
-  const byMachine = new Map<string, AvgAccumulator>();
-  for (const machineId of machineIds) {
-    byMachine.set(machineId, emptyAccumulator());
-  }
-
-  const total = emptyAccumulator();
-
+  // R4 — time-weighted average of production snapshots (the recap authority),
+  // NOT the plain sum/count that used to make Reports disagree with Recap. Each
+  // machine's window OEE is now computed exactly as recap computes it.
+  const samplesByMachine = new Map<string, KpiSample[]>();
+  for (const machineId of machineIds) samplesByMachine.set(machineId, []);
+  const allSamples: KpiSample[] = [];
   for (const row of kpiRows) {
-    if (row.trackingEnabled !== true || row.productionStarted !== true) continue;
-
-    const metrics = [row.oee, row.availability, row.performance, row.quality];
-    const allZeroOrNull = metrics.every((value) => !isFiniteNumber(value) || value === 0);
-    if (allZeroOrNull) continue;
-
-    const acc = byMachine.get(row.machineId);
-    if (!acc) continue;
-
-    if (isFiniteNumber(row.oee)) {
-      acc.oeeSum += row.oee;
-      acc.oeeCount += 1;
-      total.oeeSum += row.oee;
-      total.oeeCount += 1;
-    }
-    if (isFiniteNumber(row.availability)) {
-      acc.aSum += row.availability;
-      acc.aCount += 1;
-      total.aSum += row.availability;
-      total.aCount += 1;
-    }
-    if (isFiniteNumber(row.performance)) {
-      acc.pSum += row.performance;
-      acc.pCount += 1;
-      total.pSum += row.performance;
-      total.pCount += 1;
-    }
-    if (isFiniteNumber(row.quality)) {
-      acc.qSum += row.quality;
-      acc.qCount += 1;
-      total.qSum += row.quality;
-      total.qCount += 1;
-    }
+    const sample: KpiSample = {
+      ts: row.ts,
+      oee: row.oee,
+      availability: row.availability,
+      performance: row.performance,
+      quality: row.quality,
+      trackingEnabled: row.trackingEnabled,
+      productionStarted: row.productionStarted,
+    };
+    samplesByMachine.get(row.machineId)?.push(sample);
+    allSamples.push(sample);
   }
+  const ratesByMachine = new Map<string, ReturnType<typeof computeWindowRates>>();
+  for (const machineId of machineIds) {
+    ratesByMachine.set(machineId, computeWindowRates(samplesByMachine.get(machineId) ?? [], to));
+  }
+  // Org roll-up uses the same R4 method over the pooled production samples.
+  const totalRates = computeWindowRates(allSamples, to);
 
   const producedByMachine = new Map<string, number>();
   for (const row of cycleRows) {
@@ -177,15 +135,15 @@ export async function getOeeSnapshot(params: {
   }
 
   const machines: MachineSnapshot[] = machineIds.map((machineId) => {
-    const acc = byMachine.get(machineId) ?? emptyAccumulator();
+    const rates = ratesByMachine.get(machineId);
     const topLoss = topLossByMachine.get(machineId);
     return {
       machineId,
       name: machineNameById.get(machineId) ?? machineId,
-      oee: acc.oeeCount > 0 ? clampPct(acc.oeeSum / acc.oeeCount) : 0,
-      availability: acc.aCount > 0 ? clampPct(acc.aSum / acc.aCount) : 0,
-      performance: acc.pCount > 0 ? clampPct(acc.pSum / acc.pCount) : 0,
-      quality: acc.qCount > 0 ? clampPct(acc.qSum / acc.qCount) : 0,
+      oee: clampPct(rates?.oee ?? null),
+      availability: clampPct(rates?.availability ?? null),
+      performance: clampPct(rates?.performance ?? null),
+      quality: clampPct(rates?.quality ?? null),
       unitsProduced: producedByMachine.get(machineId) ?? 0,
       unitsTarget: targetByMachine.get(machineId) ?? 0,
       topLossReasonLabel: topLoss?.label ?? "Sin pérdida relevante",
@@ -194,10 +152,10 @@ export async function getOeeSnapshot(params: {
   });
 
   return {
-    oeeAvg: total.oeeCount > 0 ? clampPct(total.oeeSum / total.oeeCount) : 0,
-    availabilityAvg: total.aCount > 0 ? clampPct(total.aSum / total.aCount) : 0,
-    performanceAvg: total.pCount > 0 ? clampPct(total.pSum / total.pCount) : 0,
-    qualityAvg: total.qCount > 0 ? clampPct(total.qSum / total.qCount) : 0,
+    oeeAvg: clampPct(totalRates.oee),
+    availabilityAvg: clampPct(totalRates.availability),
+    performanceAvg: clampPct(totalRates.performance),
+    qualityAvg: clampPct(totalRates.quality),
     machines,
   };
 }

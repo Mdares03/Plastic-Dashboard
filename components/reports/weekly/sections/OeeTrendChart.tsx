@@ -6,7 +6,7 @@ import type { WeeklyReport } from "@/lib/reports/types";
 type Translator = (key: string, vars?: Record<string, string | number>) => string;
 
 type TooltipPayload = {
-  payload?: { date: string; oee: number; target: number };
+  payload?: { date: string; oee: number | null; target: number };
 };
 
 function ChartTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayload[] }) {
@@ -17,7 +17,8 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: Tooltip
   return (
     <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-3 py-2 text-xs text-zinc-300">
       <div className="font-semibold text-white">{row.date}</div>
-      <div>OEE: <span className="text-emerald-300">{row.oee.toFixed(1)}%</span></div>
+      {/* R7 — a null day has no production; show "—", never 0%. */}
+      <div>OEE: <span className="text-emerald-300">{row.oee == null ? "—" : `${row.oee.toFixed(1)}%`}</span></div>
       <div>Meta: <span className="text-blue-300">{row.target.toFixed(1)}%</span></div>
     </div>
   );

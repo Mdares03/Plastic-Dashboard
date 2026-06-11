@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { MAX_SAMPLE_WEIGHT_MS, weightedRate, type KpiSample } from "@/lib/metrics";
 
 function getDayKey(date: Date, timeZone: string) {
   try {
@@ -52,26 +53,41 @@ export async function getOeeTrend7d(params: {
     select: {
       ts: true,
       oee: true,
+      availability: true,
+      performance: true,
+      quality: true,
     },
   });
 
-  const agg = new Map<string, { sum: number; count: number }>();
+  // R4 — each day's OEE is the time-weighted average of that day's production
+  // snapshots (the recap method), not a plain sum/count. R7 — a day with no
+  // production samples is a *null* gap, never 0 (a 0 fakes a collapse to the eye
+  // and poisons any downstream average). Completes the half-deployed trend fix.
+  const samplesByDay = new Map<string, KpiSample[]>();
   for (const row of rows) {
-    if (typeof row.oee !== "number" || !Number.isFinite(row.oee)) continue;
     const key = getDayKey(row.ts, timeZone);
-    const prev = agg.get(key) ?? { sum: 0, count: 0 };
-    prev.sum += row.oee;
-    prev.count += 1;
-    agg.set(key, prev);
+    const list = samplesByDay.get(key) ?? [];
+    list.push({
+      ts: row.ts,
+      oee: row.oee,
+      availability: row.availability,
+      performance: row.performance,
+      quality: row.quality,
+      trackingEnabled: true, // query already filtered to production samples
+      productionStarted: true,
+    });
+    samplesByDay.set(key, list);
   }
 
   const keys = dayRangeKeys(from, to, timeZone);
   return keys.map((date) => {
-    const point = agg.get(date);
-    return {
-      date,
-      oee: point && point.count > 0 ? Math.max(0, Math.min(100, point.sum / point.count)) : 0,
-      target: targetPct,
-    };
+    const samples = samplesByDay.get(date) ?? [];
+    let oee: number | null = null;
+    if (samples.length) {
+      const lastTs = samples.reduce((m, s) => Math.max(m, s.ts.getTime()), 0);
+      // windowEnd bounds the final sample's (capped) weight within the day.
+      oee = weightedRate(samples, "oee", new Date(lastTs + MAX_SAMPLE_WEIGHT_MS));
+    }
+    return { date, oee, target: targetPct };
   });
 }
