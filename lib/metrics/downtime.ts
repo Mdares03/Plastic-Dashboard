@@ -30,11 +30,31 @@ function round2(value: number): number {
  * end = episodeEndTs ?? capturedAt; duration is capped at 12 h; start is derived
  * backwards from end so the episode can be clipped to the window overlap.
  */
-function episodeInterval(r: ReasonRow): { startMs: number; endMs: number } {
+type EpisodeTiming = Pick<ReasonRow, "episodeEndTs" | "capturedAt" | "durationSeconds">;
+
+function episodeInterval(r: EpisodeTiming): { startMs: number; endMs: number } {
   const endMs = (r.episodeEndTs ?? r.capturedAt).getTime();
   const rawMs = Math.max(0, (r.durationSeconds ?? 0) * 1000);
   const cappedMs = Math.min(rawMs, MAX_OPEN_EPISODE_MS); // R5: cap open / runaway episodes
   return { startMs: endMs - cappedMs, endMs };
+}
+
+/**
+ * R5 — minutes one downtime episode contributes to [windowStart, windowEnd].
+ * Same clamp + 12 h cap as computeDowntime, exposed for callers that need a
+ * per-row breakdown (e.g. per-machine cost) rather than the reason aggregate.
+ */
+export function episodeWindowMinutes(
+  r: EpisodeTiming,
+  windowStart: Date,
+  windowEnd: Date,
+): number {
+  const { startMs, endMs } = episodeInterval(r);
+  const overlapMs = Math.max(
+    0,
+    Math.min(endMs, windowEnd.getTime()) - Math.max(startMs, windowStart.getTime()),
+  );
+  return overlapMs / 60000;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { episodeWindowMinutes } from "@/lib/metrics";
 import { isInPlannedShift, loadShiftPlanningContext } from "@/lib/reports/queries/shiftPlanning";
 import type { LossRow, MachineCostProfile, ParetoRow } from "@/lib/reports/types";
 
@@ -8,10 +9,6 @@ type LossesResult = {
   totalDowntimeCostMXN: number;
   reasonCostMap: Map<string, number>;
 };
-
-function toMinutes(seconds: number | null | undefined) {
-  return Math.max(0, Number(seconds ?? 0)) / 60;
-}
 
 export async function getLossesByReason(params: {
   orgId: string;
@@ -45,6 +42,7 @@ export async function getLossesByReason(params: {
         reasonLabel: true,
         reasonText: true,
         capturedAt: true,
+        episodeEndTs: true,
         durationSeconds: true,
       },
     }),
@@ -68,7 +66,10 @@ export async function getLossesByReason(params: {
 
     const reasonCode = String(row.reasonCode || "UNCLASSIFIED");
     const reasonLabel = String(row.reasonLabel || row.reasonCode || "Sin clasificar");
-    const minutes = toMinutes(row.durationSeconds);
+    // R5: clamp each episode to the report window and cap runaway/open episodes
+    // at 12 h — same authority recap/reports use, so loss minutes are congruent.
+    const minutes = episodeWindowMinutes(row, from, to);
+    if (minutes <= 0) continue;
     const machineCostPerMin = machineCostProfileById.get(row.machineId)?.machineCostPerMin ?? null;
     const estimatedCost = machineCostPerMin == null ? 0 : minutes * machineCostPerMin;
 
