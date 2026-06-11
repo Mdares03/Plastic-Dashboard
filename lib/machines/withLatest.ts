@@ -229,7 +229,10 @@ export async function fetchDowntimeCountsByWorkOrder(
  * through unchanged. The single latest snapshot is the only sample we hold here,
  * so getLatestRates gates exactly that row.
  */
-function gateLatestKpi(row: LatestKpiRow | null, now: Date): OverviewLatestKpi | null {
+/** The latest-snapshot fields gateLatestKpi reads (machineId not required). */
+export type GateableKpiRow = Omit<LatestKpiRow, "machineId">;
+
+export function gateLatestKpi(row: GateableKpiRow | null, now: Date): OverviewLatestKpi | null {
   if (!row) return null;
   const rates = getLatestRates(
     [
