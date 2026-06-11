@@ -29,3 +29,29 @@ Command: `npx dotenv -e .env -- tsx scripts/metrics/recap-diff.ts docs/verificat
   this call site's change; identical values confirm no collateral drift.
 
 `npm test` (30 golden tests) green; `tsc --noEmit` clean.
+
+---
+
+## production.ts — R2 lifetime-vs-window fix (#8)
+
+`getProductionVsTarget` previously summed **lifetime** `MachineWorkOrder.goodParts`
+for every WO whose `updatedAt` fell in the window. Now `good` = deduped in-window
+`MachineCycle` goodDelta (`windowProduction`); `target` = `targetQty` of WOs that
+actually ran cycles in the window.
+
+| org/window | good (before→after) | target | pct |
+|---|---|---|---|
+| BEMIS yesterday | 563 → 209 | 720 → 720 | 78.2 → 29 |
+| BEMIS 7d | 61925 → **7620** | 111510 → 103410 | 55.5 → 7.4 |
+| BEMIS 30d | 71763 → 38629 | 131213 → 113663 | 54.7 → 34 |
+
+**Congruence proof:** the 7d `good` of **7620 = 5700 (M4-2) + 1920 (M4-5)** — the
+exact per-machine production recap reports for the same window. Reports and Recap
+now return the *same* production number; the old 61925 was lifetime totals leaking
+into a 7-day view.
+
+**Flagged decision (target semantics):** `good` is in-window but `target` is the
+lifetime WO goal, so weekly pct reads low for multi-week WOs. This is honest (no
+inflation) but the "Production vs Target" tile may want either a prorated target or
+a relabel to "in-window output vs WO goal". Deferred to the UI-label pass — the
+data is now correct and congruent.
