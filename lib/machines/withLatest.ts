@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
-import type { OverviewMachineRow } from "@/lib/overview/types";
+import { getLatestRates } from "@/lib/metrics";
+import type { OverviewLatestKpi, OverviewMachineRow } from "@/lib/overview/types";
 
 type MachineBaseRow = Pick<
   OverviewMachineRow,
@@ -23,6 +24,8 @@ type LatestKpiRow = {
   availability?: number | null;
   performance?: number | null;
   quality?: number | null;
+  trackingEnabled?: boolean | null;
+  productionStarted?: boolean | null;
   workOrderId?: string | null;
   sku?: string | null;
   good?: number | null;
@@ -103,6 +106,8 @@ export async function fetchLatestKpis(
       availability: true,
       performance: true,
       quality: true,
+      trackingEnabled: true,
+      productionStarted: true,
       workOrderId: true,
       sku: true,
       good: true,
@@ -216,6 +221,45 @@ export async function fetchDowntimeCountsByWorkOrder(
   return out;
 }
 
+/**
+ * R4 — gate the "current" rate tiles. OEE/A/P/Q render only when the latest
+ * snapshot is a fresh (<10 min) production sample; otherwise they are null ("—",
+ * R7) — never a stale snapshot presented as the live number (an offline machine
+ * must not keep showing its last OEE). Factual fields (counts, cycleTime) pass
+ * through unchanged. The single latest snapshot is the only sample we hold here,
+ * so getLatestRates gates exactly that row.
+ */
+function gateLatestKpi(row: LatestKpiRow | null, now: Date): OverviewLatestKpi | null {
+  if (!row) return null;
+  const rates = getLatestRates(
+    [
+      {
+        ts: row.ts,
+        oee: row.oee ?? null,
+        availability: row.availability ?? null,
+        performance: row.performance ?? null,
+        quality: row.quality ?? null,
+        trackingEnabled: row.trackingEnabled ?? null,
+        productionStarted: row.productionStarted ?? null,
+      },
+    ],
+    now,
+  );
+  return {
+    ts: row.ts,
+    oee: rates.oee,
+    availability: rates.availability,
+    performance: rates.performance,
+    quality: rates.quality,
+    workOrderId: row.workOrderId,
+    sku: row.sku,
+    good: row.good,
+    scrap: row.scrap,
+    target: row.target,
+    cycleTime: row.cycleTime,
+  };
+}
+
 export function mergeMachineOverviewRows(params: {
   machines: MachineBaseRow[];
   heartbeats: LatestHeartbeatRow[];
@@ -224,6 +268,7 @@ export function mergeMachineOverviewRows(params: {
   activeWorkOrders?: ActiveWorkOrderRow[];
   downtimeCountByWorkOrder?: Map<string, number>;
   includeKpi?: boolean;
+  now?: Date;
 }): OverviewMachineRow[] {
   const {
     machines,
@@ -233,6 +278,7 @@ export function mergeMachineOverviewRows(params: {
     activeWorkOrders = [],
     downtimeCountByWorkOrder = new Map<string, number>(),
     includeKpi = false,
+    now = new Date(),
   } = params;
   const heartbeatMap = new Map(heartbeats.map((row) => [row.machineId, row]));
   const kpiMap = new Map(kpis.map((row) => [row.machineId, row]));
@@ -242,7 +288,7 @@ export function mergeMachineOverviewRows(params: {
   return machines.map((machine) => ({
     ...machine,
     latestHeartbeat: (heartbeatMap.get(machine.id) ?? null) as OverviewMachineRow["latestHeartbeat"],
-    latestKpi: includeKpi ? (kpiMap.get(machine.id) ?? null) : null,
+    latestKpi: includeKpi ? gateLatestKpi(kpiMap.get(machine.id) ?? null, now) : null,
     latestMacrostop: macrostopMap.get(machine.id) ?? null,
     activeWorkOrder: (() => {
       const row = activeWorkOrderMap.get(machine.id);
