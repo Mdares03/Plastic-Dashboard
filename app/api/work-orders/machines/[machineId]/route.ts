@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
+import { TERMINAL_WO_STATUSES } from "@/lib/workOrders/status";
 
 export async function GET(
   req: NextRequest,
@@ -31,7 +32,7 @@ export async function GET(
   }
 
   const rows = await prisma.machineWorkOrder.findMany({
-    where: { machineId, orgId: orgId as string, status: { not: "DONE" } },
+    where: { machineId, orgId: orgId as string, status: { notIn: [...TERMINAL_WO_STATUSES] } },
     orderBy: { createdAt: "desc" },
   });
 

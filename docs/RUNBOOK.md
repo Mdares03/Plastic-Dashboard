@@ -179,9 +179,33 @@ Each is specified so it can be completed + tested at the Pi:
   **Test immediately after deploy:** confirm a heartbeat/cycle gets a row in
   `outbox_messages` with a fresh `seq` and is delivered (status→sent), and that the
   `seq` column equals `payload_json.$.seq`.
-- **P6.6 WO close.** Prod has **0 COMPLETED work orders** — WOs never transition to
-  COMPLETED in the flow ("Work Order buttons" starts/stops but doesn't close), which is
-  why the accuracy report can only snapshot open WOs. Add a close path: when a WO ends,
-  set `status=COMPLETED` and emit a final counter event so the dashboard can reconcile
-  (R3). Also add a startup `inject` → settings re-fetch so a restart pulls fresh config
-  immediately. Both are flow edits best done in the editor against a running Pi.
+- **P6.6 WO close — root cause corrected + dashboard half DONE.** Earlier notes said
+  "WOs never close in the flow" — that's **wrong**. The `complete-work-order` case in
+  "Work Order buttons" *does* close the WO: it sets the edge-local `work_orders.status =
+  'DONE'`, writes final counts, `progress=100`, then clears all active state. The real
+  reasons prod shows **0 completed WOs** are two:
+  1. **Edge never propagates terminal status to the dashboard.** The dashboard only
+     learns WO state from `body.activeWorkOrder` embedded in KPI snapshots
+     (`app/api/ingest/kpi/route.ts:273`). On completion the edge clears `activeWorkOrder`
+     *without* emitting a terminal message, so the dashboard's `MachineWorkOrder` freezes
+     at its last RUNNING snapshot and never reaches a terminal status. (Confirmed: local
+     prod `machine_work_orders` holds only PENDING/RUNNING.)
+  2. **Dashboard vocabulary split (FIXED, dashboard side).** The "open WO" filters
+     excluded {COMPLETED,DONE,CLOSED,CANCELLED} but R3 reconciliation and the consistency
+     health check counted only `COMPLETED` — so even a propagated `DONE` would read as
+     "0 completed". Centralized in `lib/workOrders/status.ts`
+     (`isCompletedWorkOrder`/`isTerminalWorkOrder`/`isOpenWorkOrder`, accept DONE) and
+     applied to all four sites. No current number changes (prod has no terminal WOs); it
+     unblocks #1 so completion shows up the moment the edge emits.
+  **REMAINING (edge, at the Pi).** In `complete-work-order`, after the local
+  `status='DONE'` update, emit ONE final outbox message carrying the completed WO so the
+  dashboard records a terminal status with final counts. Cleanest: a KPI-shaped message
+  whose `activeWorkOrder = { id, status:'COMPLETED', goodParts, scrapParts, cycleCount,
+  target, ... }` built from the captured final values *before* state is cleared — the
+  existing kpi-ingest upsert (`kpi/route.ts:273`) will then set the terminal status +
+  final counters. Wire it to the Outbox Enqueue path (a new output on the WO node) and
+  bench-test by completing a real WO and confirming the dashboard WO flips to COMPLETED
+  with matching counts (R3 health check then goes green). Emit `'COMPLETED'` (not the
+  edge-local `'DONE'`) for the cleanest dashboard vocabulary, though the dashboard now
+  tolerates either. Also add a startup `inject` → settings re-fetch so a restart pulls
+  fresh config immediately.

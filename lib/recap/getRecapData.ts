@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { normalizeShiftOverrides, type ShiftOverrideDay } from "@/lib/settings";
 import { computeDowntime, computeWindowRates, resolveWindow } from "@/lib/metrics";
 import type { KpiSample, ReasonRow } from "@/lib/metrics";
+import { isCompletedWorkOrder, isOpenWorkOrder } from "@/lib/workOrders/status";
 import type { RecapMachine, RecapQuery, RecapResponse } from "@/lib/recap/types";
 
 type ShiftLike = {
@@ -582,10 +583,7 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
       }
     }
 
-    const openWorkOrders = machineWorkOrdersSorted.filter((wo) => {
-      const status = String(wo.status).toUpperCase();
-      return status !== "COMPLETED" && status !== "DONE" && status !== "CLOSED" && status !== "CANCELLED";
-    });
+    const openWorkOrders = machineWorkOrdersSorted.filter((wo) => isOpenWorkOrder(wo.status));
     const rangeWorkOrderProgress = new Map<
       string,
       { goodParts: number; scrapParts: number; cycleCount: number; firstTs: Date | null; lastTs: Date | null }
@@ -769,7 +767,7 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
     }
 
     const completed = machineWorkOrdersSorted
-      .filter((wo) => String(wo.status).toUpperCase() === "COMPLETED")
+      .filter((wo) => isCompletedWorkOrder(wo.status))
       .filter((wo) => wo.updatedAt >= params.start && wo.updatedAt <= params.end)
       .map((wo) => {
         const progress = rangeWorkOrderProgress.get(workOrderKey(wo.workOrderId)) ?? {

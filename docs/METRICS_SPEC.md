@@ -38,6 +38,11 @@ Production inside a time window `[start, end]` is computed from **deduplicated
 For a **completed** work order: `MachineWorkOrder` counters (R1) must equal the
 sum of its `MachineCycle` deltas (R2) over the WO's lifetime.
 
+- "Completed" is defined by one shared vocabulary in `lib/workOrders/status.ts`
+  (`isCompletedWorkOrder` = {COMPLETED, DONE, CLOSED}; the edge writes `DONE`).
+  CANCELLED is terminal but **not** reconcilable (aborted → counters not expected
+  to match). All four WO-status filter sites use this helper so "open" and
+  "completed" never disagree across views.
 - Drift = `counter − Σ deltas` per WO. Computed by
   `lib/metrics/production.ts#checkCounterDrift`.
 - Drift is **reported** (health endpoint, verification reports). It is never

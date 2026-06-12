@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getLatestRates } from "@/lib/metrics";
+import { TERMINAL_WO_STATUSES } from "@/lib/workOrders/status";
 import type { OverviewLatestKpi, OverviewMachineRow } from "@/lib/overview/types";
 
 type MachineBaseRow = Pick<
@@ -177,7 +178,7 @@ export async function fetchActiveWorkOrders(
     where: {
       orgId,
       machineId: { in: machineIds },
-      status: { notIn: ["COMPLETED", "DONE", "CLOSED", "CANCELLED"] },
+      status: { notIn: [...TERMINAL_WO_STATUSES] },
     },
     orderBy: [{ machineId: "asc" }, { updatedAt: "desc" }],
     distinct: ["machineId"],

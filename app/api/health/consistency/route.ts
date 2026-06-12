@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireOrgAdminSession } from "@/lib/auth/requireOrgAdminSession";
 import { MAX_OPEN_EPISODE_MS } from "@/lib/metrics";
+import { COMPLETED_WO_STATUSES } from "@/lib/workOrders/status";
 
 /**
  * Admin-only live consistency health check — the always-on congruence guarantee.
@@ -66,7 +67,7 @@ export async function GET() {
   // R3 — completed-WO counters reconcile with cycle-delta sums. DB uniqueness on
   // MachineCycle makes the groupBy sums already deduped (= checkCounterDrift).
   const completedWos = await prisma.machineWorkOrder.findMany({
-    where: { orgId, status: { equals: "COMPLETED", mode: "insensitive" } },
+    where: { orgId, status: { in: [...COMPLETED_WO_STATUSES] } },
     select: { machineId: true, workOrderId: true, goodParts: true, scrapParts: true, cycleCount: true },
   });
   if (completedWos.length === 0) {
@@ -74,7 +75,7 @@ export async function GET() {
       name: "counter_drift",
       status: "warn",
       detail:
-        "No completed work orders to reconcile. WOs do not close in the current edge flow — tracked for the edge-reliability phase.",
+        "No completed work orders to reconcile. The edge completes WOs locally but does not yet propagate terminal status to the dashboard — tracked for the edge-reliability phase (P6.6).",
     });
   } else {
     const cycleAgg = await prisma.machineCycle.groupBy({
