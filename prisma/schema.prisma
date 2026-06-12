@@ -158,6 +158,8 @@ model MachineHeartbeat {
   schemaVersion String?  @map("schema_version")
   seq           BigInt?  @map("seq")
   tsServer      DateTime @default(now()) @map("ts_server")
+  // P6.4: edge clock-sync state (timedatectl NTPSynchronized). null = not reported.
+  clockSynced   Boolean? @map("clock_synced")
   machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

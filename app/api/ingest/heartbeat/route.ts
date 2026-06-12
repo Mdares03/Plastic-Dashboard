@@ -112,6 +112,8 @@ export async function POST(req: Request) {
       message: body.message ? String(body.message) : null,
       ip: body.ip ? String(body.ip) : null,
       fwVersion: body.fwVersion ? String(body.fwVersion) : null,
+      // P6.4: store edge clock-sync state when reported (else null = not reported).
+      clockSynced: typeof body.clockSynced === "boolean" ? body.clockSynced : null,
     };
 
     const insertHb = await prisma.machineHeartbeat.createMany({

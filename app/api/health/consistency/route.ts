@@ -139,6 +139,33 @@ export async function GET() {
       stuck === 0 ? "No stuck mold-change incidents." : `${stuck} mold incident(s) active and unresolved >12h.`,
   });
 
+  // P6.4 — edge clock sync. A machine reporting an unsynced clock mis-times its
+  // events; surface it. null (not reported) = edge P6.4 not deployed yet.
+  const clockMachines = await prisma.machine.findMany({ where: { orgId }, select: { id: true } });
+  let clockUnsynced = 0;
+  let clockReported = 0;
+  for (const m of clockMachines) {
+    const hb = await prisma.machineHeartbeat.findFirst({
+      where: { orgId, machineId: m.id, clockSynced: { not: null } },
+      orderBy: { ts: "desc" },
+      select: { clockSynced: true },
+    });
+    if (hb) {
+      clockReported += 1;
+      if (hb.clockSynced === false) clockUnsynced += 1;
+    }
+  }
+  checks.push({
+    name: "clock_sync",
+    status: clockUnsynced > 0 ? "fail" : "ok",
+    detail:
+      clockReported === 0
+        ? "No machine reports clock-sync yet (edge P6.4 not deployed)."
+        : clockUnsynced > 0
+          ? `${clockUnsynced} machine(s) report an unsynced clock — event timestamps may be wrong.`
+          : `All ${clockReported} reporting machine(s) have a synced clock.`,
+  });
+
   const hasFail = checks.some((c) => c.status === "fail");
   return NextResponse.json({
     ok: !hasFail,

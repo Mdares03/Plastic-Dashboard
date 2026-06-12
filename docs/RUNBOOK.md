@@ -148,13 +148,14 @@ These touch artifacts not in the repo (the Pi's `settings.js`, its MariaDB procs
 or new Node-RED nodes that are safer added in the editor than hand-injected blind.
 Each is specified so it can be completed + tested at the Pi:
 
-- **P6.4 clock-sync guard.** Add in the Node-RED editor: an `inject` (every 60s) →
-  `exec` running `timedatectl show -p NTPSynchronized --value` → a `function` doing
-  `global.set("clockSynced", String(msg.payload).trim()==="yes")`. Then add
-  `clockSynced: global.get("clockSynced") !== false` to the "Online HeartBeat" payload.
-  Dashboard side (this repo): add an optional `clockSynced Boolean?` to `MachineHeartbeat`
-  (additive migration) and store it in `app/api/ingest/heartbeat/route.ts`; surface a
-  "clock unsynced" warning on the machine card. (Not yet done — flag for a follow-up.)
+- **P6.4 clock-sync guard.** Dashboard side is **DONE** (`MachineHeartbeat.clock_synced`
+  column + migration `20260612193000`; ingest stores `body.clockSynced`; the consistency
+  health endpoint has a `clock_sync` check that fails if any machine reports an unsynced
+  clock). Remaining = the EDGE side, added in the Node-RED editor: an `inject` (every 60s)
+  → `exec` running `timedatectl show -p NTPSynchronized --value` → a `function` doing
+  `global.set("clockSynced", String(msg.payload).trim()==="yes")`; then add
+  `clockSynced: global.get("clockSynced") !== false` to the "Online HeartBeat" payload so
+  it ships on every heartbeat.
 - **P6.5 transactional outbox.** Today "Prepare + Validate + Call next_seq" (mysql
   `CALL next_seq`) and "Insert outbox_messages" (mysql INSERT) are two separate calls; a
   crash between them burns a seq. Fix: a single MariaDB stored proc `outbox_enqueue(...)`

@@ -260,6 +260,9 @@ const HeartbeatV1 = z.object({
 
   // new canonical boolean
   online: z.boolean().optional(),
+
+  // P6.4: edge clock-sync state (timedatectl NTPSynchronized)
+  clockSynced: z.boolean().optional(),
 }).passthrough();
 
 export function normalizeHeartbeatV1(raw: unknown) {
