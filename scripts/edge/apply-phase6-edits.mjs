@@ -35,6 +35,33 @@ function patchFunc(name, marker, newFunc) {
   applied.push(`${name} → ${marker}`);
 }
 
+// Apply exact string replacements within a node's func, idempotently: each pair
+// is applied only if `from` is present and `to` is not already there.
+function patchReplacements(name, label, pairs) {
+  const node = byName(name);
+  if (!node) {
+    skipped.push(`${name} (NODE NOT FOUND)`);
+    return;
+  }
+  let func = node.func || "";
+  let changed = 0;
+  for (const [from, to] of pairs) {
+    if (func.includes(to)) continue; // already patched
+    if (!func.includes(from)) {
+      skipped.push(`${name}: '${from.slice(0, 40)}…' not found`);
+      continue;
+    }
+    func = func.split(from).join(to);
+    changed += 1;
+  }
+  if (changed) {
+    node.func = func;
+    applied.push(`${name} → ${label} (${changed} repl)`);
+  } else {
+    skipped.push(`${name} (${label}: nothing to change)`);
+  }
+}
+
 // ── P6.2: restore a stable, type-independent incidentKey ────────────────────
 // The flow emits alert_id = "<type>:<workOrderId>:<lastCycleTime>"; a micro→macro
 // escalation changes only <type>, which (without a unified key) splits one physical
@@ -85,6 +112,27 @@ msg.outbox = {
 };
 return msg;`
 );
+
+// ── P6.3: persist state-bearing context to the "file" store ─────────────────
+// anomalyState (active stoppage + cycle tracking), anomaly (acks/reasons) and
+// zeroStreak are held in in-memory context, so a reboot mid-stoppage loses the
+// active episode → wrong downtime. Route just these keys to a persistent "file"
+// store (default store stays memory). REQUIRES the contextStorage block in the
+// Pi's settings.js (edge/settings.contextStorage.snippet.js) — deploy that +
+// restart Node-RED BEFORE importing this flow, or the "file" store is undefined.
+patchReplacements("Anomaly Detector", "P6.3 persist anomalyState/anomaly", [
+  ['global.get("anomaly")', 'global.get("anomaly", "file")'],
+  ['global.get("anomalyState")', 'global.get("anomalyState", "file")'],
+  ['global.set("anomalyState", anomalyState)', 'global.set("anomalyState", anomalyState, "file")'],
+]);
+patchReplacements("Handle Anomaly Acknowledgment", "P6.3 persist anomaly", [
+  ['global.get("anomaly")', 'global.get("anomaly", "file")'],
+  ['global.set("anomaly", anomaly)', 'global.set("anomaly", anomaly, "file")'],
+]);
+patchReplacements("Machine cycles", "P6.3 persist zeroStreak", [
+  ['flow.get("zeroStreak")', 'flow.get("zeroStreak", "file")'],
+  ['flow.set("zeroStreak", zeroStreak)', 'flow.set("zeroStreak", zeroStreak, "file")'],
+]);
 
 writeFileSync(outPath, JSON.stringify(flow, null, 4) + "\n");
 console.log(`Read ${inPath} (${flow.length} nodes) → wrote ${outPath}`);
