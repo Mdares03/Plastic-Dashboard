@@ -81,6 +81,8 @@ type InviteRow = {
   expiresAt: string;
 };
 
+type HealthCheck = { name: string; status: "ok" | "warn" | "fail"; detail: string };
+
 const DEFAULT_SHIFT: Omit<Shift, "name"> = {
   start: "06:00",
   end: "15:00",
@@ -349,6 +351,9 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
+  const [healthChecks, setHealthChecks] = useState<HealthCheck[] | null>(null);
+  const [healthAdmin, setHealthAdmin] = useState(false);
+  const [healthGeneratedAt, setHealthGeneratedAt] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<(typeof SETTINGS_TABS)[number]["id"]>("general");
   const hasMountedRef = useRef(false);
   const defaultShiftName = useCallback(
@@ -414,12 +419,34 @@ export default function SettingsPage() {
     }
   }, [t]);
 
+  // Admin-only consistency health (the always-on congruence guarantee). 401/403
+  // for non-admins simply hides the card.
+  const loadHealth = useCallback(async () => {
+    try {
+      const response = await fetch("/api/health/consistency", { cache: "no-store" });
+      if (response.status === 401 || response.status === 403) {
+        setHealthAdmin(false);
+        setHealthChecks(null);
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (body && Array.isArray(body.checks)) {
+        setHealthAdmin(true);
+        setHealthChecks(body.checks as HealthCheck[]);
+        setHealthGeneratedAt(typeof body.generatedAt === "string" ? body.generatedAt : null);
+      }
+    } catch {
+      // Network error — leave the card hidden rather than show a broken panel.
+    }
+  }, []);
+
   // Only run once on mount to prevent infinite loops from dependency changes
   useEffect(() => {
     if (hasMountedRef.current) return;
     hasMountedRef.current = true;
     loadSettings();
     loadTeam();
+    loadHealth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1325,6 +1352,57 @@ export default function SettingsPage() {
       )}
 
       {activeTab === "team" && (
+       <div className="space-y-4">
+        {healthAdmin && healthChecks && (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold text-white">System health</div>
+              <button
+                type="button"
+                onClick={loadHealth}
+                className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
+              >
+                Refresh
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-zinc-400">
+              Live consistency checks — every number traces to one authority (METRICS_SPEC R1–R8).
+            </p>
+            <div className="space-y-2">
+              {healthChecks.map((check) => {
+                const tone =
+                  check.status === "ok"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    : check.status === "warn"
+                      ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
+                      : "border-red-500/30 bg-red-500/10 text-red-200";
+                const dot =
+                  check.status === "ok"
+                    ? "bg-emerald-400"
+                    : check.status === "warn"
+                      ? "bg-amber-400"
+                      : "bg-red-400";
+                return (
+                  <div
+                    key={check.name}
+                    className={`flex items-start gap-3 rounded-xl border p-3 ${tone}`}
+                  >
+                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${dot}`} />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-white">{check.name}</div>
+                      <div className="text-xs text-zinc-300">{check.detail}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {healthGeneratedAt && (
+              <div className="mt-3 text-[11px] text-zinc-500">
+                Checked {new Date(healthGeneratedAt).toLocaleString()}
+              </div>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="mb-3 flex items-center justify-between">
@@ -1459,6 +1537,7 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+       </div>
       )}
     </div>
   );
