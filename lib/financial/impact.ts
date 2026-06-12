@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { MAX_OPEN_EPISODE_MS } from "@/lib/metrics";
+import { MAX_OPEN_EPISODE_MS, episodeWindowMinutes, DEFAULT_PLANNED_CODES } from "@/lib/metrics";
 import { getCompiledFinancialFormulas } from "@/lib/financial/cache";
 import {
   createSchemaDriftDiagnostic,
@@ -15,7 +15,26 @@ import {
   type CompiledFinancialExpression,
 } from "@/lib/financial/formulas";
 
-const COST_EVENT_TYPES = ["slow-cycle", "microstop", "macrostop", "quality-spike"] as const;
+// MachineEvent is the source for performance loss (slow-cycle) and quality loss
+// (quality-spike → scrap) only. Downtime cost (micro/macrostop) is sourced from
+// ReasonEntry — the R5 downtime authority — so the financial downtime number
+// equals the dashboard's getDowntime by construction (#13). See computeFinancialImpact.
+const COST_EVENT_TYPES = ["slow-cycle", "quality-spike"] as const;
+
+// ReasonEntry carries no micro/macro flag (only domain reason codes), so the
+// financial micro-vs-macro split is by episode duration. This is a cosmetic
+// breakdown only — the TOTAL downtime cost (what the ROI model uses) is
+// authority-congruent regardless of where this cutoff falls.
+export const MICROSTOP_MAX_SECONDS = 120;
+
+/**
+ * Micro vs macro downtime category from a ReasonEntry episode duration (seconds).
+ * Capped at the same 12 h R5 ceiling as the cost itself. Pure — unit-tested.
+ */
+export function classifyDowntimeCategory(durationSeconds: number | null | undefined): "microstop" | "macrostop" {
+  const episodeSec = Math.min(Math.max(0, durationSeconds ?? 0), MAX_OPEN_EPISODE_MS / 1000);
+  return episodeSec < MICROSTOP_MAX_SECONDS ? "microstop" : "macrostop";
+}
 
 type CostProfile = {
   currency: string;
@@ -44,6 +63,9 @@ export type FinancialEventDetail = {
   status: string;
   severity: string;
   category: Category;
+  // Only present for downtime (ReasonEntry-sourced) detail rows.
+  reasonCode?: string | null;
+  reasonLabel?: string | null;
   machineId: string;
   machineName: string | null;
   location: string | null;
@@ -250,9 +272,38 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     },
   });
 
-  const missingSkuPairs = events
-    .filter((e) => !e.sku && e.workOrderId)
-    .map((e) => ({ machineId: e.machineId, workOrderId: e.workOrderId as string }));
+  // R5 downtime authority: micro/macrostop cost is sourced from ReasonEntry, not
+  // MachineEvent — the SAME rows + episodeWindowMinutes clamp the dashboard uses,
+  // so financial downtime minutes equal getDowntime by construction (#13).
+  const reasonRows = await prisma.reasonEntry.findMany({
+    where: {
+      orgId,
+      machineId: { in: machineIds },
+      kind: "downtime",
+      capturedAt: { gte: start, lte: end },
+    },
+    orderBy: { capturedAt: "asc" },
+    select: {
+      id: true,
+      machineId: true,
+      reasonCode: true,
+      reasonLabel: true,
+      capturedAt: true,
+      episodeEndTs: true,
+      durationSeconds: true,
+      workOrderId: true,
+    },
+  });
+
+  const missingSkuPairs = [
+    ...events
+      .filter((e) => !e.sku && e.workOrderId)
+      .map((e) => ({ machineId: e.machineId, workOrderId: e.workOrderId as string })),
+    // ReasonEntry has no sku column, so any episode with a WO needs the lookup.
+    ...reasonRows
+      .filter((r) => r.workOrderId)
+      .map((r) => ({ machineId: r.machineId, workOrderId: r.workOrderId as string })),
+  ];
   const workOrderIds = Array.from(new Set(missingSkuPairs.map((p) => p.workOrderId)));
   const workOrderMachines = Array.from(new Set(missingSkuPairs.map((p) => p.machineId)));
 
@@ -371,6 +422,42 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
   const detailed: FinancialEventDetail[] = [];
   let eventsIncluded = 0;
 
+  // Shared accumulation for both passes (MachineEvent + ReasonEntry) so a single
+  // total/byDay/detail path keeps the two sources from drifting.
+  function accumulate(args: {
+    currency: string;
+    category: Category;
+    costTotal: number;
+    ts: Date;
+    detail?: FinancialEventDetail;
+  }) {
+    const key = args.currency || "USD";
+    const bucket = summaries.get(key) ?? {
+      currency: key,
+      totals: { total: 0, slowCycle: 0, microstop: 0, macrostop: 0, scrap: 0 },
+      byDay: new Map<string, DayRow>(),
+    };
+    bucket.totals.total += args.costTotal;
+    bucket.totals[args.category] += args.costTotal;
+
+    const day = dateKey(args.ts);
+    const dayRow: DayRow = bucket.byDay.get(day) ?? {
+      day,
+      total: 0,
+      slowCycle: 0,
+      microstop: 0,
+      macrostop: 0,
+      scrap: 0,
+    };
+    dayRow.total += args.costTotal;
+    dayRow[args.category] += args.costTotal;
+    bucket.byDay.set(day, dayRow);
+
+    summaries.set(key, bucket);
+    eventsIncluded += 1;
+    if (includeEvents && args.detail) detailed.push(args.detail);
+  }
+
   for (const ev of events) {
     const eventType = String(ev.eventType ?? "").toLowerCase();
     if (eventType === "mold-change") continue;
@@ -442,45 +529,8 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
       costOperator = distributed.costOperator;
       costEnergy = distributed.costEnergy;
       category = "slowCycle";
-    } else if (eventType === "microstop" || eventType === "macrostop") {
-      //future activestoppage handling
-      if (status === "active") continue;
-      const rawDurationSec =
-        safeNumber(
-          inner?.stoppage_duration_seconds ??
-            blob?.stoppage_duration_seconds ??
-            inner?.stop_duration_seconds ??
-            blob?.stop_duration_seconds
-        ) ?? 0;
-      if (!rawDurationSec || rawDurationSec <= 0) continue;
-      const theoreticalSec =
-        safeNumber(
-          inner?.theoretical_cycle_time ??
-            blob?.theoretical_cycle_time ??
-            inner?.theoreticalCycleTime ??
-            blob?.theoreticalCycleTime
-        ) ?? null;
-      const lastCycleTimestamp = safeNumber(inner?.last_cycle_timestamp ?? blob?.last_cycle_timestamp);
-      const isCycleGapStop = theoreticalSec != null && theoreticalSec > 0 && lastCycleTimestamp == null;
-      durationSec = isCycleGapStop ? Math.max(0, rawDurationSec - theoreticalSec) : rawDurationSec;
-      // R5: cap an open/runaway stoppage at 12h so a never-resolved or clock-skewed
-      // event (the events table holds many >12h, up to ~67h) can't inflate cost.
-      durationSec = Math.min(durationSec, MAX_OPEN_EPISODE_MS / 1000);
-      if (!durationSec || durationSec <= 0) continue;
-      const durationMin = durationSec / 60;
-      const scope = buildFormulaScope(profile, { mode: "idle", durationMin });
-      costTotal = Math.max(0, evaluateFormulaValue(formulaSet, "downtimeTotalCost", scope));
-      const distributed = distributeCost(costTotal, {
-        costMachine: durationMin * (profile.machineCostPerMin ?? 0),
-        costOperator: durationMin * (profile.operatorCostPerMin ?? 0),
-        costEnergy: durationMin * (computeEnergyCostPerMin(profile, "idle") ?? 0),
-        costScrap: 0,
-        costRawMaterial: 0,
-      });
-      costMachine = distributed.costMachine;
-      costOperator = distributed.costOperator;
-      costEnergy = distributed.costEnergy;
-      category = eventType === "macrostop" ? "macrostop" : "microstop";
+      // micro/macrostop downtime cost is NOT sourced here anymore — see the
+      // ReasonEntry pass below (R5 authority, #13). COST_EVENT_TYPES excludes them.
     } else if (eventType === "quality-spike") {
       if (severity === "info" || status === "resolved") continue;
       const scrapParts =
@@ -510,54 +560,110 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     if (currency && profile.currency !== currency) continue;
 
     const key = profile.currency || "USD";
-    const bucket = summaries.get(key) ?? {
+    accumulate({
       currency: key,
-      totals: { total: 0, slowCycle: 0, microstop: 0, macrostop: 0, scrap: 0 },
-      byDay: new Map<string, DayRow>(),
-    };
+      category,
+      costTotal,
+      ts: ev.ts,
+      detail: includeEvents
+        ? {
+            id: ev.id,
+            ts: ev.ts,
+            eventType,
+            status,
+            severity,
+            category,
+            machineId: ev.machineId,
+            machineName: machine?.name ?? null,
+            location: locationName,
+            workOrderId: ev.workOrderId ?? null,
+            sku: skuResolved,
+            durationSec,
+            costMachine,
+            costOperator,
+            costEnergy,
+            costScrap,
+            costRawMaterial,
+            costTotal,
+            currency: key,
+          }
+        : undefined,
+    });
+  }
 
-    bucket.totals.total += costTotal;
-    bucket.totals[category] += costTotal;
+  // R5 downtime cost pass: micro/macrostop cost from ReasonEntry episodes, using
+  // the SAME episodeWindowMinutes clamp (+12h cap) the dashboard's getDowntime
+  // uses — so summed downtime cost minutes reconcile with computeDowntime (#13).
+  for (const row of reasonRows) {
+    const code = String(row.reasonCode ?? "").trim().toUpperCase();
+    // Planned downtime (mold change) is necessary, not a reducible loss — excluded
+    // from cost, matching the old event path which skipped mold-change.
+    if (DEFAULT_PLANNED_CODES.has(code)) continue;
 
-    const day = dateKey(ev.ts);
-    const dayRow: DayRow = bucket.byDay.get(day) ?? {
-      day,
-      total: 0,
-      slowCycle: 0,
-      microstop: 0,
-      macrostop: 0,
-      scrap: 0,
-    };
-    dayRow.total += costTotal;
-    dayRow[category] += costTotal;
-    bucket.byDay.set(day, dayRow);
+    const minutes = episodeWindowMinutes(row, start, end);
+    if (minutes <= 0) continue;
 
-    summaries.set(key, bucket);
-    eventsIncluded += 1;
+    const skuResolved = row.workOrderId
+      ? workOrderSku.get(`${row.machineId}:${row.workOrderId}`) ?? null
+      : null;
+    if (sku && skuResolved !== sku) continue;
 
-    if (includeEvents) {
-      detailed.push({
-        id: ev.id,
-        ts: ev.ts,
-        eventType,
-        status,
-        severity,
-        category,
-        machineId: ev.machineId,
-        machineName: machine?.name ?? null,
-        location: locationName,
-        workOrderId: ev.workOrderId ?? null,
-        sku: skuResolved,
-        durationSec,
-        costMachine,
-        costOperator,
-        costEnergy,
-        costScrap,
-        costRawMaterial,
-        costTotal,
-        currency: key,
-      });
-    }
+    const machine = machineMap.get(row.machineId);
+    const locationName = machine?.location ?? null;
+    const locationOverride = locationName ? locationMap.get(locationName) : null;
+    const machineOverride = machineOverrideMap.get(row.machineId) ?? null;
+    let profile = applyOverride(orgProfile, locationOverride, locationOverride?.currency ?? null);
+    profile = applyOverride(profile, machineOverride, machineOverride?.currency ?? null);
+
+    const durationMin = minutes;
+    const scope = buildFormulaScope(profile, { mode: "idle", durationMin });
+    const costTotal = Math.max(0, evaluateFormulaValue(formulaSet, "downtimeTotalCost", scope));
+    if (costTotal <= 0) continue;
+    if (currency && profile.currency !== currency) continue;
+
+    // Micro vs macro by episode duration (capped at the same 12h R5 ceiling).
+    const category: Category = classifyDowntimeCategory(row.durationSeconds);
+
+    const distributed = distributeCost(costTotal, {
+      costMachine: durationMin * (profile.machineCostPerMin ?? 0),
+      costOperator: durationMin * (profile.operatorCostPerMin ?? 0),
+      costEnergy: durationMin * (computeEnergyCostPerMin(profile, "idle") ?? 0),
+      costScrap: 0,
+      costRawMaterial: 0,
+    });
+
+    const key = profile.currency || "USD";
+    accumulate({
+      currency: key,
+      category,
+      costTotal,
+      ts: row.capturedAt,
+      detail: includeEvents
+        ? {
+            id: row.id,
+            ts: row.capturedAt,
+            eventType: "downtime",
+            status: "",
+            severity: "",
+            category,
+            reasonCode: code || null,
+            reasonLabel: row.reasonLabel ?? null,
+            machineId: row.machineId,
+            machineName: machine?.name ?? null,
+            location: locationName,
+            workOrderId: row.workOrderId ?? null,
+            sku: skuResolved,
+            durationSec: Math.round(minutes * 60),
+            costMachine: distributed.costMachine,
+            costOperator: distributed.costOperator,
+            costEnergy: distributed.costEnergy,
+            costScrap: 0,
+            costRawMaterial: 0,
+            costTotal,
+            currency: key,
+          }
+        : undefined,
+    });
   }
 
   const currencySummaries = Array.from(summaries.values()).map((summary) => {
@@ -570,7 +676,7 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
   return {
     range: { start, end },
     currencySummaries,
-    eventsEvaluated: events.length,
+    eventsEvaluated: events.length + reasonRows.length,
     eventsIncluded,
     events: detailed,
     diagnostic,

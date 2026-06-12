@@ -66,6 +66,14 @@ downtime KPIs. The old `max(eventSum, reasonSum)` rule is abolished.
   generalization of the stuck-mold-change fix.
 - Planned vs unplanned split is decided by `reasonCode` against the reason
   catalog, in one place.
+- **Financial downtime cost (`lib/financial/impact.ts`) sources the same
+  `ReasonEntry` rows + `episodeWindowMinutes`** (#13, resolved Phase 7). So
+  downtime cost = (dashboard downtime minutes × idle rate) by construction;
+  planned (mold-change) downtime is excluded from cost as a non-reducible loss.
+  Micro vs macro is a cosmetic split by episode duration
+  (`MICROSTOP_MAX_SECONDS`), not a separate authority. `MachineEvent` still
+  sources performance loss (slow-cycle) and quality loss (scrap) cost — those
+  are not R5 downtime. Proof: `docs/verification/phase7-13-financial-rebase.md`.
 
 ## R6 — Window authority
 
