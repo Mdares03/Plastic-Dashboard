@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { buildSessionCookieOptions, COOKIE_NAME, SESSION_DAYS } from "@/lib/auth/sessionCookie";
 import { getBaseUrl } from "@/lib/appUrl";
+import { checkRateLimit, getClientIp, tooManyRequestsResponse } from "@/lib/rateLimit";
 
 export async function GET(req: Request) {
+  const limit = checkRateLimit("auth", getClientIp(req));
+  if (!limit.ok) return tooManyRequestsResponse(limit);
+
   const url = new URL(req.url);
   const token = url.searchParams.get("token");
   const wantsJson = req.headers.get("accept")?.includes("application/json");

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
+import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { z } from "zod";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -241,6 +242,9 @@ export async function POST(req: Request) {
 
   const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+  const ingestLimit = checkRateLimit("ingest", machine.id);
+  if (!ingestLimit.ok) return tooManyRequestsResponse(ingestLimit);
 
   const cyclesRaw = bodyRecord.cycles ?? bodyRecord.cycle;
   if (!cyclesRaw) {

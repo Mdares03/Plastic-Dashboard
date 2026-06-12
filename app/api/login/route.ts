@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcrypt";
 import { prisma } from "@/lib/prisma";
 import { buildSessionCookieOptions, COOKIE_NAME, SESSION_DAYS } from "@/lib/auth/sessionCookie";
+import { checkRateLimit, getClientIp, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -18,6 +19,9 @@ function safeNextPath(value: unknown) {
 }
 
 export async function POST(req: Request) {
+  const limit = checkRateLimit("auth", getClientIp(req));
+  if (!limit.ok) return tooManyRequestsResponse(limit);
+
   const body = await req.json().catch(() => ({}));
   const parsed = loginSchema.safeParse(body);
   if (!parsed.success) {

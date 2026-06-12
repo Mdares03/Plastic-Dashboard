@@ -73,7 +73,10 @@ type InviteRow = {
   id: string;
   email: string;
   role: string;
-  token: string;
+  // Full token only ever arrives in the POST (create/resend) response; the
+  // members listing returns a non-actionable preview instead.
+  token?: string;
+  tokenPreview?: string;
   createdAt: string;
   expiresAt: string;
 };
@@ -177,7 +180,7 @@ function isInviteRow(value: unknown): value is InviteRow {
     typeof record.id === "string" &&
     typeof record.email === "string" &&
     typeof record.role === "string" &&
-    typeof record.token === "string" &&
+    (typeof record.token === "string" || typeof record.tokenPreview === "string") &&
     typeof record.createdAt === "string" &&
     typeof record.expiresAt === "string"
   );
@@ -633,9 +636,8 @@ export default function SettingsPage() {
     []
   );
 
-  const copyInviteLink = useCallback(
-    async (token: string) => {
-      const url = buildInviteUrl(token);
+  const writeInviteLinkToClipboard = useCallback(
+    async (url: string) => {
       try {
         if (navigator.clipboard?.writeText) {
           await navigator.clipboard.writeText(url);
@@ -647,7 +649,40 @@ export default function SettingsPage() {
         setInviteStatus(url);
       }
     },
-    [buildInviteUrl, t]
+    [t]
+  );
+
+  // The listing never returns the raw token, so to copy a link we re-request it
+  // by re-inviting the same email — the backend returns the existing pending
+  // invite (with token) rather than creating a duplicate.
+  const copyInviteLink = useCallback(
+    async (invite: InviteRow) => {
+      if (invite.token) {
+        await writeInviteLinkToClipboard(buildInviteUrl(invite.token));
+        return;
+      }
+      try {
+        const response = await fetch("/api/org/members", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: invite.email, role: invite.role }),
+        });
+        const { data, text } = await readResponse(response);
+        const api = unwrapApiResponse(data);
+        if (!response.ok || !api.ok) {
+          throw new Error(api.error || text || t("settings.inviteStatus.failed"));
+        }
+        const fresh = api.record?.invite;
+        if (isInviteRow(fresh) && fresh.token) {
+          await writeInviteLinkToClipboard(buildInviteUrl(fresh.token));
+        } else {
+          setInviteStatus(t("settings.inviteStatus.failed"));
+        }
+      } catch (err) {
+        setInviteStatus(err instanceof Error ? err.message : t("settings.inviteStatus.failed"));
+      }
+    },
+    [buildInviteUrl, writeInviteLinkToClipboard, t]
   );
 
   const revokeInvite = useCallback(async (inviteId: string) => {
@@ -688,7 +723,7 @@ export default function SettingsPage() {
       const nextInvite = api.record?.invite;
       if (isInviteRow(nextInvite)) {
         setInvites((prev) => [nextInvite, ...prev.filter((invite) => invite.id !== nextInvite.id)]);
-        const inviteUrl = buildInviteUrl(nextInvite.token);
+        const inviteUrl = buildInviteUrl(nextInvite.token ?? "");
         if (api.record?.emailSent === false) {
           setInviteStatus(t("settings.inviteStatus.emailFailed", { url: inviteUrl }));
         } else {
@@ -1400,7 +1435,7 @@ export default function SettingsPage() {
                     <div className="flex shrink-0 items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => copyInviteLink(invite.token)}
+                        onClick={() => copyInviteLink(invite)}
                         className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
                       >
                         {t("settings.inviteCopy")}
@@ -1415,7 +1450,9 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   <div className="mt-2 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-zinc-400">
-                    {buildInviteUrl(invite.token)}
+                    {invite.token
+                      ? buildInviteUrl(invite.token)
+                      : `${buildInviteUrl("")}${invite.tokenPreview ?? "…"}`}
                   </div>
                 </div>
               ))}

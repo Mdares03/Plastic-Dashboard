@@ -19,13 +19,21 @@ function canManageMembers(role?: string | null) {
 
 export async function GET() {
   try {
-    
+
     const session = await requireSession();
     if (!session) {
       return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const [org, members, invites] = await prisma.$transaction([
+    const membership = await prisma.orgUser.findUnique({
+      where: {
+        orgId_userId: { orgId: session.orgId, userId: session.userId },
+      },
+      select: { role: true },
+    });
+    const canManage = canManageMembers(membership?.role);
+
+    const [org, members] = await prisma.$transaction([
       prisma.org.findUnique({
         where: { id: session.orgId },
         select: { id: true, name: true, slug: true },
@@ -37,24 +45,35 @@ export async function GET() {
           user: { select: { id: true, email: true, name: true, isActive: true, createdAt: true } },
         },
       }),
-      prisma.orgInvite.findMany({
-        where: {
-          orgId: session.orgId,
-          revokedAt: null,
-          acceptedAt: null,
-          expiresAt: { gt: new Date() },
-        },
-        orderBy: { createdAt: "desc" },
-        select: {
-          id: true,
-          email: true,
-          role: true,
-          token: true,
-          createdAt: true,
-          expiresAt: true,
-        },
-      }),
     ]);
+
+    // Pending invites — and their tokens — are management data. Regular members
+    // never see them; managers see metadata + a non-actionable preview, never
+    // the raw token (which grants org access via /invite/<token>).
+    const invites = canManage
+      ? (
+          await prisma.orgInvite.findMany({
+            where: {
+              orgId: session.orgId,
+              revokedAt: null,
+              acceptedAt: null,
+              expiresAt: { gt: new Date() },
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+              id: true,
+              email: true,
+              role: true,
+              token: true,
+              createdAt: true,
+              expiresAt: true,
+            },
+          })
+        ).map(({ token, ...invite }) => ({
+          ...invite,
+          tokenPreview: `…${token.slice(-6)}`,
+        }))
+      : [];
 
     const mappedMembers = members.map((m) => ({
       id: m.user.id,
@@ -71,6 +90,7 @@ export async function GET() {
       org,
       members: mappedMembers,
       invites,
+      canManage,
     });
   } catch {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });

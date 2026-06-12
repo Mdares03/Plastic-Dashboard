@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { logLine } from "@/lib/logger";
 
 const COOKIE_NAME = "mis_session";
-const SESSION_CACHE_TTL_MS = 30000;
+// Short TTL bounds how long a revoked/deactivated session can linger in any one
+// process before the DB is re-checked. invalidateSessionCache() makes
+// same-process revocation (logout) instant; the TTL covers other instances.
+const SESSION_CACHE_TTL_MS = 10000;
 const LAST_SEEN_TTL_MS = 300000;
 
 type SessionPayload = {
@@ -32,6 +35,22 @@ function readCache(sessionId: string, now: number) {
 
 function writeCache(sessionId: string, value: SessionPayload, now: number) {
   sessionCache.set(sessionId, { value, expiresAt: now + SESSION_CACHE_TTL_MS });
+}
+
+/**
+ * Drop a session from the in-process cache so the next requireSession() re-reads
+ * the DB. Call on logout or deactivation. With no argument, clears every cached
+ * session (e.g. after a bulk revocation). Only affects this process; other
+ * instances converge within SESSION_CACHE_TTL_MS.
+ */
+export function invalidateSessionCache(sessionId?: string) {
+  if (sessionId) {
+    sessionCache.delete(sessionId);
+    lastSeenCache.delete(sessionId);
+    return;
+  }
+  sessionCache.clear();
+  lastSeenCache.clear();
 }
 
 function shouldUpdateLastSeen(sessionId: string, now: number) {

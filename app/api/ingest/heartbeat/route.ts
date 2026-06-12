@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
+import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { normalizeHeartbeatV1 } from "@/lib/contracts/v1";
 import { toJsonValue } from "@/lib/prismaJson";
 
@@ -93,6 +94,9 @@ export async function POST(req: Request) {
     }
 
     orgId = machine.orgId;
+
+    const ingestLimit = checkRateLimit("ingest", machine.id);
+    if (!ingestLimit.ok) return tooManyRequestsResponse(ingestLimit);
 
     // 5) Store heartbeat
     // Keep your legacy fields, but store meta fields too.

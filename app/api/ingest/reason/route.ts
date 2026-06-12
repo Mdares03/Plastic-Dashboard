@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 
 const bad = (status: number, error: string) =>
   NextResponse.json({ ok: false, error }, { status });
@@ -21,6 +22,9 @@ export async function POST(req: Request) {
     select: { id: true, orgId: true },
   });
   if (!machine) return bad(401, "Unauthorized");
+
+  const ingestLimit = checkRateLimit("ingest", machine.id);
+  if (!ingestLimit.ok) return tooManyRequestsResponse(ingestLimit);
 
   const r = body.reason;
 

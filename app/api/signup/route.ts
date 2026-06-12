@@ -6,6 +6,7 @@ import { DEFAULT_ALERTS, DEFAULT_DEFAULTS, DEFAULT_SHIFT } from "@/lib/settings"
 import { buildVerifyEmail, sendEmail } from "@/lib/email";
 import { getBaseUrl } from "@/lib/appUrl";
 import { logLine } from "@/lib/logger";
+import { checkRateLimit, getClientIp, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { z } from "zod";
 
 const signupSchema = z.object({
@@ -24,6 +25,9 @@ function slugify(input: string) {
 }
 
 export async function POST(req: Request) {
+  const limit = checkRateLimit("auth", getClientIp(req));
+  if (!limit.ok) return tooManyRequestsResponse(limit);
+
   const body = await req.json().catch(() => ({}));
   const parsed = signupSchema.safeParse(body);
   if (!parsed.success) {

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
+import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { z } from "zod";
 import { evaluateAlertsForEvent } from "@/lib/alerts/engine";
 import { toJsonValue } from "@/lib/prismaJson";
@@ -277,6 +278,9 @@ export async function POST(req: Request) {
 
   const machine = await getMachineAuth(String(machineId), apiKey);
   if (!machine) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+
+  const ingestLimit = checkRateLimit("ingest", machine.id);
+  if (!ingestLimit.ok) return tooManyRequestsResponse(ingestLimit);
 
   const bodySeq = parseSeqToBigInt(bodyRecord.seq);
   const bodySchemaVersion = clampText(bodyRecord.schemaVersion, 16);

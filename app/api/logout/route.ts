@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { invalidateSessionCache } from "@/lib/auth/requireSession";
 
 const COOKIE_NAME = "mis_session";
 
@@ -13,6 +14,8 @@ export async function POST() {
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: new Date() },
     }).catch(() => {});
+    // Make revocation effective immediately in this process (TTL covers others).
+    invalidateSessionCache(sessionId);
   }
 
   const res = NextResponse.json({ ok: true });

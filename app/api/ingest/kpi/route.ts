@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
+import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { normalizeSnapshotV1 } from "@/lib/contracts/v1";
 import { toJsonValue } from "@/lib/prismaJson";
 import { logLine } from "@/lib/logger";
@@ -182,6 +183,9 @@ export async function POST(req: Request) {
     }
 
     orgId = machine.orgId;
+
+    const ingestLimit = checkRateLimit("ingest", machine.id);
+    if (!ingestLimit.ok) return tooManyRequestsResponse(ingestLimit);
 
     const woRecord = (body.activeWorkOrder ?? {}) as Record<string, unknown>;
     const activeWorkOrderIdRaw = woRecord.id != null ? String(woRecord.id).trim() : "";
