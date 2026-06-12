@@ -134,6 +134,111 @@ patchReplacements("Machine cycles", "P6.3 persist zeroStreak", [
   ['flow.set("zeroStreak", zeroStreak)', 'flow.set("zeroStreak", zeroStreak, "file")'],
 ]);
 
+// ── P6.5: atomic outbox enqueue (no burned seq on crash) ────────────────────
+// Collapse the two-step "CALL next_seq" + separate INSERT into ONE atomic
+// "CALL outbox_enqueue" (see scripts/edge/outbox_enqueue.sql). Zero rewiring: the
+// first node builds the envelope (without seq) and calls the proc; the second node
+// parses the returned seq for logging and returns null, so the old "Insert
+// outbox_messages" node is never reached. REQUIRES outbox_enqueue applied on the Pi.
+patchFunc(
+  "Prepare + Validate + Call next_seq",
+  "Phase 6 (P6.5)",
+  `// Outbox Enqueue v1 - Step 1 (Phase 6 (P6.5): atomic enqueue)
+// Build the envelope and CALL outbox_enqueue in ONE atomic DB call so a crash
+// can't burn a seq. The proc generates the seq, inserts the row, and stamps seq
+// into payload_json.$.seq. The caller passes the envelope WITHOUT seq.
+const config = global.get("config") || {};
+const out = msg.outbox || {};
+const type = out.type;
+const payload = out.payload;
+
+if (!type) throw new Error("Outbox Enqueue: missing msg.outbox.type");
+if (!payload || typeof payload !== "object") throw new Error("Outbox Enqueue: missing/invalid msg.outbox.payload");
+
+const endpointByType = {
+    cycle: "/api/ingest/cycle",
+    event: "/api/ingest/event",
+    kpi: "/api/ingest/kpi",
+    heartbeat: "/api/ingest/heartbeat",
+    segment: "/api/ingest/segment",
+};
+const endpoint = out.endpoint || endpointByType[type];
+if (!endpoint) throw new Error("Outbox Enqueue: unknown type '" + type + "' and no endpoint provided");
+
+const machineId = msg.machineId || config.machineId;
+if (!machineId) {
+    node.status({ fill: "yellow", shape: "ring", text: "Outbox waiting for pairing" });
+    return null;
+}
+
+const schemaVersion = msg.schemaVersion || "1.0";
+const tsMs = typeof msg.tsMs === "number" ? msg.tsMs : Date.now();
+
+const validators = {
+    cycle: (p) => p && typeof p.cycle === "object",
+    event: (p) => p && typeof p.event === "object",
+    kpi: (p) => p && p.kpis && typeof p.kpis === "object",
+    heartbeat: (p) => p && typeof p.status === "string",
+    segment: (p) => p && typeof p === "object",
+};
+const validator = validators[type];
+if (!validator || !validator(payload)) {
+    node.warn("Outbox Enqueue: invalid " + type + " payload");
+    return null;
+}
+
+function stripNil(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    const o = Array.isArray(obj) ? [] : {};
+    for (const [k, v] of Object.entries(obj)) {
+        if (v === undefined || v === null) continue;
+        o[k] = (v && typeof v === "object") ? stripNil(v) : v;
+    }
+    return o;
+}
+function normalizeIsoDeep(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    if (Array.isArray(obj)) return obj.map(normalizeIsoDeep);
+    for (const k of Object.keys(obj)) {
+        const v = obj[k];
+        if (v && typeof v === "object") obj[k] = normalizeIsoDeep(v);
+        if (k.toLowerCase().endsWith("iso")) {
+            const vv = obj[k];
+            if (typeof vv === "string") continue;
+            if (typeof vv === "number") obj[k] = new Date(vv).toISOString();
+            else obj[k] = null;
+        }
+    }
+    return obj;
+}
+
+// Envelope WITHOUT seq — outbox_enqueue stamps payload_json.$.seq atomically.
+const cleanPayload = normalizeIsoDeep(stripNil(payload));
+const envelope = { schemaVersion: schemaVersion, machineId: machineId, tsMs: tsMs, type: type, payload: cleanPayload };
+
+msg.topic = "CALL outbox_enqueue(?, ?, ?, ?, ?, ?);";
+msg.payload = [machineId, type, endpoint, schemaVersion, tsMs, JSON.stringify(envelope)];
+msg._envelope = envelope;
+return msg;`
+);
+patchFunc(
+  "Build envelope + prepare INSERT",
+  "Phase 6 (P6.5)",
+  `// Outbox Enqueue v1 - Step 2 (Phase 6 (P6.5): atomic enqueue)
+// The row was already inserted atomically by outbox_enqueue in the previous node.
+// Parse the returned seq for status, then STOP (return null) so the old, now-
+// redundant "Insert outbox_messages" node is never reached.
+let seq = null;
+const res = msg.payload;
+if (Array.isArray(res)) {
+    if (Array.isArray(res[0]) && res[0][0] && res[0][0].seq != null) seq = res[0][0].seq;
+    if (seq == null && res[0] && res[0].seq != null) seq = res[0].seq;
+}
+msg._seq = seq != null ? Number(seq) : null;
+node.status({ fill: "green", shape: "dot", text: "enqueued seq " + (msg._seq != null ? msg._seq : "?") });
+return null;`
+);
+
 writeFileSync(outPath, JSON.stringify(flow, null, 4) + "\n");
 console.log(`Read ${inPath} (${flow.length} nodes) → wrote ${outPath}`);
 console.log("Applied:", applied.length ? "\n  " + applied.join("\n  ") : "(none)");

@@ -156,14 +156,29 @@ Each is specified so it can be completed + tested at the Pi:
   `global.set("clockSynced", String(msg.payload).trim()==="yes")`; then add
   `clockSynced: global.get("clockSynced") !== false` to the "Online HeartBeat" payload so
   it ships on every heartbeat.
-- **P6.5 transactional outbox.** Today "Prepare + Validate + Call next_seq" (mysql
-  `CALL next_seq`) and "Insert outbox_messages" (mysql INSERT) are two separate calls; a
-  crash between them burns a seq. Fix: a single MariaDB stored proc `outbox_enqueue(...)`
-  that increments the seq **and** inserts the row in one transaction, and one flow node
-  calling it. To write the proc correctly we need the current seq mechanism —
-  run `SHOW CREATE PROCEDURE next_seq;` and the seq counter table's schema on the Pi.
-  `outbox_messages` columns are known: `(machine_id, msg_type, endpoint, schema_version,
-  seq, ts_device_ms, payload_json, status, attempts, next_attempt_at)`.
+- **P6.5 transactional outbox — IMPLEMENTED.** `scripts/edge/outbox_enqueue.sql` is a
+  stored proc that derives the next per-machine seq **and** inserts the message in one
+  transaction (rolls back on error → no burned seq), stamping seq into both the column
+  and `payload_json.$.seq`. The flow now builds the envelope (without seq) and makes a
+  single `CALL outbox_enqueue(...)` instead of `CALL next_seq` + a separate INSERT — done
+  with zero rewiring (the second function node `return null`s, so the old
+  "Insert outbox_messages" node is never reached; both it and the misleadingly-named
+  "CALL next_seq" mysql node, which now executes `outbox_enqueue` via `msg.topic`, are
+  left in place but inert).
+  **Self-contained seq (no blind dependency).** The proc derives seq from
+  `MAX(seq)+1` over the machine's own `outbox_messages` rows (with `FOR UPDATE` to
+  serialize concurrent enqueues), NOT from the Pi's `next_seq` counter — which we could
+  not inspect from the repo. This rests only on facts verified from the flow itself:
+  the exact `outbox_messages` columns (the flow's own INSERT) and that sent rows are
+  retained (`UPDATE … status='sent'`, no purge anywhere) so seq never resets. The old
+  `next_seq` counter is left in place, simply unused. **Do not `TRUNCATE`
+  `outbox_messages`** — that is the only thing that would restart seq at 1.
+  **DEPLOY ORDER (critical):** apply the proc on the Pi FIRST, then deploy the flow:
+  `sudo mariadb edge_outbox < scripts/edge/outbox_enqueue.sql`. If the flow is deployed
+  before the proc exists, every enqueue fails and nothing reaches the dashboard.
+  **Test immediately after deploy:** confirm a heartbeat/cycle gets a row in
+  `outbox_messages` with a fresh `seq` and is delivered (status→sent), and that the
+  `seq` column equals `payload_json.$.seq`.
 - **P6.6 WO close.** Prod has **0 COMPLETED work orders** — WOs never transition to
   COMPLETED in the flow ("Work Order buttons" starts/stops but doesn't close), which is
   why the accuracy report can only snapshot open WOs. Add a close path: when a WO ends,
