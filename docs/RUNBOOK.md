@@ -78,6 +78,33 @@ npm run baseline:capture                        # "after-cleanup" snapshot
 pg_dump "$PROD_DATABASE_URL" -Fc -f backups/control_tower_$(date +%Y%m%d_%H%M).dump
 ```
 
+## Security operations (Phase 5)
+
+- **Rate limits** (`lib/rateLimit.ts`, in-process): auth 10/min/IP (login, signup, verify-email),
+  pair 5/min/IP, ingest 600/min/machine. Over-limit → `429` + `Retry-After`. State is per-process
+  (single-instance assumption — see `SECURITY.md`); a restart resets every window.
+- **Revoke a session immediately:** logout already calls `invalidateSessionCache(id)`. For a forced
+  revocation, set `Session.revokedAt` in the DB; it takes effect within the 10s cache TTL (or call
+  `invalidateSessionCache()` with no arg in-process to clear all).
+- **Pairing codes** are 8 chars; failed/invalid attempts are logged (`pair.failed` / `pair.invalid_code`).
+- Leaked-secret response: `scripts/security/revoke-leaked-session.mjs`, `rotate-machine-apikey.mjs`.
+
+## Consistency health & accuracy (Phase 7)
+
+- **Live consistency check (admin):** `GET /api/health/consistency` — downtime cap, downtime-within-
+  capacity, completed-WO counter drift, stuck-mold. Also surfaced as the "System health" card in
+  Settings. A `fail` means a number is off; investigate before trusting reports.
+- **Financial ↔ dashboard congruence (#13):**
+  `npx dotenv -e .env -- tsx scripts/metrics/financial-rebase-check.ts <orgId> 30` → must print
+  **Congruent ✅** (financial downtime cost-minutes == `computeDowntime.unplannedMin`, Δ=0).
+- **Edge-vs-dashboard accuracy report:**
+  `node scripts/verify-edge-vs-dashboard.mjs [--orgId <id>]` → `docs/verification/ACCURACY_REPORT_<date>.md`.
+  Re-run after every edge deploy; the good-parts exact-match % is the headline trust metric.
+- **Counter drift (R3, all orgs):** `npm run drift:check`.
+
+> Note: the active BEMIS pilot data is under org `6d2abda2-…` (slug `bemis-2`), not `7eae9e2d-…`
+> (slug `bemis`, which has no downtime rows). Use the right orgId when running the exhibits.
+
 ## Edge deploy
 
 _To be written in Phase 6: import procedure for `edge/flows.json`, `settings.js`
