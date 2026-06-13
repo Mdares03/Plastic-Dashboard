@@ -160,6 +160,11 @@ model MachineHeartbeat {
   tsServer      DateTime @default(now()) @map("ts_server")
   // P6.4: edge clock-sync state (timedatectl NTPSynchronized). null = not reported.
   clockSynced   Boolean? @map("clock_synced")
+  // Edge split (plan §D/§E): the Pi's view of the wireless ESP32 reader link.
+  // null = not a split machine / not reported. readerOnline=false drives DATA_LOSS.
+  readerOnline      Boolean? @map("reader_online")
+  readerClockSynced Boolean? @map("reader_clock_synced")
+  readerBufferDepth Int?     @map("reader_buffer_depth")
   machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
   org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 

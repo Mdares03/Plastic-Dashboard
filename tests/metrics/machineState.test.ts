@@ -104,4 +104,60 @@ describe("R8 — machine state ladder", () => {
       }),
     ).toBe("running");
   });
+
+  // Edge split (plan §D): the wireless ESP32 reader can die while the Pi is up.
+  it("data-loss when the Pi is online but the reader is dead", () => {
+    expect(
+      deriveMachineState({
+        heartbeatTs: freshHb,
+        heartbeatStatus: "RUN",
+        readerOnline: false,
+        events: [],
+        cycleTimestampsMs: [],
+        now: NOW,
+      }),
+    ).toBe("data-loss");
+  });
+
+  it("data-loss outranks a leaked stop event (dead reader != stopped machine)", () => {
+    const events = [event("macrostop", at(59 * MIN), { status: "active" })];
+    expect(
+      deriveMachineState({
+        heartbeatTs: freshHb,
+        heartbeatStatus: "STOP",
+        readerOnline: false,
+        events,
+        cycleTimestampsMs: [],
+        now: NOW,
+      }),
+    ).toBe("data-loss");
+  });
+
+  it("offline still outranks data-loss (no Pi heartbeat = we know nothing)", () => {
+    expect(
+      deriveMachineState({
+        heartbeatTs: null,
+        heartbeatStatus: "RUN",
+        readerOnline: false,
+        events: [],
+        cycleTimestampsMs: [],
+        now: NOW,
+      }),
+    ).toBe("offline");
+  });
+
+  it("reader online / not reported does NOT trigger data-loss", () => {
+    for (const readerOnline of [true, null, undefined]) {
+      expect(
+        deriveMachineState({
+          heartbeatTs: freshHb,
+          heartbeatStatus: "RUN",
+          readerOnline,
+          events: [],
+          cycleTimestampsMs: [at(58 * MIN).getTime()],
+          now: NOW,
+        }),
+      ).toBe("running");
+    }
+  });
 });

@@ -60,6 +60,45 @@ patchReplacements("Machine cycles", "E3 device-time", [
   ],
 ]);
 
+// ── E4: suppress false stoppages during DATA_LOSS ───────────────────────────
+// When the wireless reader is dead (Pi liveness monitor sets global "readerOnline"
+// = false), absence of cycles is UNEXPLAINED, not a machine stop. Gate the
+// no-new-cycle stoppage block so the Pi doesn't emit phantom micro/macrostops
+// (which would become false ReasonEntry downtime). The dashboard shows data-loss
+// instead (lib/metrics/machineState.ts). KPI-history pushes are unaffected.
+patchReplacements("Anomaly Detector", "E4 data-loss suppression", [
+  [
+    "const now = Date.now();",
+    'const now = Date.now();\nconst readerLinkOk = global.get("readerOnline") !== false; // E4: false => wireless reader dead (DATA_LOSS)',
+  ],
+  [
+    "if (!hasNewCycle && lastCycleTime > 0) {",
+    "if (!hasNewCycle && lastCycleTime > 0 && readerLinkOk) {",
+  ],
+]);
+
+// ── E4: enrich the Pi->cloud heartbeat with reader-link + clock health ──────
+// The cloud derives DATA_LOSS and the clock-sync/reader-link health checks from
+// these. Globals are set by the editor-built liveness nodes (see nodered-snippets);
+// typeof guards send null ("not reported") if those aren't deployed yet, so this is
+// safe to ship ahead of them and never emits a false signal.
+patchReplacements("Online HeartBeat", "E4 heartbeat reader fields", [
+  [
+    "const signature = JSON.stringify({ status, ip, fwVersion });",
+    `// Edge split (§D/§E): Pi NTP sync + wireless reader link health.
+const clockSynced = (typeof global.get("clockSynced") === "boolean") ? global.get("clockSynced") : null;
+const readerOnline = (typeof global.get("readerOnline") === "boolean") ? global.get("readerOnline") : null;
+const readerClockSynced = (typeof global.get("readerClockSynced") === "boolean") ? global.get("readerClockSynced") : null;
+const readerBufferDepth = (typeof global.get("readerBufferDepth") === "number") ? global.get("readerBufferDepth") : null;
+// readerOnline in the signature → a DATA_LOSS transition forces an immediate heartbeat.
+const signature = JSON.stringify({ status, ip, fwVersion, clockSynced, readerOnline });`,
+  ],
+  [
+    "payload: { status, message, ip, fwVersion },",
+    "payload: { status, message, ip, fwVersion, clockSynced, readerOnline, readerClockSynced, readerBufferDepth },",
+  ],
+]);
+
 writeFileSync(outPath, JSON.stringify(flow, null, 4) + "\n");
 console.log(`Read ${inPath} (${flow.length} nodes) → wrote ${outPath}`);
 console.log("Applied:", applied.length ? "\n  " + applied.join("\n  ") : "(none)");

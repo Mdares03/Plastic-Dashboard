@@ -2,7 +2,12 @@
  * R8 (machine state).
  *
  * One precedence ladder decides the displayed live state:
- *   offline > mold-change > startup-wait > stopped > microstop > running > idle
+ *   offline > data-loss > mold-change > startup-wait > stopped > microstop > running > idle
+ *
+ * data-loss (edge split, plan §D): the Pi is online (fresh heartbeat) but its
+ * wireless ESP32 reader is dead, so we genuinely don't know the machine's state.
+ * It outranks stopped/micro/running so a dead reader never masquerades as a
+ * stopped machine. Only applies when the Pi reports reader link state.
  *
  * Extracted verbatim from app/api/machines/[machineId]/route.ts so no view or
  * route keeps its own copy (the machines list, recap grid, and detail page must
@@ -18,6 +23,9 @@ const PRODUCING_RECENTLY_MS = 15 * 60 * 1000;
 export type MachineStateInput = {
   heartbeatTs: Date | null;
   heartbeatStatus: string | null;
+  /** Pi's view of the ESP32 reader link (edge split). null/undefined = not a split
+   *  machine / not reported → data-loss never triggers. false = reader dead. */
+  readerOnline?: boolean | null;
   events: ReadonlyArray<EventRow>;
   /** Production-cycle timestamps (ms), ascending — used to detect resumption. */
   cycleTimestampsMs: number[];
@@ -57,7 +65,11 @@ export function deriveMachineState(input: MachineStateInput): MachinePulseState 
     : null;
   const producingRecently = lastCycleMs != null && nowMs - lastCycleMs < PRODUCING_RECENTLY_MS;
 
+  // Reader link dead while the Pi is up: state is unknown, not "stopped" (§D).
+  const dataLoss = input.readerOnline === false;
+
   if (offline) return "offline";
+  if (dataLoss) return "data-loss";
   if (moldOngoing) return "mold-change";
   if (startupWaiting && !macroActive) return "startup-wait";
   if (macroActive || hbStatus === "STOP" || hbStatus === "DOWN") return "stopped";

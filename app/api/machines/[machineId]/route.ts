@@ -120,7 +120,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
         heartbeats: {
           orderBy: { tsServer: "desc" },
           take: 1,
-          select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true },
+          select: { ts: true, tsServer: true, status: true, message: true, ip: true, fwVersion: true, readerOnline: true },
         },
         kpiSnapshots: {
           orderBy: { ts: "desc" },
@@ -335,6 +335,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ mach
   const currentState = deriveMachineState({
     heartbeatTs: machine.latestHeartbeat?.tsServer ?? machine.latestHeartbeat?.ts ?? null,
     heartbeatStatus: machine.latestHeartbeat?.status ?? null,
+    readerOnline: machine.latestHeartbeat?.readerOnline ?? null,
     events: rawEvents,
     cycleTimestampsMs: cyclesOut.map((c) => c.t),
   });

@@ -114,6 +114,12 @@ export async function POST(req: Request) {
       fwVersion: body.fwVersion ? String(body.fwVersion) : null,
       // P6.4: store edge clock-sync state when reported (else null = not reported).
       clockSynced: typeof body.clockSynced === "boolean" ? body.clockSynced : null,
+      // Edge split (§D/§E): the Pi's view of the wireless ESP32 reader link.
+      readerOnline: typeof body.readerOnline === "boolean" ? body.readerOnline : null,
+      readerClockSynced:
+        typeof body.readerClockSynced === "boolean" ? body.readerClockSynced : null,
+      readerBufferDepth:
+        typeof body.readerBufferDepth === "number" ? Math.trunc(body.readerBufferDepth) : null,
     };
 
     const insertHb = await prisma.machineHeartbeat.createMany({

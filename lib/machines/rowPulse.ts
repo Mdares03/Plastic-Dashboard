@@ -13,7 +13,9 @@ export type MachinePulseState =
   | "microstop"
   | "idle"
   | "running"
-  | "offline";
+  | "offline"
+  // Edge split (plan §D): Pi up but the wireless ESP32 reader is dead → state unknown.
+  | "data-loss";
 
 /**
  * Map a Recap timeline segment type (or "offline") to the pulse vocabulary.
@@ -71,6 +73,9 @@ export function rowPulse(state: MachinePulseState, opts?: { urgent?: boolean }):
       return `${base} border-l-4 border-l-zinc-600 animate-row-pulse-dark`;
     case "offline":
       return `${base} opacity-50`;
+    case "data-loss":
+      // Amber dashed: a distinct "we can't see the machine" signal, not a red stop.
+      return `${base} border-l-4 border-l-amber-400 border-dashed animate-row-pulse-dark`;
     case "running":
     default:
       return `${base} hover:bg-white/5`;

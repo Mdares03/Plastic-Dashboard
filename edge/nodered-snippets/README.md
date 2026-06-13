@@ -28,6 +28,29 @@ All new MQTT nodes use a **new local mqtt-broker config** → the Pi's Mosquitto
    → [mqtt out]  (topic per msg.topic)
 ```
 
+## Reader liveness / DATA_LOSS (E4)
+
+Two more editor nodes turn the reader heartbeat into the `readerOnline` global that
+the Anomaly Detector (E4 suppression, scripted) and the `Online HeartBeat` (E4
+enrichment, scripted) consume:
+
+```
+[mqtt in] mis/edge/+/heartbeat (parsed object) → [function] "Reader liveness: record"
+                                                  (reader-liveness-record.js)
+[inject] repeat 5s                              → [function] "Reader liveness: evaluate"
+                                                  (reader-liveness-evaluate.js)
+```
+
+- record: stamps `readerLastSeenMs` / `readerClockSynced` / `readerBufferDepth` on each
+  reader heartbeat.
+- evaluate (timer): sets `global readerOnline = (now - readerLastSeenMs) <= 15s`, so the
+  link is marked dead when heartbeats STOP. Until the first reader heartbeat, it stays
+  unset → non-split machines never show DATA_LOSS.
+
+The scripted edits (`scripts/edge/apply-edge-split.mjs`) already wired the Anomaly
+Detector gate and the heartbeat payload; both read these globals with `typeof` guards,
+so they're inert until these nodes exist.
+
 ## Cut over the input
 
 - **Disable the old GPIO node:** open `rpi-gpio in` pin 17 (id `d0beb2b0f0622d5b`) and
