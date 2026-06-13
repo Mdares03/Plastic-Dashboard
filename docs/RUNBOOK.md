@@ -209,3 +209,55 @@ Each is specified so it can be completed + tested at the Pi:
   edge-local `'DONE'`) for the cleanest dashboard vocabulary, though the dashboard now
   tolerates either. Also add a startup `inject` → settings re-fetch so a restart pulls
   fresh config immediately.
+
+## Edge split — wireless ESP32 reader (plan: composed-wandering-ember)
+
+Splits the cabinet Pi into a dumb ESP32 reader (stays at the relays) + the Pi+screen
+(relocated to the operator side), linked by MQTT over a Pi-hosted WiFi AP. The Pi keeps
+all cycle logic; only the input source + time base change. Components are committed:
+firmware `edge/esp32-reader/`, Pi AP/broker `edge/pi-ap/`, inbound dedup
+`scripts/edge/edge_inbound.sql`, flow input/clock nodes `edge/nodered-snippets/`, scripted
+existing-node edits `scripts/edge/apply-edge-split.mjs` (E3 device-time, E4 suppression +
+heartbeat fields). Dashboard side (DATA_LOSS, reader-link/clock health) is deployed.
+
+### Deploy order (bench, direct cutover)
+
+1. **Hardware:** opto-isolate the cycle relay → ESP32 input; 24V→5V buck. (Never 24V to
+   the ESP32.)
+2. **Pi AP + broker:** follow `edge/pi-ap/README.md` (dedicated AP interface so the cloud
+   uplink survives). `sudo mariadb edge_outbox < scripts/edge/edge_inbound.sql`.
+3. **Flow — existing-node edits:** the device-time + DATA_LOSS edits are already in
+   `edge/flows.json` (re-apply on a fresh export with `node scripts/edge/apply-edge-split.mjs`).
+4. **Flow — new nodes (editor):** build the input adapter, clock responder, and the two
+   reader-liveness nodes per `edge/nodered-snippets/README.md`; point all new MQTT nodes at
+   the **local** broker (not cloud EMQX).
+5. **Firmware:** set `edge/esp32-reader/src/config.h` (machineId MUST match the Pi's
+   paired machine), `pio run -t upload`.
+6. **Cut over:** disable the `rpi-gpio in` pin-17 node so only the ESP32 path feeds
+   `function 1`. Deploy.
+
+### Rollback
+
+Re-enable the `rpi-gpio in` node and disable the MQTT input adapter → back to the wired
+edge instantly (no data model change; the cloud already accepted device timestamps).
+
+### Bench verification (the go-live gate for the split)
+
+1. **Timing fidelity:** drive a known cycle period; `actual_cycle_time` matches the
+   physical period within ms (proves `tsDevice`, not arrival time) and the cloud
+   `MachineCycle.ts` lands in the correct timeline window.
+2. **Count parity:** N cycles ⇒ ESP32 edges == `edge_inbound` rows == cloud `MachineCycle`
+   rows == the machine's own counter; zero duplicate rows.
+3. **Dropout + backlog:** kill the Pi/broker mid-run for a few minutes; on reconnect the
+   ESP32 replays from `last_acked_seq`; every cycle lands once with original timestamps
+   (no latency smear, no dupes). During the gap the machine shows **DATA_LOSS**, not stop.
+4. **Power blip:** cut ESP32 power mid-cycle; seq + unacked buffer survive (NVS), replay
+   on boot.
+5. **Clock skew:** boot the ESP32 with no offset; after the time handshake timestamps are
+   correct; force a resync and confirm drift correction. `clock_sync` health stays ok only
+   when BOTH the Pi NTP clock and the reader offset are good.
+6. **DATA_LOSS:** stop the **ESP32** (not the machine) → within ~15s the machine flips to
+   `data-loss` (amber, not red stop), the `reader_link` health check fails, and NO phantom
+   stoppage/ReasonEntry downtime is created; restart → recovers and backlog fills in.
+7. **One alert per stoppage:** induce a real micro→macro stoppage → exactly one incident
+   (incidentKey unchanged from Phase 6).
