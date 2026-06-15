@@ -1,0 +1,267 @@
+[
+    {
+        "id": "d93a191546107ffd",
+        "type": "mqtt-broker",
+        "name": "Edge Local Mosquitto",
+        "broker": "127.0.0.1",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "autoUnsubscribe": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "f20cd3a8a8124c8c",
+        "type": "mqtt in",
+        "z": "05d4cb231221b842",
+        "name": "mqtt in: edge cycle",
+        "topic": "mis/edge/+/cycle",
+        "qos": "1",
+        "datatype": "json",
+        "broker": "d93a191546107ffd",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 1440,
+        "wires": [
+            [
+                "1003c9035bf75272"
+            ]
+        ]
+    },
+    {
+        "id": "1003c9035bf75272",
+        "type": "function",
+        "z": "05d4cb231221b842",
+        "name": "Edge Inbound: build CALL",
+        "func": "// Edge split E2 (plan §C) — \"Edge Inbound: build CALL\" function node.\n// IN:  mqtt-in on topic  mis/edge/+/cycle  (ESP32 edge envelope)\n// OUT: a mysql node (config \"Edge Outbox\", fc9634aabefee16b) running edge_inbound_ingest\n//\n// Parses the ESP32 envelope and prepares the atomic dedup/ack proc call. Carries\n// level/tsDevice forward on msg for the ack+forward node.\n\nlet env = msg.payload;\nif (typeof env === \"string\") {\n    try { env = JSON.parse(env); } catch (e) { node.warn(\"edge inbound: bad JSON\"); return null; }\n}\nif (!env || typeof env !== \"object\") { node.warn(\"edge inbound: empty\"); return null; }\n\nconst machineId = env.machineId;\nconst seq = Number(env.seq);\nconst p = env.payload || {};\nconst channel = Number(p.channel ?? 0);\nconst level = Number(p.level);\nconst tsDevice = Number(env.tsDevice ?? p.tsDevice);   // absolute UTC ms from the ESP32\nconst clockSynced = p.clockSynced === true ? 1 : 0;\n\nif (!machineId || !Number.isFinite(seq) || (level !== 0 && level !== 1) || !Number.isFinite(tsDevice)) {\n    node.warn(\"edge inbound: invalid envelope \" + JSON.stringify(env).slice(0, 120));\n    return null;\n}\n\n// Stash for the ack+forward node (mysql result won't echo these).\nmsg._edge = { machineId, seq, channel, level, tsDevice, clockSynced };\n\nmsg.topic = \"CALL edge_inbound_ingest(?, ?, ?, ?, ?, ?);\";\nmsg.payload = [machineId, seq, channel, level, tsDevice, clockSynced];\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 1440,
+        "wires": [
+            [
+                "7749ec1866fa6019"
+            ]
+        ]
+    },
+    {
+        "id": "7749ec1866fa6019",
+        "type": "mysql",
+        "z": "05d4cb231221b842",
+        "mydb": "fc9634aabefee16b",
+        "name": "Edge Inbound: dedup store",
+        "x": 680,
+        "y": 1440,
+        "wires": [
+            [
+                "12af81f7dae14cee"
+            ]
+        ]
+    },
+    {
+        "id": "12af81f7dae14cee",
+        "type": "function",
+        "z": "05d4cb231221b842",
+        "name": "Edge Inbound: ack + forward",
+        "func": "// Edge split E2 (plan §C) — \"Edge Inbound: ack + forward\" function node.\n// IN:  the mysql node result of edge_inbound_ingest  → { is_new, ack_seq }\n// OUT 1 (top): → existing \"function 1\" (d8b64d16026af66d) — ONLY when the edge is new\n// OUT 2 (bot): → mqtt-out, topic mis/edge/<id>/ack — ALWAYS (so the ESP32 can trim)\n//\n// The forwarded message mimics the old rpi-gpio output: msg.payload = level (0/1),\n// plus msg.tsDevice (absolute UTC) and msg.machineId for the device-time logic (E3).\n\nconst e = msg._edge || {};\n\n// Parse { is_new, ack_seq } from the CALL result (mysql returns nested arrays for CALL).\nlet isNew = null, ackSeq = null;\nconst res = msg.payload;\nif (Array.isArray(res)) {\n    const row = (Array.isArray(res[0]) ? res[0][0] : res[0]) || {};\n    if (row.is_new != null) isNew = Number(row.is_new);\n    if (row.ack_seq != null) ackSeq = Number(row.ack_seq);\n}\n\n// Always ack the high-water seq so the ESP32 can drain its flash buffer.\nlet ackMsg = null;\nif (e.machineId && ackSeq != null) {\n    ackMsg = {\n        topic: \"mis/edge/\" + e.machineId + \"/ack\",\n        payload: JSON.stringify({ ackSeq: ackSeq }),\n    };\n}\n\n// Forward into the cycle pipeline only for a genuinely new edge (dedup gate).\nlet fwd = null;\nif (isNew === 1) {\n    fwd = {\n        payload: e.level,          // function 1 does Number(msg.payload)\n        tsDevice: e.tsDevice,      // absolute UTC ms — Machine cycles uses this (E3)\n        machineId: e.machineId,\n        clockSynced: e.clockSynced === 1,\n    };\n}\n\nnode.status({ fill: isNew === 1 ? \"green\" : \"grey\", shape: \"dot\",\n              text: \"seq \" + (e.seq ?? \"?\") + (isNew === 1 ? \" new\" : \" dup\") + \" ack \" + (ackSeq ?? \"?\") });\nreturn [fwd, ackMsg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 940,
+        "y": 1440,
+        "wires": [
+            [
+                "ce36a3271d9df8ae"
+            ],
+            [
+                "6643a215603f9fec"
+            ]
+        ]
+    },
+    {
+        "id": "6643a215603f9fec",
+        "type": "mqtt out",
+        "z": "05d4cb231221b842",
+        "name": "mqtt out: ack",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "d93a191546107ffd",
+        "x": 1220,
+        "y": 1480,
+        "wires": []
+    },
+    {
+        "id": "c7c50c34000111b3",
+        "type": "mqtt in",
+        "z": "05d4cb231221b842",
+        "name": "mqtt in: edge time/req",
+        "topic": "mis/edge/+/time/req",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "d93a191546107ffd",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 1540,
+        "wires": [
+            [
+                "bd44d2ed38b1df58"
+            ]
+        ]
+    },
+    {
+        "id": "bd44d2ed38b1df58",
+        "type": "function",
+        "z": "05d4cb231221b842",
+        "name": "Clock responder",
+        "func": "// Edge split E2 (plan §E) — \"Clock responder\" function node.\n// IN:  mqtt-in on topic  mis/edge/+/time/req   ({ machineId, reqDeviceMs })\n// OUT: mqtt-out — topic mis/edge/<id>/time      ({ reqDeviceMs, piUtcMs })\n//\n// The ESP32 has no RTC. It sends its monotonic reqDeviceMs; we echo it with the\n// Pi's current UTC so the ESP32 can compute offset = piUtcMs + RTT/2 - recvDeviceMs.\n// IMPORTANT: the Pi's own clock must be NTP-synced (P6.4) for this to be correct —\n// the consistency health check surfaces both clocks (plan §E).\n\nlet req = msg.payload;\nif (typeof req === \"string\") {\n    try { req = JSON.parse(req); } catch (e) { return null; }\n}\nif (!req || !req.machineId) return null;\n\nreturn {\n    topic: \"mis/edge/\" + req.machineId + \"/time\",\n    payload: JSON.stringify({\n        reqDeviceMs: Number(req.reqDeviceMs) || 0,\n        piUtcMs: Date.now(),\n    }),\n};\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 1540,
+        "wires": [
+            [
+                "fe5d726ba5ece322"
+            ]
+        ]
+    },
+    {
+        "id": "fe5d726ba5ece322",
+        "type": "mqtt out",
+        "z": "05d4cb231221b842",
+        "name": "mqtt out: time",
+        "topic": "",
+        "qos": "0",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "d93a191546107ffd",
+        "x": 700,
+        "y": 1540,
+        "wires": []
+    },
+    {
+        "id": "bdff32f421071e1c",
+        "type": "mqtt in",
+        "z": "05d4cb231221b842",
+        "name": "mqtt in: edge heartbeat",
+        "topic": "mis/edge/+/heartbeat",
+        "qos": "0",
+        "datatype": "json",
+        "broker": "d93a191546107ffd",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 1640,
+        "wires": [
+            [
+                "fe7ab28b1a9d84a5"
+            ]
+        ]
+    },
+    {
+        "id": "fe7ab28b1a9d84a5",
+        "type": "function",
+        "z": "05d4cb231221b842",
+        "name": "Reader liveness: record",
+        "func": "// Edge split E4 (plan §D) — \"Reader liveness: record\" function node.\n// IN: mqtt-in on topic  mis/edge/+/heartbeat  (ESP32 reader_heartbeat)\n// OUT: none (sets globals consumed by the evaluate timer + Online HeartBeat).\n//\n// Records the freshness + health of the wireless reader on every reader heartbeat.\n// The \"evaluate\" timer turns this into the readerOnline boolean (it must go false\n// when heartbeats STOP, which only a timer can detect).\n\nlet hb = msg.payload;\nif (typeof hb === \"string\") { try { hb = JSON.parse(hb); } catch (e) { return null; } }\nif (!hb || typeof hb !== \"object\") return null;\nconst p = hb.payload || {};\n\nglobal.set(\"readerLastSeenMs\", Date.now());\nif (typeof p.clockSynced === \"boolean\") global.set(\"readerClockSynced\", p.clockSynced);\nif (typeof p.bufferDepth === \"number\") global.set(\"readerBufferDepth\", p.bufferDepth);\nreturn null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 1640,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "b810d6e1822cfbce",
+        "type": "inject",
+        "z": "05d4cb231221b842",
+        "name": "every 5s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 160,
+        "y": 1740,
+        "wires": [
+            [
+                "344694f58106e080"
+            ]
+        ]
+    },
+    {
+        "id": "344694f58106e080",
+        "type": "function",
+        "z": "05d4cb231221b842",
+        "name": "Reader liveness: evaluate",
+        "func": "// Edge split E4 (plan §D) — \"Reader liveness: evaluate\" function node.\n// IN:  an inject node, every 5s (repeat). OUT: none (sets global readerOnline).\n//\n// Turns reader-heartbeat freshness into the readerOnline boolean that BOTH the\n// Anomaly Detector (suppresses false stoppages when false) and the Online\n// HeartBeat (reports DATA_LOSS to the cloud) read. Runs on a timer so the link\n// is marked dead when heartbeats STOP, not only when a message arrives.\n//\n// STALE threshold = 3x the ESP32 heartbeat cadence (CFG_HEARTBEAT_MS=5s) = 15s.\n\nconst STALE_MS = 15000;\nconst lastSeen = Number(global.get(\"readerLastSeenMs\") || 0);\n\n// Until the first reader heartbeat ever arrives, leave readerOnline UNSET (null →\n// \"not a split machine / not reported\"), so non-split machines never show DATA_LOSS.\nif (lastSeen === 0) return null;\n\nconst online = (Date.now() - lastSeen) <= STALE_MS;\nglobal.set(\"readerOnline\", online);\nnode.status({ fill: online ? \"green\" : \"red\", shape: online ? \"dot\" : \"ring\",\n              text: online ? \"reader online\" : \"DATA_LOSS: reader dead\" });\nreturn null;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 440,
+        "y": 1740,
+        "wires": [
+            []
+        ]
+    }
+]
