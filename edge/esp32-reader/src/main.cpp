@@ -29,6 +29,7 @@ static String tEdge, tHeartbeat, tTimeReq, tAck, tTime;
 
 static int64_t gLastHeartbeatMs = 0;
 static int64_t gLastTimeReqMs = 0;
+static int64_t gLastDrainMs = 0;             // last unacked re-drain (resubscribe-race guard)
 static int64_t gPendingTimeReqDeviceMs = -1; // device ms of the in-flight time request
 static char gBuf[512];
 
@@ -59,14 +60,16 @@ static bool publishEdge(const EdgeRecord& rec) {
   return mqtt.publish(tEdge.c_str(), (const uint8_t*)gBuf, n, false);
 }
 
-// Replay every unacked edge in order (called after (re)connect). Duplicates are
-// fine — the Pi dedupes on (machineId, seq).
+// Replay every unacked edge in order (after (re)connect AND on the CFG_REDRAIN_MS
+// timer, so edges dropped in the broker-restart resubscribe race are retried
+// instead of stalling). Duplicates are fine — the Pi dedupes on (machineId, seq).
 static void drainOutbox() {
   for (size_t i = 0; i < outbox.depth(); i++) {
     if (!publishEdge(outbox.at(i))) break;
     delay(CFG_REPLAY_GAP_MS);
     mqtt.loop();
   }
+  gLastDrainMs = clk.deviceMs();
 }
 
 static void sendHeartbeat() {
@@ -163,5 +166,14 @@ void loop() {
   if (now - gLastTimeReqMs >= CFG_TIMESYNC_MS) {
     gLastTimeReqMs = now;
     sendTimeReq();
+  }
+
+  // 4) Re-drain unacked edges on a timer (not only on reconnect). Closes the
+  //    broker-restart resubscribe-race window: if we reconnect and replay before
+  //    the Pi re-subscribes, those QoS-0 edges are dropped and would otherwise sit
+  //    unacked until the next disconnect. Retrying every CFG_REDRAIN_MS guarantees
+  //    eventual delivery; the Pi dedupes replays on (machineId, seq).
+  if (mqtt.connected() && outbox.depth() > 0 && now - gLastDrainMs >= CFG_REDRAIN_MS) {
+    drainOutbox();
   }
 }

@@ -59,6 +59,7 @@ const cfg = {
   channel: Number(args.channel ?? 0),
   heartbeatMs: Number(args["heartbeat-ms"] || 5000), // CFG_HEARTBEAT_MS
   timesyncMs: Number(args["timesync-ms"] || 60000), // CFG_TIMESYNC_MS
+  redrainMs: Number(args["redrain-ms"] || 5000), // CFG_REDRAIN_MS — retry unacked even while connected
   cycleMs: args["cycle-ms"] !== undefined ? Number(args["cycle-ms"]) : null,
   pulseMs: args["pulse-ms"] !== undefined ? Number(args["pulse-ms"]) : null,
   bufferCapacity: Number(args["buffer-capacity"] || 256), // CFG_BUFFER_CAPACITY
@@ -197,9 +198,11 @@ function publishEdge(rec) {
   return true;
 }
 
-// Replay every unacked edge in order after (re)connect (drainOutbox in main.cpp).
+// Replay every unacked edge in order — after (re)connect AND on the redrain timer
+// (drainOutbox in main.cpp). The timer retries edges dropped in the broker-restart
+// resubscribe race instead of letting them stall until the next disconnect.
 function drainOutbox() {
-  if (outbox.depth() === 0) return;
+  if (!connected || outbox.depth() === 0) return;
   log(`draining outbox: replaying ${outbox.depth()} unacked edge(s)`);
   for (const rec of outbox.buf) publishEdge(rec);
 }
@@ -269,6 +272,7 @@ client.on("message", (topic, payload) => {
 const timers = [];
 timers.push(setInterval(sendHeartbeat, cfg.heartbeatMs));
 timers.push(setInterval(sendTimeReq, cfg.timesyncMs));
+timers.push(setInterval(drainOutbox, cfg.redrainMs)); // CFG_REDRAIN_MS — retry unacked (resubscribe-race guard)
 if (cfg.cycleMs !== null) timers.push(setInterval(runCycle, cfg.cycleMs));
 
 // scenario triggers

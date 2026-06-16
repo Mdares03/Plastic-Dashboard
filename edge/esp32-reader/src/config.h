@@ -32,6 +32,11 @@
 #define CFG_TIMESYNC_MS 60000       // clock resync cadence (ESP32 has no RTC)
 #define CFG_TIMESYNC_STALE_MS 180000 // offset considered stale (clockSynced=false) after this
 #define CFG_REPLAY_GAP_MS 40        // spacing between replayed buffered edges on reconnect
+#define CFG_REDRAIN_MS 5000         // re-drain unacked edges on this cadence even while connected;
+                                    // closes the broker-restart resubscribe-race window (edges
+                                    // replayed before the Pi re-subscribes are QoS-0-dropped and
+                                    // would otherwise stall until the next disconnect). Idempotent —
+                                    // the Pi dedupes on (machineId, seq).
 
 // ── Store-and-forward buffer (plan §A) ──────────────────────────────────────
 // Unacked edges live in NVS so they survive a 24V power blip. Capacity bounds
