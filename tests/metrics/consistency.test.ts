@@ -18,6 +18,8 @@ import { at, cycle, HOUR, reason, T0, workOrder } from "../fixtures/scenario";
  */
 const WINDOW = resolveWindow({ mode: "custom", timezone: "UTC", start: T0, end: at(24 * HOUR) });
 
+const round2cents = (v: number) => Math.round(v * 100) / 100;
+
 const downtimeRows = [
   reason({ reasonCode: "UNPLANNED_A", durationSeconds: 45 * 60, episodeEndTs: at(2 * HOUR), capturedAt: at(2 * HOUR) }),
   reason({ reasonCode: "UNPLANNED_B", durationSeconds: 90, episodeEndTs: at(3 * HOUR), capturedAt: at(3 * HOUR) }), // micro (<120s)
@@ -62,6 +64,34 @@ describe("#13 — financial downtime minutes are congruent with the dashboard (R
     }
     expect(Math.round((micro + macro) * 100) / 100).toBe(dt.unplannedMin);
     expect(micro).toBeCloseTo(1.5, 5); // UNPLANNED_B: 90s = 1.5 min
+  });
+});
+
+describe("cross-path congruence — the /api/health/metric-consistency invariants", () => {
+  const dt = computeDowntime(downtimeRows, WINDOW);
+
+  it("computeDowntime is additive across machines (recap-sum == authority)", () => {
+    // The recap path computes downtime per machine and the health endpoint sums
+    // those. That can only equal the org-wide authority if computeDowntime is
+    // additive over any partition of the rows. Partition into two "machines".
+    const machineA = downtimeRows.slice(0, 2);
+    const machineB = downtimeRows.slice(2);
+    const a = computeDowntime(machineA, WINDOW);
+    const b = computeDowntime(machineB, WINDOW);
+    const sum = round2cents(a.totalMin + b.totalMin);
+    const sumUnplanned = round2cents(a.unplannedMin + b.unplannedMin);
+    expect(sum).toBe(dt.totalMin);
+    expect(sumUnplanned).toBe(dt.unplannedMin);
+  });
+
+  it("losses-path minutes (Σ episodeWindowMinutes) equal the authority total (reports == dashboard absent the shift filter)", () => {
+    // getLossesByReason sums episodeWindowMinutes per downtime row. With no shift
+    // filtering, that total must equal computeDowntime.totalMin — so any runtime
+    // gap the health endpoint reports is attributable to the shift filter alone.
+    const lossesMinutes = downtimeRows
+      .filter((r) => String(r.kind).toLowerCase() === "downtime")
+      .reduce((acc, r) => acc + episodeWindowMinutes(r, WINDOW.start, WINDOW.end), 0);
+    expect(round2cents(lossesMinutes)).toBe(dt.totalMin);
   });
 });
 

@@ -14,12 +14,14 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "seed:reason-catalog": "node scripts/seed-reason-catalog-from-xlsx.mjs",
+    "seed:reason-catalog:taxonomy": "dotenv -e .env -- tsx scripts/seed-reason-catalog.ts",
     "db:dry-run-cutoff": "dotenv -e .env -- node scripts/db-dry-run-cutoff.mjs",
     "baseline:capture": "dotenv -e .env -- tsx scripts/capture-baseline.ts",
     "drift:check": "dotenv -e .env.backup_prod_pointing -- tsx scripts/metrics/drift-check.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.1",
+    "aedes": "^1.0.2",
     "bcrypt": "^6.0.0",
     "i18n": "^0.15.3",
     "lucide-react": "^0.561.0",

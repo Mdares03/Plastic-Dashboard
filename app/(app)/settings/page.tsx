@@ -423,17 +423,35 @@ export default function SettingsPage() {
   // for non-admins simply hides the card.
   const loadHealth = useCallback(async () => {
     try {
-      const response = await fetch("/api/health/consistency", { cache: "no-store" });
-      if (response.status === 401 || response.status === 403) {
+      // Two admin health surfaces: /consistency = DB-level integrity invariants;
+      // /metric-consistency = the cross-screen "same number everywhere" congruence
+      // (the client's "numbers don't match" complaint). Show them in one card.
+      const [integrity, congruence] = await Promise.all([
+        fetch("/api/health/consistency", { cache: "no-store" }),
+        fetch("/api/health/metric-consistency", { cache: "no-store" }),
+      ]);
+      if (integrity.status === 401 || integrity.status === 403) {
         setHealthAdmin(false);
         setHealthChecks(null);
         return;
       }
-      const body = await response.json().catch(() => null);
-      if (body && Array.isArray(body.checks)) {
+      const [integrityBody, congruenceBody] = await Promise.all([
+        integrity.json().catch(() => null),
+        congruence.json().catch(() => null),
+      ]);
+      const checks: HealthCheck[] = [];
+      if (integrityBody && Array.isArray(integrityBody.checks)) {
+        checks.push(...(integrityBody.checks as HealthCheck[]));
+      }
+      if (congruenceBody && Array.isArray(congruenceBody.checks)) {
+        checks.push(...(congruenceBody.checks as HealthCheck[]));
+      }
+      if (checks.length > 0) {
         setHealthAdmin(true);
-        setHealthChecks(body.checks as HealthCheck[]);
-        setHealthGeneratedAt(typeof body.generatedAt === "string" ? body.generatedAt : null);
+        setHealthChecks(checks);
+        setHealthGeneratedAt(
+          typeof integrityBody?.generatedAt === "string" ? integrityBody.generatedAt : null
+        );
       }
     } catch {
       // Network error — leave the card hidden rather than show a broken panel.

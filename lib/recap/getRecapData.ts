@@ -1,30 +1,12 @@
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { normalizeShiftOverrides, type ShiftOverrideDay } from "@/lib/settings";
+import { normalizeShiftOverrides } from "@/lib/settings";
 import { computeDowntime, computeWindowRates, resolveWindow } from "@/lib/metrics";
+import { isInPlannedShift, resolveShiftName, type ShiftPlanningContext } from "@/lib/metrics/shift";
+import { getPlannedReasonCodes } from "@/lib/downtime/plannedCodes";
 import type { KpiSample, ReasonRow } from "@/lib/metrics";
 import { isCompletedWorkOrder, isOpenWorkOrder } from "@/lib/workOrders/status";
 import type { RecapMachine, RecapQuery, RecapResponse } from "@/lib/recap/types";
-
-type ShiftLike = {
-  name: string;
-  startTime?: string | null;
-  endTime?: string | null;
-  start?: string | null;
-  end?: string | null;
-  enabled?: boolean;
-};
-
-const WEEKDAY_KEYS: ShiftOverrideDay[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-const WEEKDAY_KEY_MAP: Record<string, ShiftOverrideDay> = {
-  Mon: "mon",
-  Tue: "tue",
-  Wed: "wed",
-  Thu: "thu",
-  Fri: "fri",
-  Sat: "sat",
-  Sun: "sun",
-};
 
 const STOP_TYPES = new Set(["microstop", "macrostop"]);
 const STOP_STATUS = new Set(["STOP", "DOWN", "OFFLINE"]);
@@ -103,68 +85,6 @@ function normalizeRange(start?: Date, end?: Date) {
     return { start: new Date(safeEnd.getTime() - 24 * 60 * 60 * 1000), end: safeEnd };
   }
   return { start: safeStart, end: safeEnd };
-}
-
-function parseTimeMinutes(input?: string | null) {
-  if (!input) return null;
-  const match = /^(\d{2}):(\d{2})$/.exec(input.trim());
-  if (!match) return null;
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (!Number.isInteger(h) || !Number.isInteger(m) || h < 0 || h > 23 || m < 0 || m > 59) return null;
-  return h * 60 + m;
-}
-
-function getLocalMinutes(ts: Date, timeZone: string) {
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      hour12: false,
-      hour: "2-digit",
-      minute: "2-digit",
-    }).formatToParts(ts);
-    const h = Number(parts.find((p) => p.type === "hour")?.value ?? "0");
-    const m = Number(parts.find((p) => p.type === "minute")?.value ?? "0");
-    return h * 60 + m;
-  } catch {
-    return ts.getUTCHours() * 60 + ts.getUTCMinutes();
-  }
-}
-
-function getLocalDayKey(ts: Date, timeZone: string): ShiftOverrideDay {
-  try {
-    const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(ts);
-    return WEEKDAY_KEY_MAP[weekday] ?? WEEKDAY_KEYS[ts.getUTCDay()];
-  } catch {
-    return WEEKDAY_KEYS[ts.getUTCDay()];
-  }
-}
-
-function resolveShiftName(
-  shifts: ShiftLike[],
-  overrides: Record<string, ShiftLike[]> | undefined,
-  ts: Date,
-  timeZone: string
-) {
-  const dayKey = getLocalDayKey(ts, timeZone);
-  const dayOverrides = overrides?.[dayKey];
-  const activeShifts = dayOverrides ?? shifts;
-  if (!activeShifts.length) return null;
-
-  const nowMin = getLocalMinutes(ts, timeZone);
-  for (const shift of activeShifts) {
-    if (shift.enabled === false) continue;
-    const start = parseTimeMinutes(shift.startTime ?? shift.start ?? null);
-    const end = parseTimeMinutes(shift.endTime ?? shift.end ?? null);
-    if (start == null || end == null) continue;
-    if (start <= end) {
-      if (nowMin >= start && nowMin < end) return shift.name;
-    } else if (nowMin >= start || nowMin < end) {
-      return shift.name;
-    }
-  }
-
-  return null;
 }
 
 function normalizeShiftAlias(shift?: string | null) {
@@ -431,14 +351,18 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
     end: params.end,
   });
   const shiftOverrides = normalizeShiftOverrides(settings?.shiftScheduleOverridesJson);
+  // One shift context, shared with the reports family via lib/metrics/shift.
+  const shiftCtx: ShiftPlanningContext = { timeZone, shifts, overrides: shiftOverrides };
+  // Per-org planned-downtime codes (e.g. the DTPLN changeover category) so the planned
+  // split here matches financial/roi/health.
+  const plannedCodes = await getPlannedReasonCodes(params.orgId);
   const orderedEnabledShifts = shifts.filter((s) => s.enabled !== false).sort((a, b) => a.sortOrder - b.sortOrder);
   const shiftIndex = params.shift ? Number(params.shift.replace("shift", "")) - 1 : -1;
   const targetShiftName = shiftIndex >= 0 ? orderedEnabledShifts[shiftIndex]?.name ?? "__missing_shift__" : null;
 
   const inTargetShift = (ts: Date) => {
     if (!targetShiftName) return true;
-    const resolved = resolveShiftName(shifts, shiftOverrides, ts, timeZone);
-    return resolved === targetShiftName;
+    return resolveShiftName(shiftCtx, ts) === targetShiftName;
   };
 
   const cycles = targetShiftName ? cyclesRaw.filter((row) => inTargetShift(row.ts)) : cyclesRaw;
@@ -726,7 +650,9 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
     // change stays visible (tagged planned) but never flows into OEE — those
     // come from machineKpiSnapshot upstream, not these sums. `stopsCount` is the
     // count of live stop EVENTS (informational), not a downtime duration.
-    const downtimeReasonRows: ReasonRow[] = machineReasons.map((reason) => {
+    const downtimeReasonRows: ReasonRow[] = machineReasons
+      .filter((reason) => isInPlannedShift(shiftCtx, reason.capturedAt))
+      .map((reason) => {
       const code = String(reason.reasonCode ?? "").trim().toUpperCase();
       return {
         kind: reason.kind,
@@ -740,7 +666,7 @@ export async function computeRecap(params: Required<Pick<RecapQuery, "orgId">> &
         workOrderId: normalizeToken(reason.workOrderId) || null,
       };
     });
-    const downtime = computeDowntime(downtimeReasonRows, window);
+    const downtime = computeDowntime(downtimeReasonRows, window, plannedCodes);
     const topReasons = downtime.byReason.slice(0, 3).map((row) => ({
       reasonLabel: row.reasonLabel,
       minutes: row.minutes,

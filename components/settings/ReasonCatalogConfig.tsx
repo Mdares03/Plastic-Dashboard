@@ -21,6 +21,7 @@ type ApiCategory = {
   codePrefix: string;
   sortOrder: number;
   active: boolean;
+  planned?: boolean;
   items: ApiItem[];
 };
 
@@ -327,6 +328,18 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
               />
               {t("settings.reasonCatalog.categoryActive")}
             </label>
+            {selected.kind === "downtime" ? (
+              <label className="flex items-center gap-2 text-[11px] text-zinc-400 sm:col-span-2">
+                <input
+                  type="checkbox"
+                  disabled={disabled || busy}
+                  checked={selected.planned ?? false}
+                  onChange={(e) => void patchCategory(selected.id, { planned: e.target.checked })}
+                  className="h-3.5 w-3.5 rounded border border-white/20 bg-black/20"
+                />
+                {t("settings.reasonCatalog.categoryPlanned")}
+              </label>
+            ) : null}
           </div>
         ) : null}
 

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   BarChart3,
   Bell,
+  BookOpen,
   DollarSign,
   LayoutGrid,
   Loader2,
@@ -37,6 +38,7 @@ const items: NavItem[] = [
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
   { href: "/financial", labelKey: "nav.financial", icon: DollarSign, ownerOnly: true },
   { href: "/downtime", labelKey: "nav.downtime", icon: BarChart3 },
+  { href: "/methodology", labelKey: "nav.methodology", icon: BookOpen },
 ];
 const settingsItem: NavItem = { href: "/settings", labelKey: "nav.settings", icon: Settings };
 

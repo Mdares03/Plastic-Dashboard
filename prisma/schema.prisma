@@ -309,6 +309,9 @@ model ReasonCatalogCategory {
   codePrefix String              @map("code_prefix")
   sortOrder  Int                 @default(0) @map("sort_order")
   active     Boolean             @default(true)
+  // When true, this category's reason codes count as PLANNED downtime (necessary work,
+  // e.g. changeovers) — visible but excluded from the reducible-loss / ROI denominator.
+  planned    Boolean             @default(false)
   createdAt  DateTime            @default(now()) @map("created_at")
   updatedAt  DateTime            @updatedAt @map("updated_at")
   org        Org                 @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -353,6 +356,11 @@ model OrgSettings {
   updatedAt                  DateTime @updatedAt @map("updated_at")
   updatedBy                  String?  @map("updated_by")
   shiftScheduleOverridesJson Json?    @map("shift_schedule_overrides_json")
+  // ROI tracker config (set in the UI on /reports/roi). Dedicated columns so the general
+  // settings writer (which rebuilds defaults_json from a whitelist) can't clobber them.
+  roiBaselineStart           DateTime? @map("roi_baseline_start")
+  roiBaselineEnd             DateTime? @map("roi_baseline_end")
+  roiTargetReductionPct      Float?    @map("roi_target_reduction_pct")
   org                        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_settings")
@@ -597,6 +605,12 @@ model ReasonEntry {
   workOrderId     String?
   meta            Json?
   schemaVersion   Int       @default(1)
+  // Accountability for after-the-fact (web) reclassification. Null when the reason came
+  // straight from the edge/operator capture; set when a supervisor reclassifies in Control
+  // Tower. classifiedVia ∈ {"edge","web"} for provenance.
+  classifiedBy    String?
+  classifiedAt    DateTime?
+  classifiedVia   String?
   createdAt       DateTime  @default(now())
   machine         Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
   org             Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)

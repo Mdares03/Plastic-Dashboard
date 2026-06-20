@@ -338,7 +338,9 @@ function absorbMicroStopClusters(segments: RecapTimelineSegment[], maxGapMs: num
       const gap = segments[cursor + 1];
       const next = segments[cursor + 2];
       if (next.type !== "microstop") break;
-      if (gap.type === "macrostop" || gap.type === "mold-change") break;
+      // Production is ground truth (real cycles ran) — never swallow it into a
+      // microstop cluster, even a short one, or genuine green runs disappear.
+      if (gap.type === "macrostop" || gap.type === "mold-change" || gap.type === "production") break;
       const gapMs = Math.max(0, gap.endMs - gap.startMs);
       if (gapMs >= maxGapMs) break;
 
@@ -377,7 +379,10 @@ function absorbShortSegments(segments: RecapTimelineSegment[], minDurationMs: nu
   while (index < out.length) {
     const current = out[index];
     const durationMs = Math.max(0, current.endMs - current.startMs);
-    if (durationMs >= minDurationMs || out.length === 1) {
+    // Production is ground truth (real cycles ran). Never absorb it into a
+    // neighboring stop, regardless of how short the run is — otherwise short or
+    // sandwiched production windows vanish and the timeline shows all-red.
+    if (durationMs >= minDurationMs || out.length === 1 || current.type === "production") {
       index += 1;
       continue;
     }

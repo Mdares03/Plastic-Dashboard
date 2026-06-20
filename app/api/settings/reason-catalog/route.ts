@@ -30,6 +30,7 @@ export async function GET() {
       codePrefix: c.codePrefix,
       sortOrder: c.sortOrder,
       active: c.active,
+      planned: c.planned,
       items: c.items.map((it) => ({
         id: it.id,
         name: it.name,

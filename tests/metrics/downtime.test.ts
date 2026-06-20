@@ -5,6 +5,26 @@ import { at, HOUR, MIN, reason, T0 } from "../fixtures/scenario";
 
 const WINDOW = resolveWindow({ mode: "custom", timezone: "UTC", start: T0, end: at(24 * HOUR) });
 
+describe("R5 — per-org planned codes (Option A: planned categories)", () => {
+  // An org whose planned downtime is a DTPLN changeover category, not the literal MOLD_CHANGE.
+  const rows = [
+    reason({ reasonCode: "DTPLN-02", durationSeconds: 60 * 60, episodeEndTs: at(2 * HOUR), capturedAt: at(2 * HOUR) }), // changeover
+    reason({ reasonCode: "DTMAQ-01", durationSeconds: 30 * 60, episodeEndTs: at(3 * HOUR), capturedAt: at(3 * HOUR) }), // machine fault
+  ];
+
+  it("counts a configured DTPLN code as planned, not unplanned", () => {
+    const dt = computeDowntime(rows, WINDOW, new Set(["DTPLN-02"]));
+    expect(dt.plannedMin).toBe(60);
+    expect(dt.unplannedMin).toBe(30);
+  });
+
+  it("without the org set, the same DTPLN code wrongly counts as unplanned (the bug Option A fixes)", () => {
+    const dt = computeDowntime(rows, WINDOW); // default set = {MOLD_CHANGE} only
+    expect(dt.plannedMin).toBe(0);
+    expect(dt.unplannedMin).toBe(90);
+  });
+});
+
 describe("R5 — downtime authority", () => {
   const reasons = [
     // fully in-window unplanned, 10 min

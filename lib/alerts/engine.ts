@@ -170,14 +170,22 @@ function buildAlertMessage(params: {
   machineName: string;
   machineCode?: string | null;
   eventType: string;
+  statusKey: "active" | "resolved";
   title: string;
   description?: string | null;
   durationMin?: number | null;
 }) {
   const durationLabel =
     params.durationMin != null ? `${Math.round(params.durationMin)} min` : "n/a";
-  const subject = `[MIS] ${params.eventType} - ${params.machineName}`;
+  const resolved = params.statusKey === "resolved";
+  // Make alert vs all-clear unmistakable: the edge keeps the same title/body on a
+  // resolve (e.g. "Microstop In Progress"), so without this the resolved email is
+  // byte-for-byte identical to the alert and reads as a duplicate.
+  const subject = resolved
+    ? `[MIS] RESOLVED: ${params.eventType} - ${params.machineName}`
+    : `[MIS] ${params.eventType} - ${params.machineName}`;
   const text = [
+    `Status: ${resolved ? "RESOLVED — machine recovered" : "ACTIVE"}`,
     `Machine: ${params.machineName}${params.machineCode ? ` (${params.machineCode})` : ""}`,
     `Event: ${params.eventType}`,
     `Title: ${params.title}`,
@@ -403,6 +411,7 @@ export async function evaluateAlertsForEvent(eventId: string) {
       machineName: machine?.name ?? "Unknown Machine",
       machineCode: machine?.code ?? null,
       eventType,
+      statusKey,
       title: event.title ?? "Alert",
       description: event.description ?? null,
       durationMin,
@@ -456,12 +465,18 @@ export async function evaluateAlertsForEvent(eventId: string) {
         }
 
         // Gate 2 — circuit breaker: hard hourly ceilings per contact and per org.
-        const breaker = checkCircuitBreaker({
-          contactSentLastHour: localContactSent.get(rKey) ?? 0,
-          orgSentLastHour: orgSent,
-          maxPerContactPerHour: policy.maxPerContactPerHour,
-          maxPerOrgPerHour: policy.maxPerOrgPerHour,
-        });
+        // Recovery (resolved) notifications are exempt: a "machine recovered" message
+        // is important and infrequent, and must not be dropped because active alerts
+        // for the same incident already burned the hourly quota.
+        const breaker =
+          statusKey === "resolved"
+            ? ({ allowed: true } as const)
+            : checkCircuitBreaker({
+                contactSentLastHour: localContactSent.get(rKey) ?? 0,
+                orgSentLastHour: orgSent,
+                maxPerContactPerHour: policy.maxPerContactPerHour,
+                maxPerOrgPerHour: policy.maxPerOrgPerHour,
+              });
         if (!breaker.allowed) {
           await recordNotification({
             orgId: event.orgId,

@@ -1,5 +1,8 @@
 import { prisma } from "@/lib/prisma";
-import { MAX_OPEN_EPISODE_MS, episodeWindowMinutes, DEFAULT_PLANNED_CODES } from "@/lib/metrics";
+import { MAX_OPEN_EPISODE_MS, episodeWindowMinutes } from "@/lib/metrics";
+import { isInPlannedShift } from "@/lib/metrics/shift";
+import { loadShiftPlanningContext } from "@/lib/reports/queries/shiftPlanning";
+import { getPlannedReasonCodes } from "@/lib/downtime/plannedCodes";
 import { getCompiledFinancialFormulas } from "@/lib/financial/cache";
 import {
   createSchemaDriftDiagnostic,
@@ -271,6 +274,13 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
       severity: true,
     },
   });
+
+  // Shift authority — financial downtime is shift-aware exactly like the dashboard
+  // and the weekly report (the "shift-aware everywhere" rule), so cost minutes never
+  // diverge from the screens. Off-shift idle is not a chargeable loss.
+  const shiftCtx = await loadShiftPlanningContext(orgId);
+  // Per-org planned codes (e.g. DTPLN changeovers) — planned downtime is not a chargeable loss.
+  const plannedCodes = await getPlannedReasonCodes(orgId);
 
   // R5 downtime authority: micro/macrostop cost is sourced from ReasonEntry, not
   // MachineEvent — the SAME rows + episodeWindowMinutes clamp the dashboard uses,
@@ -598,7 +608,9 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     const code = String(row.reasonCode ?? "").trim().toUpperCase();
     // Planned downtime (mold change) is necessary, not a reducible loss — excluded
     // from cost, matching the old event path which skipped mold-change.
-    if (DEFAULT_PLANNED_CODES.has(code)) continue;
+    if (plannedCodes.has(code)) continue;
+    // Shift-aware: skip downtime recorded outside planned shifts (24/7 guard inside).
+    if (!isInPlannedShift(shiftCtx, row.capturedAt)) continue;
 
     const minutes = episodeWindowMinutes(row, start, end);
     if (minutes <= 0) continue;

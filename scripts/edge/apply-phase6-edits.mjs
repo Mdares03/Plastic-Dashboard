@@ -125,6 +125,32 @@ patchReplacements("Anomaly Detector", "P6.3 persist anomalyState/anomaly", [
   ['global.get("anomalyState")', 'global.get("anomalyState", "file")'],
   ['global.set("anomalyState", anomalyState)', 'global.set("anomalyState", anomalyState, "file")'],
 ]);
+
+// ── slow-cycle stable incidentKey ───────────────────────────────────────────
+// slow-cycle events carry no alert_id/incidentKey, so the backend alert engine
+// falls back to "slow-cycle:<event.id>" (a fresh UUID per event) → one incident
+// per slow cycle (inbox flood). Stamp a stable "slow-cycle:<wo>" key on the event
+// (top-level + inside data, mirroring the downtime stoppageEvent) so a
+// consistently-slow job dedups to ONE incident per work order. Anomaly Detector
+// emits an ARRAY (msg.payload = detectedAnomalies), so the key MUST live on the
+// element here — Build Event Outbox Payload only sees the array, not its items.
+patchReplacements("Anomaly Detector", "slow-cycle stable incidentKey", [
+  [
+    'anomaly_type: "slow-cycle",',
+    'anomaly_type: "slow-cycle",\n                incidentKey: `slow-cycle:${activeOrder.id}`,',
+  ],
+  [
+    '                    delta_percent: Math.round(deltaPercent),\n' +
+      '                    micro_threshold_multiplier: microMultiplier,\n' +
+      '                    macro_threshold_multiplier: macroMultiplier\n' +
+      '                },',
+    '                    delta_percent: Math.round(deltaPercent),\n' +
+      '                    micro_threshold_multiplier: microMultiplier,\n' +
+      '                    macro_threshold_multiplier: macroMultiplier,\n' +
+      '                    incidentKey: `slow-cycle:${activeOrder.id}`\n' +
+      '                },',
+  ],
+]);
 patchReplacements("Handle Anomaly Acknowledgment", "P6.3 persist anomaly", [
   ['global.get("anomaly")', 'global.get("anomaly", "file")'],
   ['global.set("anomaly", anomaly)', 'global.set("anomaly", anomaly, "file")'],

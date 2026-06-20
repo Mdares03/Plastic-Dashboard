@@ -17,6 +17,7 @@ const patchSchema = z.object({
     .optional(),
   sortOrder: z.number().int().optional(),
   active: z.boolean().optional(),
+  planned: z.boolean().optional(),
 });
 
 export async function PATCH(
@@ -77,6 +78,7 @@ export async function PATCH(
           ...(parsed.data.codePrefix !== undefined ? { codePrefix: parsed.data.codePrefix } : {}),
           ...(parsed.data.sortOrder !== undefined ? { sortOrder: parsed.data.sortOrder } : {}),
           ...(parsed.data.active !== undefined ? { active: parsed.data.active } : {}),
+          ...(parsed.data.planned !== undefined ? { planned: parsed.data.planned } : {}),
         },
       });
 

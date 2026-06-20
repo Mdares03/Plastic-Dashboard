@@ -311,6 +311,14 @@ export async function POST(req: Request) {
   const created: { id: string; ts: Date; eventType: string }[] = [];
   const skipped: Array<Record<string, unknown>> = [];
 
+  // Defense-in-depth: a single body may legitimately carry multiple distinct events
+  // (e.g. an auto-ack + the active refresh emitted in the same tick). If they share a
+  // seq, createMany({skipDuplicates}) against uq_event_org_machine_seq would insert the
+  // first and SILENTLY drop the rest — losing the active event. Track seqs seen in this
+  // batch and null-out the seq of any later collider so it still persists (idempotency
+  // for that one row falls back to ts; producers should send one event per seq).
+  const seenSeqs = new Set<string>();
+
   for (const ev of events) {
     const evRecord = asRecord(ev);
     if (!evRecord) {
@@ -436,10 +444,21 @@ export async function POST(req: Request) {
     const dataActiveWorkOrder = asRecord(evData.activeWorkOrder);
 
     // ✨ Cada evento puede traer su propio seq, o usar el del payload raíz
-    const evSeq = 
+    let evSeq =
       parseSeqToBigInt(evRecord.seq) ??
       parseSeqToBigInt(evData.seq) ??
       bodySeq;
+
+    // If this seq was already used by an earlier event in the same batch, drop it to
+    // null so this row isn't silently discarded by the (org,machine,seq) idempotency.
+    if (evSeq != null) {
+      const seqKey = evSeq.toString();
+      if (seenSeqs.has(seqKey)) {
+        evSeq = null;
+      } else {
+        seenSeqs.add(seqKey);
+      }
+    }
 
     const evSchemaVersion = 
       clampText(evRecord.schemaVersion, 16) ??
@@ -472,15 +491,54 @@ export async function POST(req: Request) {
         null,
     };
 
+    // Collapse stoppage refreshes into one row per episode. The edge re-emits a
+    // macro/micro-stop event every ~stoppageUpdateIntervalMs while a machine is down;
+    // instead of inserting a new MachineEvent each time, update the open episode row
+    // identified by incidentKey. Keeps one row per stoppage (live duration on it) while
+    // ReasonEntry continuity and alert escalation downstream are unchanged.
+    const stopIncidentKey =
+      finalType === "macrostop" || finalType === "microstop"
+        ? clampText(dataObj.incidentKey ?? evData.incidentKey, 128)
+        : null;
+    let existingEpisodeRow: Awaited<ReturnType<typeof prisma.machineEvent.findFirst>> = null;
+    if (stopIncidentKey) {
+      existingEpisodeRow = await prisma.machineEvent.findFirst({
+        where: {
+          orgId: machine.orgId,
+          machineId: machine.id,
+          eventType: finalType,
+          data: { path: ["incidentKey"], equals: stopIncidentKey },
+        },
+        orderBy: { ts: "desc" },
+      });
+    }
+
     // ✨ Idempotente: si ya existe (mismo orgId+machineId+seq), no inserta
-    const insertResult = await prisma.machineEvent.createMany({
-      data: [eventData],
-      skipDuplicates: true,
-    });
+    const insertResult = existingEpisodeRow
+      ? { count: 0 }
+      : await prisma.machineEvent.createMany({
+          data: [eventData],
+          skipDuplicates: true,
+        });
 
     // ✨ Buscar la fila (la recién creada o la duplicada existente)
     let row;
-    if (evSeq != null) {
+    if (existingEpisodeRow) {
+      // Stoppage refresh/resolve: update the open episode row in place.
+      row = await prisma.machineEvent.update({
+        where: { id: existingEpisodeRow.id },
+        data: {
+          ts,
+          severity: sev,
+          title,
+          description,
+          topic: eventData.topic,
+          data: toJsonValue(dataObj),
+          ...(eventData.workOrderId ? { workOrderId: eventData.workOrderId } : {}),
+          ...(eventData.sku ? { sku: eventData.sku } : {}),
+        },
+      });
+    } else if (evSeq != null) {
       row = await prisma.machineEvent.findFirst({
         where: { 
           orgId: machine.orgId, 
@@ -507,7 +565,9 @@ export async function POST(req: Request) {
       continue;
     }
 
-    const wasDuplicate = insertResult.count === 0;
+    // An in-place episode update is NOT a no-op duplicate: it must still run reason
+    // continuity (for resolve events) and alert escalation downstream.
+    const wasDuplicate = !existingEpisodeRow && insertResult.count === 0;
 
     // Si fue duplicado, no procesar reasonEntry ni alertas (ya se hicieron antes)
     if (wasDuplicate) {

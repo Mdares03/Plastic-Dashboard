@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import DowntimeParetoCard from "@/components/analytics/DowntimeParetoCard";
+import KpiTile from "@/components/kpi/KpiTile";
 import {
   Bar,
   BarChart,
@@ -869,6 +870,14 @@ export default function MachineDetailClient() {
 
   const hb = machine?.latestHeartbeat ?? null;
   const kpi = machine?.latestKpi ?? null;
+  // Live-snapshot freshness caption shared by the four KPI tiles (R4 gate: a stale
+  // snapshot is nulled upstream, so a value here is genuinely live).
+  const kpiLiveCaption = kpi?.ts
+    ? t("machine.detail.kpi.updated", {
+        time: formatElapsedSince(kpi.ts, t("common.never"), { maxUnits: 2, minUnit: "second" }),
+      })
+    : undefined;
+  const kpiEmptyCaption = t("recap.kpi.noData");
   const hbTs = hb?.tsServer ?? hb?.ts;
   const offline = useMemo(() => isOffline(hbTs), [hbTs]);
   const normalizedStatus = normalizeStatus(hb?.status);
@@ -1214,37 +1223,31 @@ export default function MachineDetailClient() {
       {!loading && !error && (
         <>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-xs text-zinc-400">{t("machine.detail.kpi.oeeCurrent")}</div>
-              {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
-                <div className="mt-2 text-3xl font-bold text-zinc-400">—</div>
-              ) : (
-                <div className="mt-2 text-3xl font-bold text-emerald-300">{fmtPct(kpi?.oee)}</div>
-              )}
-              <div className="mt-1 text-xs text-zinc-400">
-                {t("machine.detail.kpi.updated", {
-                  time: formatElapsedSince(kpi?.ts, t("common.never"), { maxUnits: 2, minUnit: "second" }),
-                })}
-              </div>
-              {kpi?.oee == null || Number.isNaN(kpi.oee) ? (
-                <div className="mt-1 text-xs text-zinc-500">{t("recap.kpi.noData")}</div>
-              ) : null}
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-xs text-zinc-400">Availability</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(kpi?.availability)}</div>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-xs text-zinc-400">Performance</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(kpi?.performance)}</div>
-            </div>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="text-xs text-zinc-400">Quality</div>
-              <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(kpi?.quality)}</div>
-            </div>
+            <KpiTile
+              label={t("machine.detail.kpi.oeeCurrent")}
+              value={kpi?.oee == null || Number.isNaN(kpi.oee) ? null : fmtPct(kpi.oee)}
+              caption={kpiLiveCaption}
+              emptyCaption={kpiEmptyCaption}
+              tone="primary"
+            />
+            <KpiTile
+              label="Availability"
+              value={kpi?.availability == null || Number.isNaN(kpi.availability) ? null : fmtPct(kpi.availability)}
+              caption={kpiLiveCaption}
+              emptyCaption={kpiEmptyCaption}
+            />
+            <KpiTile
+              label="Performance"
+              value={kpi?.performance == null || Number.isNaN(kpi.performance) ? null : fmtPct(kpi.performance)}
+              caption={kpiLiveCaption}
+              emptyCaption={kpiEmptyCaption}
+            />
+            <KpiTile
+              label="Quality"
+              value={kpi?.quality == null || Number.isNaN(kpi.quality) ? null : fmtPct(kpi.quality)}
+              caption={kpiLiveCaption}
+              emptyCaption={kpiEmptyCaption}
+            />
           </div>
 
           <div className="mt-6">

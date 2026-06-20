@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, lazy, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useI18n } from "@/lib/i18n/useI18n";
 import WeeklyReportButton from "@/components/reports/weekly/WeeklyReportButton";
 
@@ -585,6 +586,12 @@ export default function ReportsPageClient({
         </div>
 
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <Link
+            href="/reports/roi"
+            className="w-full rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm font-medium text-emerald-200 hover:bg-emerald-500/20 sm:w-auto"
+          >
+            ROI tracker
+          </Link>
           <WeeklyReportButton previewHref={weeklyReportHref} printHref={weeklyReportPrintHref} />
           <button
             onClick={handleExportCsv}

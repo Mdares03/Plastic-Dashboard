@@ -11,6 +11,7 @@
 export * from "./types";
 export * from "./spec";
 export * from "./window";
+export * from "./shift";
 export * from "./rates";
 export * from "./production";
 export * from "./downtime";

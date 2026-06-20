@@ -5,6 +5,7 @@ import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { formatElapsedSinceWithAgo } from "@/lib/time/elapsed";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
+import KpiTile from "@/components/kpi/KpiTile";
 import type { EventRow, Heartbeat, MachineRow } from "./types";
 
 const OFFLINE_MS = RECAP_HEARTBEAT_STALE_MS;
@@ -354,22 +355,31 @@ export default function OverviewClient({
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-xs text-zinc-400">{t("overview.oeeAvg")}</div>
-          <div className="mt-2 text-3xl font-semibold text-emerald-300">{fmtPct(stats.oee)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-xs text-zinc-400">{t("overview.availabilityAvg")}</div>
-          <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(stats.availability)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-xs text-zinc-400">{t("overview.performanceAvg")}</div>
-          <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(stats.performance)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-xs text-zinc-400">{t("overview.qualityAvg")}</div>
-          <div className="mt-2 text-2xl font-semibold text-white">{fmtPct(stats.quality)}</div>
-        </div>
+        <KpiTile
+          label={t("overview.oeeAvg")}
+          value={stats.oee == null ? null : fmtPct(stats.oee)}
+          caption={t("overview.kpiLiveCaption")}
+          emptyCaption={t("overview.kpiLiveEmpty")}
+          tone="primary"
+        />
+        <KpiTile
+          label={t("overview.availabilityAvg")}
+          value={stats.availability == null ? null : fmtPct(stats.availability)}
+          caption={t("overview.kpiLiveCaption")}
+          emptyCaption={t("overview.kpiLiveEmpty")}
+        />
+        <KpiTile
+          label={t("overview.performanceAvg")}
+          value={stats.performance == null ? null : fmtPct(stats.performance)}
+          caption={t("overview.kpiLiveCaption")}
+          emptyCaption={t("overview.kpiLiveEmpty")}
+        />
+        <KpiTile
+          label={t("overview.qualityAvg")}
+          value={stats.quality == null ? null : fmtPct(stats.quality)}
+          caption={t("overview.kpiLiveCaption")}
+          emptyCaption={t("overview.kpiLiveEmpty")}
+        />
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">

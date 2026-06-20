@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import ReclassifyModal, { type ReclassifyTarget } from "@/components/downtime/ReclassifyModal";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
 import {
@@ -1318,6 +1319,10 @@ export default function DowntimePageClient() {
   const [eventsRes, setEventsRes] = useState<ApiDowntimeEventsRes | null>(null);
   const [eventsLoading, setEventsLoading] = useState(false);
   const [eventsErr, setEventsErr] = useState<string | null>(null);
+  // B3 — web reclassification: which episode is open in the modal, and a nonce to
+  // re-fetch events after a successful reclassify.
+  const [reclassifyTarget, setReclassifyTarget] = useState<ReclassifyTarget | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const [catalogRows, setCatalogRows] = useState<ApiReasonCatalogRow[]>([]);
   const [catalogErr, setCatalogErr] = useState<string | null>(null);
 
@@ -1490,7 +1495,7 @@ export default function DowntimePageClient() {
             alive = false;
             ac.abort();
         };
-        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified, eventsLimit, eventsBefore]);
+        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified, eventsLimit, eventsBefore, reloadNonce]);
 
   // Derived data
   const events = eventsRes?.events ?? [];
@@ -1563,6 +1568,14 @@ export default function DowntimePageClient() {
   const totalEventsClassified = eventsRes?.totalEventsClassified ?? totalStops;
   const excludedUnclassifiedEvents =
     eventsRes?.excludedUnclassifiedEvents ?? Math.max(0, totalEventsAll - totalEventsClassified);
+
+  // B5 — classification rate as a headline KPI against the ≥80% target. Below target is
+  // surfaced in red so a low number reads as an action item, not background noise.
+  const CLASSIFICATION_TARGET_PCT = 80;
+  const classificationRatePct =
+    totalEventsAll > 0 ? Math.round((totalEventsClassified / totalEventsAll) * 1000) / 10 : null;
+  const meetsClassificationTarget =
+    classificationRatePct != null && classificationRatePct >= CLASSIFICATION_TARGET_PCT;
 
   const top3Share = useMemo(() => {
     const top3 = metricRowsAll.slice(0, 3);
@@ -2094,9 +2107,10 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                 accent="rose"
             />
             <KPI
-                label="Unclassified"
-                value={`${fmtNum(unclassifiedPct, 0)}%`}
-                sub="Data quality signal"
+                label="Classification rate"
+                value={classificationRatePct == null ? "—" : `${fmtNum(classificationRatePct, 0)}%`}
+                sub={`Target ≥${CLASSIFICATION_TARGET_PCT}% · ${fmtNum(unclassifiedPct, 0)}% unclassified`}
+                accent={meetsClassificationTarget ? "emerald" : "rose"}
             />
             </div>
 
@@ -2490,6 +2504,7 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                         <th className="px-4 py-3">WO</th>
                         <th className="px-4 py-3 text-right">Duration</th>
                         <th className="px-4 py-3 text-right">Episode</th>
+                        <th className="px-4 py-3 text-right">Classify</th>
                     </tr>
                     </thead>
 
@@ -2531,13 +2546,41 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
                             <td className="px-4 py-3 text-right text-[11px] text-zinc-500">
                             {e.episodeId ?? "—"}
                             </td>
+                            <td className="px-4 py-3 text-right">
+                            {(() => {
+                              const unclassified = /unclass|unknown/i.test(e.reasonCode) || /unclass|unknown/i.test(e.reasonLabel ?? "");
+                              return (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "rounded-lg px-2.5 py-1 text-[11px] font-medium",
+                                    unclassified
+                                      ? "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                                      : "text-zinc-400 hover:bg-white/5"
+                                  )}
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setReclassifyTarget({
+                                      reasonEntryId: e.id,
+                                      machineName: e.machineName,
+                                      reasonCode: e.reasonCode,
+                                      reasonLabel: e.reasonLabel,
+                                      startAt: e.startAt,
+                                    });
+                                  }}
+                                >
+                                  {unclassified ? "Classify" : "Reclassify"}
+                                </button>
+                              );
+                            })()}
+                            </td>
                         </tr>
                         );
                     })}
 
                     {filteredEvents.length === 0 ? (
                         <tr>
-                        <td className="px-4 py-6 text-sm text-zinc-400" colSpan={7}>
+                        <td className="px-4 py-6 text-sm text-zinc-400" colSpan={8}>
                             No events found for this filter/range.
                         </td>
                         </tr>
@@ -2561,6 +2604,17 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
         row={drawer.row}
         metric={metric}
       />
+
+      {reclassifyTarget ? (
+        <ReclassifyModal
+          target={reclassifyTarget}
+          onClose={() => setReclassifyTarget(null)}
+          onDone={() => {
+            setReclassifyTarget(null);
+            setReloadNonce((n) => n + 1);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

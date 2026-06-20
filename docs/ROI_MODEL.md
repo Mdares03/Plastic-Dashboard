@@ -75,3 +75,10 @@ rebuild.
   go-live soak.
 - **Window.** Baseline is a 30-day rolling window; seasonality (product mix, shift count) will move it.
   Track the trend, not a single month.
+- **Shift-aware downtime (re-base needed).** Downtime is now counted only inside configured
+  production shifts on every screen — dashboard, weekly report, and this financial model alike
+  (`lib/metrics/shift.ts`, the "shift-aware everywhere" rule). Off-shift idle (nights/weekends with no
+  scheduled shift) is no longer a chargeable loss. This lowers the measured unplanned-downtime baseline
+  versus the 7,904 min above, which was computed before shift filtering. **Re-run the baseline once the
+  org's shift schedule is configured** (Settings → Shifts) so the 20 % target is measured against
+  production-time downtime. Orgs with no shift schedule are treated as 24/7 (unchanged numbers).

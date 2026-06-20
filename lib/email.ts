@@ -257,3 +257,47 @@ export function buildDowntimeActionReminderEmail(params: {
 
   return { subject, text, html };
 }
+
+/**
+ * C5 — weekly/monthly ROI summary email. Pure builder (unit-tested); the trigger endpoint
+ * computes the ROI and calls sendEmail with this. Money line is omitted when cost rates are
+ * still placeholders, so we never email an illustrative peso figure as if it were real.
+ */
+export function buildRoiSummaryEmail(params: {
+  appName: string;
+  orgName: string;
+  roi: {
+    baseline: { unplannedMinPerDay: number };
+    current: { unplannedMinPerDay: number };
+    targetReductionPct: number;
+    achievedReductionPct: number | null;
+    meetsTarget: boolean;
+    estimatedMonthlySavings: number;
+    currency: string;
+    costRatesArePlaceholder: boolean;
+  };
+  reportUrl: string;
+}) {
+  const { roi } = params;
+  const reduction = roi.achievedReductionPct == null ? "—" : `${roi.achievedReductionPct.toFixed(1)}%`;
+  const status = roi.meetsTarget ? "on/above target" : "below target";
+  const moneyLine = roi.costRatesArePlaceholder
+    ? "Money savings: not shown (cost rates not configured yet)."
+    : `Estimated monthly savings: ${roi.currency} ${roi.estimatedMonthlySavings.toLocaleString()}.`;
+
+  const subject = `${params.orgName}: downtime reduction ${reduction} (target ≥${roi.targetReductionPct}%)`;
+  const text =
+    `ROI summary for ${params.orgName} (${params.appName}).\n\n` +
+    `Reduction vs baseline: ${reduction} — ${status} (target ≥${roi.targetReductionPct}%).\n` +
+    `Baseline: ${roi.baseline.unplannedMinPerDay.toFixed(0)} min/day → Current: ${roi.current.unplannedMinPerDay.toFixed(0)} min/day.\n` +
+    `${moneyLine}\n\n` +
+    `Open the ROI tracker:\n${params.reportUrl}`;
+  const html =
+    `<p>ROI summary for <strong>${params.orgName}</strong> (${params.appName}).</p>` +
+    `<p><strong>Reduction vs baseline: ${reduction}</strong> — ${status} (target ≥${roi.targetReductionPct}%).</p>` +
+    `<p>Baseline: ${roi.baseline.unplannedMinPerDay.toFixed(0)} min/day → Current: ${roi.current.unplannedMinPerDay.toFixed(0)} min/day.</p>` +
+    `<p>${moneyLine}</p>` +
+    `<p><a href="${params.reportUrl}">Open the ROI tracker</a></p>`;
+
+  return { subject, text, html };
+}

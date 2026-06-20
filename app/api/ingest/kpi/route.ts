@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getMachineAuth } from "@/lib/machineAuthCache";
 import { checkRateLimit, tooManyRequestsResponse } from "@/lib/rateLimit";
 import { normalizeSnapshotV1 } from "@/lib/contracts/v1";
-import { toJsonValue } from "@/lib/prismaJson";
+import { toJsonValue, boundedJsonValue } from "@/lib/prismaJson";
 import { logLine } from "@/lib/logger";
 import { isTemporarilyBlockedWorkOrder } from "@/lib/workOrders/temporaryBlocklist";
 
@@ -144,7 +144,7 @@ export async function POST(req: Request) {
           status: 400,
           errorCode: "INVALID_PAYLOAD",
           errorMsg: normalized.error,
-          body: toJsonValue(rawBody),
+          body: boundedJsonValue(rawBody),
           ip,
           userAgent,
         },
@@ -170,7 +170,7 @@ export async function POST(req: Request) {
           status: 401,
           errorCode: "UNAUTHORIZED",
           errorMsg: "Unauthorized (machineId/apiKey mismatch)",
-          body: toJsonValue(rawBody),
+          body: boundedJsonValue(rawBody),
           machineId,
           schemaVersion,
           seq,
@@ -359,7 +359,7 @@ export async function POST(req: Request) {
           schemaVersion,
           seq,
           tsDevice: tsDeviceDate ?? undefined,
-          body: toJsonValue(rawBody),
+          body: boundedJsonValue(rawBody),
           ip,
           userAgent,
         },
