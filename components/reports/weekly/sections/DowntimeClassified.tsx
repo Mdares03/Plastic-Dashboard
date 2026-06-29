@@ -17,7 +17,7 @@ export default function DowntimeClassified({
         <div className="mb-2 text-sm font-semibold text-white">{t("reports.weekly.downtimePareto")}</div>
         <div className="space-y-2">
           {paretoRows.length === 0 ? (
-            <div className="text-xs text-zinc-500">{t("reports.weekly.empty")}</div>
+            <div className="text-xs text-zinc-400">{t("reports.weekly.empty")}</div>
           ) : (
             paretoRows.map((row) => (
               <div key={row.reasonCode} className="rounded-lg border border-white/10 bg-black/20 p-2">
@@ -25,7 +25,7 @@ export default function DowntimeClassified({
                   <span className="text-zinc-200">{row.reasonLabel}</span>
                   <span className="text-zinc-400">{row.minutes.toFixed(0)} min</span>
                 </div>
-                <div className="mt-1 text-[11px] text-zinc-500">{row.events} {t("reports.weekly.events")}</div>
+                <div className="mt-1 text-[11px] text-zinc-400">{row.events} {t("reports.weekly.events")}</div>
               </div>
             ))
           )}
@@ -36,7 +36,7 @@ export default function DowntimeClassified({
         <div className="mb-2 text-sm font-semibold text-white">{t("reports.weekly.downtimeByShift")}</div>
         <div className="space-y-2">
           {report.downtimeByShift.length === 0 ? (
-            <div className="text-xs text-zinc-500">{t("reports.weekly.empty")}</div>
+            <div className="text-xs text-zinc-400">{t("reports.weekly.empty")}</div>
           ) : (
             report.downtimeByShift.map((row) => (
               <div key={row.shiftName} className="rounded-lg border border-white/10 bg-black/20 p-2 text-xs">
@@ -44,7 +44,7 @@ export default function DowntimeClassified({
                   <span className="text-zinc-200">{row.shiftName}</span>
                   <span className="text-zinc-400">{row.minutes.toFixed(0)} min</span>
                 </div>
-                <div className="mt-1 text-zinc-500">{row.events} {t("reports.weekly.events")}</div>
+                <div className="mt-1 text-zinc-400">{row.events} {t("reports.weekly.events")}</div>
               </div>
             ))
           )}

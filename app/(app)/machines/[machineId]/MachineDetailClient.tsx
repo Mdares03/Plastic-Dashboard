@@ -3,23 +3,26 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import DowntimeParetoCard from "@/components/analytics/DowntimeParetoCard";
+import dynamic from "next/dynamic";
 import KpiTile from "@/components/kpi/KpiTile";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  Scatter,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import ChartSkeleton from "@/components/charts/ChartSkeleton";
+import { BUCKET } from "./machineDetailBuckets";
 import { useI18n } from "@/lib/i18n/useI18n";
+
+// Recharts is heavy (~315KB w/ d3); code-split every chart so it loads only when
+// the relevant card/modal renders, not in the page's initial bundle.
+const DowntimeParetoCard = dynamic(() => import("@/components/analytics/DowntimeParetoCard"), {
+  ssr: false,
+  loading: () => <ChartSkeleton heightClass="h-80" />,
+});
+const CycleDeviationChart = dynamic(
+  () => import("./MachineDetailCharts").then((m) => m.CycleDeviationChart),
+  { ssr: false, loading: () => <ChartSkeleton heightClass="h-full" /> },
+);
+const ImpactChart = dynamic(() => import("./MachineDetailCharts").then((m) => m.ImpactChart), {
+  ssr: false,
+  loading: () => <ChartSkeleton heightClass="h-full" />,
+});
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
 import type { RecapTimelineResponse, RecapTimelineSegment } from "@/lib/recap/types";
 import { RECAP_HEARTBEAT_STALE_MS } from "@/lib/recap/recapUiConstants";
@@ -116,54 +119,11 @@ type WorkOrderUpload = {
 };
 
 type WorkOrderRow = Record<string, string | number | boolean>;
-type TooltipPayload<T> = { payload?: T; name?: string; value?: number | string };
-type SimpleTooltipProps<T> = {
-  active?: boolean;
-  payload?: Array<TooltipPayload<T>>;
-  label?: string | number;
-};
-type ActiveRingProps = { cx?: number; cy?: number; fill?: string };
-type ScatterPointProps = { cx?: number; cy?: number; payload?: { bucket?: string } };
 
-const TOL = 0.10;
 const DEFAULT_MICRO_MULT = 1.5;
 const DEFAULT_MACRO_MULT = 5;
 const NORMAL_TOL_SEC = 0.1;
 const LIVE_REFRESH_MS = 15000;
-
-const BUCKET = {
-  normal: {
-    labelKey: "machine.detail.bucket.normal",
-    dot: "#12D18E",
-    glow: "rgba(18,209,142,.35)",
-    chip: "bg-emerald-500/15 text-emerald-300 border-emerald-500/20",
-  },
-  slow: {
-    labelKey: "machine.detail.bucket.slow",
-    dot: "#F7B500",
-    glow: "rgba(247,181,0,.35)",
-    chip: "bg-yellow-500/15 text-yellow-300 border-yellow-500/20",
-  },
-  microstop: {
-    labelKey: "machine.detail.bucket.microstop",
-    dot: "#FF7A00",
-    glow: "rgba(255,122,0,.35)",
-    chip: "bg-orange-500/15 text-orange-300 border-orange-500/20",
-  },
-  macrostop: {
-    labelKey: "machine.detail.bucket.macrostop",
-    dot: "#FF3B5C",
-    glow: "rgba(255,59,92,.35)",
-    chip: "bg-rose-500/15 text-rose-300 border-rose-500/20",
-  },
-  unknown: {
-    labelKey: "machine.detail.bucket.unknown",
-    dot: "#A1A1AA",
-    glow: "rgba(161,161,170,.25)",
-    chip: "bg-white/10 text-zinc-200 border-white/10",
-  },
-} as const;
-
 
 function resolveMultipliers(thresholds?: Thresholds | null) {
   const micro = Number(thresholds?.stoppageMultiplier ?? DEFAULT_MICRO_MULT);
@@ -474,7 +434,7 @@ function MachineActivityTimeline({ machineId, locale, t }: MachineActivityTimeli
       </div>
 
       <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-        <div className="mb-2 flex justify-between text-[11px] text-zinc-500">
+        <div className="mb-2 flex justify-between text-[11px] text-zinc-400">
           <span>{timelineLoading ? t("common.loading") : formatTime(startMs, locale)}</span>
           <span>{formatTime(endMs, locale)}</span>
         </div>
@@ -896,16 +856,6 @@ export default function MachineDetailClient() {
     time: formatElapsedSince(hbTs, t("common.never"), { maxUnits: 2, minUnit: "second" }),
   });
 
-  const ActiveRing = ({ cx, cy, fill }: ActiveRingProps) => {
-    if (cx == null || cy == null) return null;
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={7} fill="transparent" stroke="var(--app-chart-label)" strokeWidth={2} />
-        <circle cx={cx} cy={cy} r={4} fill={fill} />
-      </g>
-    );
-  };
-
   function MiniCard({
     title,
     subtitle,
@@ -979,41 +929,6 @@ export default function MachineDetailClient() {
               </button>
             </div>
             {children}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function CycleTooltip({
-    active,
-    payload,
-    label,
-  }: SimpleTooltipProps<{ actual?: number; ideal?: number; deltaPct?: number }>) {
-    if (!active || !payload?.length) return null;
-
-    const p = payload[0]?.payload;
-    if (!p) return null;
-    const safeLabel = label ?? "";
-
-    const ideal = p.ideal ?? null;
-    const actual = p.actual ?? null;
-    const deltaPct = p.deltaPct ?? null;
-
-    return (
-      <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
-        <div className="text-sm font-semibold text-white">
-          {t("machine.detail.tooltip.cycle", { label: safeLabel })}
-        </div>
-        <div className="mt-2 space-y-1 text-xs text-zinc-300">
-          <div>
-            {t("machine.detail.tooltip.duration")}: <span className="text-white">{actual?.toFixed(2)}s</span>
-          </div>
-          <div>
-            {t("machine.detail.tooltip.ideal")}: <span className="text-white">{ideal != null ? `${ideal.toFixed(2)}s` : t("common.na")}</span>
-          </div>
-          <div>
-            {t("machine.detail.tooltip.deviation")}: <span className="text-white">{deltaPct != null ? `${deltaPct.toFixed(1)}%` : t("common.na")}</span>
           </div>
         </div>
       </div>
@@ -1202,7 +1117,7 @@ export default function MachineDetailClient() {
               {deleteError}
             </div>
           )}
-          <div className="text-left text-[11px] text-zinc-500 sm:text-right">
+          <div className="text-left text-[11px] text-zinc-400 sm:text-right">
             {t("machine.detail.workOrders.uploadHint")}
           </div>
           {uploadState.status !== "idle" && uploadState.message && (
@@ -1459,67 +1374,7 @@ export default function MachineDetailClient() {
                 className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
                 style={{ boxShadow: "var(--app-chart-shadow)" }}
               >
-                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-                  <ComposedChart data={deviationSeries}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
-                    <XAxis
-                      dataKey="i"
-                      type="number"
-                      domain={[1, "dataMax"]}
-                      allowDecimals={false}
-                      tick={{ fill: "var(--app-chart-tick)" }}
-                    />
-                    <YAxis
-                      tick={{ fill: "var(--app-chart-tick)" }}
-                      domain={
-                        kpi?.cycleTime
-                          ? [
-                              Math.max(0, kpi.cycleTime * (1 - TOL) - 2),
-                              kpi.cycleTime * (1 + TOL) + 2,
-                            ]
-                          : ["auto", "auto"]
-                      }
-                    />
-                    <Tooltip content={<CycleTooltip />} cursor={{ stroke: "var(--app-chart-grid)" }} />
-
-                    {kpi?.cycleTime ? (
-                      <>
-                        <ReferenceLine y={kpi.cycleTime} stroke="rgba(18,209,142,0.6)" strokeWidth={2} />
-                        <ReferenceLine
-                          y={kpi.cycleTime * (1 - TOL)}
-                          stroke="rgba(247,181,0,0.7)"
-                          strokeDasharray="6 6"
-                        />
-                        <ReferenceLine
-                          y={kpi.cycleTime * (1 + TOL)}
-                          stroke="rgba(247,181,0,0.7)"
-                          strokeDasharray="6 6"
-                        />
-                      </>
-                    ) : null}
-
-                    <Line dataKey="ideal" dot={false} activeDot={false} stroke="var(--app-chart-grid)" />
-                    <Scatter
-                      dataKey="actual"
-                      isAnimationActive={false}
-                      activeShape={<ActiveRing />}
-                      shape={({ cx, cy, payload }: ScatterPointProps) => {
-                        const meta =
-                          BUCKET[(payload?.bucket as keyof typeof BUCKET) ?? "unknown"] ?? BUCKET.unknown;
-
-                        return (
-                          <circle
-                            cx={cx}
-                            cy={cy}
-                            r={5}
-                            fill={meta.dot}
-                            style={{ filter: `drop-shadow(0 0 8px ${meta.glow})` }}
-                          />
-                        );
-                      }}
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                <CycleDeviationChart data={deviationSeries} cycleTime={kpi?.cycleTime} t={t} />
               </div>
 
               <div className="text-xs text-zinc-400">{t("machine.detail.modal.tip")}</div>
@@ -1553,31 +1408,7 @@ export default function MachineDetailClient() {
                 className="h-[380px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
                 style={{ boxShadow: "var(--app-chart-shadow)" }}
               >
-                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-                  <BarChart data={impactAgg.rows}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
-                    <XAxis dataKey="label" tick={{ fill: "var(--app-chart-tick)" }} />
-                    <YAxis tick={{ fill: "var(--app-chart-tick)" }} />
-                    <Tooltip
-                      shared={false}
-                      contentStyle={{
-                        background: "var(--app-chart-tooltip-bg)",
-                        border: "1px solid var(--app-chart-tooltip-border)",
-                      }}
-                      labelStyle={{ color: "var(--app-chart-label)" }}
-                      formatter={(val: number | string | undefined) => [
-                        `${val == null ? 0 : Number(val).toFixed(1)}s`,
-                        t("machine.detail.modal.extraTimeLabel"),
-                      ]}
-                    />
-                    <Bar dataKey="seconds" radius={[10, 10, 0, 0]} isAnimationActive={false}>
-                      {impactAgg.rows.map((row, idx) => {
-                        const key = row.bucket as keyof typeof BUCKET;
-                        return <Cell key={idx} fill={BUCKET[key].dot} />;
-                      })}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <ImpactChart rows={impactAgg.rows} t={t} />
               </div>
 
               <div className="text-xs text-zinc-400">{t("machine.detail.modal.extraTimeNote")}</div>

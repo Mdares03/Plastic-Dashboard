@@ -657,7 +657,7 @@ export default function ReportsPageClient({
               value={workOrderId}
               onChange={(e) => setWorkOrderId(e.target.value)}
               placeholder={t("reports.filter.allWorkOrders")}
-              className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-500"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-400"
             />
             <datalist id="work-order-list">
               {filterOptions.workOrders.map((wo) => (
@@ -673,7 +673,7 @@ export default function ReportsPageClient({
               value={sku}
               onChange={(e) => setSku(e.target.value)}
               placeholder={t("reports.filter.allSkus")}
-              className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-500"
+              className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-zinc-300 placeholder:text-zinc-400"
             />
             <datalist id="sku-list">
               {filterOptions.skus.map((s) => (
@@ -692,7 +692,7 @@ export default function ReportsPageClient({
               />
               Exclude unclassified
             </label>
-            <div className="mt-2 text-[11px] text-zinc-500">UNCLASSIFIED / UNKNOWN</div>
+            <div className="mt-2 text-[11px] text-zinc-400">UNCLASSIFIED / UNKNOWN</div>
           </div>
         </div>
       </div>
@@ -724,7 +724,7 @@ export default function ReportsPageClient({
           <div key={kpi.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="text-xs text-zinc-400">{kpi.label} (avg)</div>
             <div className={`mt-2 text-3xl font-semibold ${kpi.tone}`}>{kpi.value}</div>
-            <div className="mt-2 text-xs text-zinc-500">
+            <div className="mt-2 text-xs text-zinc-400">
               {summary ? t("reports.kpi.note.withData") : t("reports.kpi.note.noData")}
             </div>
           </div>

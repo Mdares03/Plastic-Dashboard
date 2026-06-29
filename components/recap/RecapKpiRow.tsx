@@ -36,7 +36,7 @@ export default function RecapKpiRow({ oeeAvg, goodParts, totalStops, scrapParts,
         </div>
         <div className="mt-1 text-xs uppercase tracking-wide text-zinc-400">{oeeLabel}</div>
         {oeeAvg == null || Number.isNaN(oeeAvg) ? (
-          <div className="mt-1 text-xs text-zinc-500">{t("recap.kpi.noData")}</div>
+          <div className="mt-1 text-xs text-zinc-400">{t("recap.kpi.noData")}</div>
         ) : null}
       </div>
       {items.map((item) => (

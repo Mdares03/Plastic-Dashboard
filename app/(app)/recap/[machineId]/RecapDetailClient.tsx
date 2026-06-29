@@ -124,7 +124,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
           <h1 className="mt-1 text-2xl font-semibold text-white">{machine.name || machineId}</h1>
           <div className="text-sm text-zinc-400">{machine.location || t("common.na")}</div>
           {freshAgeSec != null ? (
-            <div className="mt-1 text-xs text-zinc-500">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</div>
+            <div className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</div>
           ) : null}
         </div>
 
@@ -193,7 +193,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
         </div>
       ) : null}
 
-      {isPending ? <div className="mb-3 text-xs text-zinc-500">{t("common.loading")}</div> : null}
+      {isPending ? <div className="mb-3 text-xs text-zinc-400">{t("common.loading")}</div> : null}
 
       <div className="mb-4">
         <RecapBanners

@@ -1,21 +1,21 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import ReclassifyModal, { type ReclassifyTarget } from "@/components/downtime/ReclassifyModal";
+import KpiTile from "@/components/kpi/KpiTile";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useI18n } from "@/lib/i18n/useI18n";
 import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
-import {
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { SlidersHorizontal } from "lucide-react";
+import dynamic from "next/dynamic";
+import ChartSkeleton from "@/components/charts/ChartSkeleton";
+
+// Recharts is heavy; code-split the Pareto hero so it loads only on this page.
+const DowntimeParetoHero = dynamic(() => import("@/components/downtime/DowntimeParetoHero"), {
+  ssr: false,
+  loading: () => <ChartSkeleton heightClass="h-full" />,
+});
 
 /**
  * API SHAPES (from your route.ts)
@@ -121,10 +121,12 @@ type ApiReasonCatalogRes = {
   rows?: ApiReasonCatalogRow[];
 };
 
-function fmtDT(iso: string | null) {
+type ApiMachineRow = { id: string; name: string | null };
+
+function fmtDT(iso: string | null, locale?: string) {
   if (!iso) return "—";
   const d = new Date(iso);
-  return d.toLocaleString("en-US", { hour12: true });
+  return d.toLocaleString(locale ?? "en-US", { hour12: true });
 }
 
 function normalizeParetoRes(input: ApiParetoRes): ApiParetoRes {
@@ -263,6 +265,7 @@ function buildParetoFromEvents(events: ApiDowntimeEvent[]): ApiParetoRes | null 
 
 type Range = "24h" | "7d" | "30d";
 type Metric = "minutes" | "count";
+type DowntimeView = "overview" | "events";
 
 type MetricRow = {
   reasonCode: string;
@@ -348,18 +351,10 @@ function computeMetricRows(base: ApiParetoRow[], metric: Metric): MetricRow[] {
   return out;
 }
 
-function findUnclassifiedPct(rows: MetricRow[]) {
-  const hit = rows.find((r) => {
-    const code = (r.reasonCode ?? "").toLowerCase();
-    const label = (r.reasonLabel ?? "").toLowerCase();
-    return code.includes("unclass") || code.includes("unknown") || label.includes("unclass") || label.includes("unknown");
-  });
-  return hit ? hit.pctOfTotal : 0;
-}
-
 /**
- * Right-side drawer (investigation)
- * Built in the same style as MachineDetailClient’s Modal overlay.
+ * Right-side drawer (reason detail) — the at-a-glance stats for the selected
+ * reason. Trimmed to the numbers it can defend (downtime, share, stops, avg);
+ * a richer per-reason events view is a separate enhancement.
  */
 function ReasonDrawer({
   open,
@@ -372,6 +367,7 @@ function ReasonDrawer({
   row: MetricRow | null;
   metric: Metric;
 }) {
+  const { t } = useI18n();
   if (!open || !row) return null;
 
   const avgMin =
@@ -393,53 +389,36 @@ function ReasonDrawer({
         <div className="relative flex h-full flex-col">
           <div className="flex items-start justify-between gap-3 border-b border-white/10 p-5">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">Reason detail</div>
-              <div className="mt-1 truncate text-xs text-zinc-400">{row.reasonLabel}</div>
+              <div className="text-sm font-semibold text-white">{t("downtime.drawer.title")}</div>
+              <div className="mt-1 truncate text-xs text-zinc-300">{row.reasonLabel}</div>
             </div>
             <button
               onClick={onClose}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
             >
-              Close
+              {t("common.close")}
             </button>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 no-scrollbar">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs text-zinc-400">
-                  {metric === "minutes" ? "Downtime" : "Stops"}
+                <div className="text-xs text-zinc-300">
+                  {metric === "minutes" ? t("downtime.metric.downtime") : t("downtime.metric.stops")}
                 </div>
                 <div className="mt-2 text-2xl font-semibold text-white">
                   {metric === "minutes" ? fmtDurationFromMinutes(row.value) : fmtNum(row.value, 0)}
                 </div>
-                <div className="mt-1 text-xs text-zinc-400">{fmtPct(row.pctOfTotal, 1)} share</div>
+                <div className="mt-1 text-xs text-zinc-300">{t("downtime.drawer.share", { pct: fmtPct(row.pctOfTotal, 1) })}</div>
               </div>
 
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-xs text-zinc-400">Stops</div>
+                <div className="text-xs text-zinc-300">{t("downtime.metric.stops")}</div>
                 <div className="mt-2 text-2xl font-semibold text-white">{fmtNum(row.count, 0)}</div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  {avgMin == null ? "Avg duration —" : `Avg ${fmtDurationFromMinutes(avgMin)}`}
+                <div className="mt-1 text-xs text-zinc-300">
+                  {avgMin == null ? t("downtime.drawer.avgNone") : t("downtime.drawer.avg", { v: fmtDurationFromMinutes(avgMin) })}
                 </div>
               </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm font-semibold text-white">Investigation (next)</div>
-              <div className="mt-1 text-xs text-zinc-400">
-                Hook the following panels once you add endpoints for events + breakdowns:
-              </div>
-              <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-300">
-                <li>Last 10 events (timestamp, duration, operator note)</li>
-                <li>Breakdown by machine / shift / work order</li>
-                <li>Duration histogram (micro vs macro)</li>
-                <li>Create action (owner, due date, status)</li>
-              </ul>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4 text-xs text-zinc-400">
-              Tip: keep this drawer “fast”. The table + drawer combo is what makes the page feel like a tool.
             </div>
           </div>
         </div>
@@ -447,36 +426,6 @@ function ReasonDrawer({
     </div>
   );
 }
-
-function KPI({
-  label,
-  value,
-  sub,
-  accent,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: "emerald" | "yellow" | "rose" | "zinc";
-}) {
-  const ring =
-    accent === "emerald"
-      ? "border-emerald-500/20"
-      : accent === "yellow"
-      ? "border-yellow-500/20"
-      : accent === "rose"
-      ? "border-rose-500/20"
-      : "border-white/10";
-
-  return (
-    <div className={cn("rounded-2xl border bg-white/5 p-5", ring)}>
-      <div className="text-xs text-zinc-400">{label}</div>
-      <div className="mt-2 text-3xl font-semibold text-white">{value}</div>
-      {sub ? <div className="mt-2 text-xs text-zinc-400">{sub}</div> : null}
-    </div>
-  );
-}
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function nextHourBoundary(d: Date) {
   const x = new Date(d);
@@ -601,7 +550,14 @@ function Heatmap({
   onSelect: (day: number, hour: number) => void;
   onClear: () => void;
 }) {
+  const { t } = useI18n();
   const { matrix, max } = useMemo(() => buildHeatmapMatrix(events, metric), [events, metric]);
+
+  const dayLabels = [
+    t("downtime.day.sun"), t("downtime.day.mon"), t("downtime.day.tue"), t("downtime.day.wed"),
+    t("downtime.day.thu"), t("downtime.day.fri"), t("downtime.day.sat"),
+  ];
+  const sevLabel = (key: string) => t(`downtime.sev.${key.toLowerCase()}`);
 
   const hourLabels = Array.from({ length: 24 }, (_, h) =>
     h % 2 === 0 ? String(h).padStart(2, "0") : ""
@@ -613,15 +569,15 @@ function Heatmap({
     <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20 p-3">
       <div className="min-w-[860px]">
         <div className="flex items-center justify-between pb-3">
-          <div className="text-[11px] text-zinc-500">
-            Click a cell to filter Event list by day/hour
+          <div className="text-[11px] text-zinc-400">
+            {t("downtime.heatmap.clickHint")}
           </div>
           {selected ? (
             <button
               onClick={onClear}
               className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-zinc-200 hover:bg-white/10"
             >
-              Clear heatmap filter
+              {t("downtime.heatmap.clear")}
             </button>
           ) : null}
         </div>
@@ -629,9 +585,9 @@ function Heatmap({
         {/* Header row */}
         <div className="grid" style={{ gridTemplateColumns: "56px repeat(24, 28px)" }}>
           <div />
-          {hourLabels.map((t, h) => (
-            <div key={h} className="pb-2 text-center text-[10px] text-zinc-500">
-              {t}
+          {hourLabels.map((label, h) => (
+            <div key={h} className="pb-2 text-center text-[10px] text-zinc-400">
+              {label}
             </div>
           ))}
         </div>
@@ -643,19 +599,19 @@ function Heatmap({
             className="grid items-center"
             style={{ gridTemplateColumns: "56px repeat(24, 28px)" }}
           >
-            <div className="pr-2 text-right text-[11px] text-zinc-500">
-              {DAY_LABELS[dayIdx]}
+            <div className="pr-2 text-right text-[11px] text-zinc-400">
+              {dayLabels[dayIdx]}
             </div>
 
             {row.map((v, hour) => {
               const c = heatColor(v, metric);
               const isSelected = selected?.day === dayIdx && selected?.hour === hour;
 
-              const title = `${DAY_LABELS[dayIdx]} ${String(hour).padStart(2, "0")}:00–${String(
+              const title = `${dayLabels[dayIdx]} ${String(hour).padStart(2, "0")}:00–${String(
                 (hour + 1) % 24
               ).padStart(2, "0")}:00\n${
-                metric === "minutes" ? fmtDurationFromMinutes(v) : `${fmtNum(v, 0)} stops`
-              }\n${c.label}`;
+                metric === "minutes" ? fmtDurationFromMinutes(v) : t("downtime.heatmap.stops", { n: fmtNum(v, 0) })
+              }\n${sevLabel(c.label)}`;
 
               return (
                 <button
@@ -678,92 +634,35 @@ function Heatmap({
         ))}
 
         {/* Legend */}
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-500">
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-zinc-400">
           <div className="inline-flex items-center gap-2">
             <span className="h-3 w-3 rounded-sm" style={{ background: "rgba(34,197,94,0.18)" }} />
-            Good
+            {t("downtime.sev.good")}
           </div>
           <div className="inline-flex items-center gap-2">
             <span className="h-3 w-3 rounded-sm" style={{ background: "rgba(234,179,8,0.55)" }} />
-            Watch
+            {t("downtime.sev.watch")}
           </div>
           <div className="inline-flex items-center gap-2">
             <span className="h-3 w-3 rounded-sm" style={{ background: "rgba(249,115,22,0.65)" }} />
-            High
+            {t("downtime.sev.high")}
           </div>
           <div className="inline-flex items-center gap-2">
             <span className="h-3 w-3 rounded-sm" style={{ background: "rgba(239,68,68,0.75)" }} />
-            Critical
+            {t("downtime.sev.critical")}
           </div>
 
           <div className="ml-auto">
             {events.length === 0
-              ? "No events loaded for this scope"
+              ? t("downtime.heatmap.noEvents")
               : hasData
-              ? `Max cell: ${metric === "minutes" ? fmtDurationFromMinutes(max) : `${fmtNum(max, 0)} stops`}`
-              : "Events loaded, but no usable durations/endAt yet"}
+              ? t("downtime.heatmap.maxCell", { v: metric === "minutes" ? fmtDurationFromMinutes(max) : t("downtime.heatmap.stops", { n: fmtNum(max, 0) }) })
+              : t("downtime.heatmap.noDurations")}
           </div>
         </div>
       </div>
     </div>
   );
-}
-
-type ActionStatus = "open" | "in_progress" | "blocked" | "done";
-type ActionPriority = "low" | "medium" | "high";
-
-type HeatmapSel = { day: number; hour: number };
-
-type ActionItem = {
-  id: string;
-  createdAt: string;
-  updatedAt: string;
-
-  machineId: string | null;
-  reasonCode: string | null;
-  hmDay: number | null;
-  hmHour: number | null;
-
-  title: string;
-  notes: string;
-  ownerUserId: string | null;
-  ownerName: string | null;
-  ownerEmail: string | null;
-  dueDate: string | null; // YYYY-MM-DD
-  status: ActionStatus;
-  priority: ActionPriority;
-};
-
-type MemberOption = {
-  id: string;
-  name?: string | null;
-  email: string;
-  role: string;
-  isActive: boolean;
-};
-
-function statusPill(status: ActionStatus) {
-  switch (status) {
-    case "done":
-      return "border-emerald-500/25 bg-emerald-500/10 text-emerald-200";
-    case "blocked":
-      return "border-rose-500/25 bg-rose-500/10 text-rose-200";
-    case "in_progress":
-      return "border-sky-500/25 bg-sky-500/10 text-sky-200";
-    default:
-      return "border-amber-500/25 bg-amber-500/10 text-amber-200";
-  }
-}
-
-function priorityPill(p: ActionPriority) {
-  switch (p) {
-    case "high":
-      return "border-rose-500/25 bg-rose-500/10 text-rose-200";
-    case "medium":
-      return "border-yellow-500/25 bg-yellow-500/10 text-yellow-200";
-    default:
-      return "border-white/10 bg-white/5 text-zinc-200";
-  }
 }
 
 function isValidNum(x: any) {
@@ -771,523 +670,8 @@ function isValidNum(x: any) {
   return Number.isFinite(n);
 }
 
-function ActionModal({
-  open,
-  onClose,
-  initial,
-  onSave,
-  onDelete,
-  members,
-  isNew,
-}: {
-  open: boolean;
-  onClose: () => void;
-  initial: ActionItem;
-  onSave: (a: ActionItem, isNew: boolean) => Promise<{ ok: boolean; error?: string }>;
-  onDelete?: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  members: MemberOption[];
-  isNew: boolean;
-}) {
-  const [draft, setDraft] = React.useState<ActionItem>(initial);
-  const [saving, setSaving] = React.useState(false);
-  const [saveError, setSaveError] = React.useState<string | null>(null);
-  const availableMembers = React.useMemo(() => members, [members]);
-
-  React.useEffect(() => {
-    setDraft(initial);
-    setSaveError(null);
-  }, [initial]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-50">
-      <div className="absolute inset-0 bg-black/70" onClick={onClose} />
-      <div className="absolute left-1/2 top-1/2 w-[92vw] max-w-[560px] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-3xl border border-white/10 bg-zinc-950/80 backdrop-blur-xl">
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 p-5">
-          <div className="min-w-0">
-            <div className="text-sm font-semibold text-white">Action</div>
-            <div className="mt-1 text-xs text-zinc-400">
-              Assign ownership + due date. Keep it short and clear.
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
-          >
-            Close
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div>
-            <div className="text-[11px] text-zinc-500">Title</div>
-            <input
-              value={draft.title}
-              onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
-              placeholder="e.g. Add checklist for material feed before start-up"
-              className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none placeholder:text-zinc-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[11px] text-zinc-500">Owner</div>
-              <select
-                value={draft.ownerUserId ?? ""}
-                onChange={(e) =>
-                  setDraft((d) => ({
-                    ...d,
-                    ownerUserId: e.target.value ? e.target.value : null,
-                  }))
-                }
-                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none"
-              >
-                <option value="">Unassigned</option>
-                {availableMembers.map((member) => {
-                  const label = member.name ? `${member.name} (${member.email})` : member.email;
-                  const suffix = member.isActive ? "" : " (inactive)";
-                  return (
-                    <option key={member.id} value={member.id}>
-                      {label}{suffix}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-
-            <div>
-              <div className="text-[11px] text-zinc-500">Due date</div>
-              <input
-                type="date"
-                value={draft.dueDate ?? ""}
-                onChange={(e) => setDraft((d) => ({ ...d, dueDate: e.target.value || null }))}
-                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-[11px] text-zinc-500">Status</div>
-              <select
-                value={draft.status}
-                onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as ActionStatus }))}
-                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none"
-              >
-                <option value="open">Open</option>
-                <option value="in_progress">In progress</option>
-                <option value="blocked">Blocked</option>
-                <option value="done">Done</option>
-              </select>
-            </div>
-
-            <div>
-              <div className="text-[11px] text-zinc-500">Priority</div>
-              <select
-                value={draft.priority}
-                onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value as ActionPriority }))}
-                className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-white outline-none"
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[11px] text-zinc-500">Notes</div>
-            <textarea
-              value={draft.notes}
-              onChange={(e) => setDraft((d) => ({ ...d, notes: e.target.value }))}
-              placeholder="Context, hypothesis, what to verify, etc."
-              className="mt-1 h-24 w-full resize-none rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-500"
-            />
-          </div>
-
-          {saveError ? (
-            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-              {saveError}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-zinc-400">
-            {draft.machineId ? <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">Machine</span> : null}
-            {draft.reasonCode ? <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">Reason</span> : null}
-            {draft.hmDay != null && draft.hmHour != null ? (
-              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">Heatmap bucket</span>
-            ) : null}
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <div>
-              {onDelete && !isNew ? (
-                <button
-                  onClick={async () => {
-                    if (!draft.id) return;
-                    setSaving(true);
-                    setSaveError(null);
-                    const result = await onDelete(draft.id);
-                    if (!result.ok) {
-                      setSaveError(result.error || "Failed to delete action");
-                      setSaving(false);
-                      return;
-                    }
-                    setSaving(false);
-                    onClose();
-                  }}
-                  disabled={saving}
-                  className="rounded-xl border border-rose-500/25 bg-rose-500/10 px-4 py-2 text-sm text-rose-200 hover:bg-rose-500/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Delete
-                </button>
-              ) : null}
-            </div>
-
-            <button
-              onClick={async () => {
-                setSaving(true);
-                setSaveError(null);
-                const now = new Date().toISOString();
-                const next: ActionItem = { ...draft, updatedAt: now };
-                const result = await onSave(next, isNew);
-                if (!result.ok) {
-                  setSaveError(result.error || "Failed to save action");
-                  setSaving(false);
-                  return;
-                }
-                setSaving(false);
-                onClose();
-              }}
-              disabled={saving}
-              className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {saving ? "Saving..." : "Save action"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ActionsOwnershipPanel({
-  machineId,
-  reasonCode,
-  heatmapSel,
-  onFocusReason,
-}: {
-  machineId: string | null;
-  reasonCode: string | null;
-  heatmapSel: HeatmapSel | null;
-  onFocusReason: (code: string) => void;
-}) {
-  const [items, setItems] = React.useState<ActionItem[]>([]);
-  const [loading, setLoading] = React.useState(true);
-  const [error, setError] = React.useState<string | null>(null);
-  const [members, setMembers] = React.useState<MemberOption[]>([]);
-
-  const hmDay = heatmapSel?.day ?? null;
-  const hmHour = heatmapSel?.hour ?? null;
-
-  const loadActions = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (machineId) params.set("machineId", machineId);
-      if (reasonCode) params.set("reasonCode", reasonCode);
-      if (hmDay != null && hmHour != null) {
-        params.set("hmDay", String(hmDay));
-        params.set("hmHour", String(hmHour));
-      }
-      const qs = params.toString();
-      const res = await fetch(`/api/downtime/actions${qs ? `?${qs}` : ""}`, { cache: "no-store" });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        actions?: ActionItem[];
-      };
-      if (!res.ok || !data.ok) {
-        throw new Error(data.error || "Failed to load actions");
-      }
-      setItems(Array.isArray(data.actions) ? data.actions : []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load actions");
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [machineId, reasonCode, hmDay, hmHour]);
-
-  useEffect(() => {
-    loadActions();
-  }, [loadActions]);
-
-  useEffect(() => {
-    let alive = true;
-    async function loadMembers() {
-      try {
-        const res = await fetch("/api/org/members", { cache: "no-store" });
-        const data = (await res.json().catch(() => ({}))) as {
-          ok?: boolean;
-          error?: string;
-          members?: MemberOption[];
-        };
-        if (!alive) return;
-        if (res.ok && data.ok) {
-          setMembers(Array.isArray(data.members) ? data.members : []);
-        }
-      } catch {
-        if (alive) setMembers([]);
-      }
-    }
-    loadMembers();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const openItems = React.useMemo(() => items.filter((a) => a.status !== "done"), [items]);
-
-  const now = new Date();
-  const dueSoon = React.useMemo(() => {
-    return openItems.filter((a) => {
-      if (!a.dueDate) return false;
-      const d = new Date(a.dueDate + "T00:00:00");
-      const diffDays = (d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-      return diffDays >= 0 && diffDays <= 3;
-    });
-  }, [openItems, now]);
-
-  const overdue = React.useMemo(() => {
-    return openItems.filter((a) => {
-      if (!a.dueDate) return false;
-      const d = new Date(a.dueDate + "T00:00:00");
-      return d.getTime() < new Date(now.toDateString()).getTime();
-    });
-  }, [openItems, now]);
-
-  const [modalOpen, setModalOpen] = React.useState(false);
-  const [editing, setEditing] = React.useState<ActionItem | null>(null);
-
-  const initialNew: ActionItem = React.useMemo(() => {
-    const ts = new Date().toISOString();
-    return {
-      id: "",
-      createdAt: ts,
-      updatedAt: ts,
-      machineId,
-      reasonCode,
-      hmDay,
-      hmHour,
-      title: "",
-      notes: "",
-      ownerUserId: null,
-      ownerName: null,
-      ownerEmail: null,
-      dueDate: null,
-      status: "open",
-      priority: "medium",
-    };
-  }, [machineId, reasonCode, hmDay, hmHour]);
-
-  const saveAction = useCallback(
-    async (next: ActionItem, isNew: boolean) => {
-      const payload = {
-        machineId: next.machineId,
-        reasonCode: next.reasonCode,
-        hmDay: next.hmDay,
-        hmHour: next.hmHour,
-        title: next.title.trim(),
-        notes: next.notes.trim(),
-        ownerUserId: next.ownerUserId,
-        dueDate: next.dueDate,
-        status: next.status,
-        priority: next.priority,
-      };
-      const url = isNew ? "/api/downtime/actions" : `/api/downtime/actions/${next.id}`;
-      const res = await fetch(url, {
-        method: isNew ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-        action?: ActionItem;
-      };
-      if (!res.ok || !data.ok || !data.action) {
-        return { ok: false, error: data.error || "Failed to save action" };
-      }
-      setItems((prev) => {
-        if (isNew) return [data.action as ActionItem, ...prev];
-        const i = prev.findIndex((x) => x.id === data.action?.id);
-        if (i === -1) return [data.action as ActionItem, ...prev];
-        const copy = [...prev];
-        copy[i] = data.action as ActionItem;
-        return copy;
-      });
-      return { ok: true };
-    },
-    []
-  );
-
-  const deleteAction = useCallback(async (id: string) => {
-    const res = await fetch(`/api/downtime/actions/${id}`, { method: "DELETE" });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-    if (!res.ok || !data.ok) {
-      return { ok: false, error: data.error || "Failed to delete action" };
-    }
-    setItems((prev) => prev.filter((x) => x.id !== id));
-    return { ok: true };
-  }, []);
-
-  const list = items
-    .slice()
-    .sort((a, b) => (a.status === "done" ? 1 : -1) - (b.status === "done" ? 1 : -1));
-
-  return (
-    <div className="mt-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs text-zinc-400">
-            Convert insights into ownership (who + when).
-          </div>
-        </div>
-        <button
-          onClick={() => {
-            setEditing(null);
-            setModalOpen(true);
-          }}
-          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white hover:bg-white/10"
-        >
-          + New action
-        </button>
-      </div>
-
-      {/* mini KPIs */}
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-          <div className="text-[11px] text-zinc-400">Open</div>
-          <div className="mt-1 text-base font-semibold text-white">{fmtNum(openItems.length, 0)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-          <div className="text-[11px] text-zinc-400">Due soon (3d)</div>
-          <div className="mt-1 text-base font-semibold text-white">{fmtNum(dueSoon.length, 0)}</div>
-        </div>
-        <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-          <div className="text-[11px] text-zinc-400">Overdue</div>
-          <div className="mt-1 text-base font-semibold text-white">{fmtNum(overdue.length, 0)}</div>
-        </div>
-      </div>
-
-      {error ? (
-        <div className="mt-3 rounded-xl border border-rose-500/25 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-          {error}
-        </div>
-      ) : null}
-
-      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-        <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-4 py-3 text-[11px] text-zinc-500">
-          <div className="col-span-6">Action</div>
-          <div className="col-span-3">Owner</div>
-          <div className="col-span-3 text-right">Status</div>
-        </div>
-
-        {loading ? (
-          <div className="p-4 text-sm text-zinc-400">Loading actions…</div>
-        ) : list.length === 0 ? (
-          <div className="p-4 text-sm text-zinc-400">
-            No actions yet. Create one from the current selection (Reason / Heatmap / Machine).
-          </div>
-        ) : (
-          list.slice(0, 8).map((a) => (
-            <div
-              key={a.id}
-              className="grid grid-cols-12 gap-2 border-b border-white/5 px-4 py-3 hover:bg-white/5"
-            >
-              <button
-                onClick={() => {
-                  setEditing(a);
-                  setModalOpen(true);
-                }}
-                className="col-span-6 text-left"
-              >
-                <div className="truncate text-sm text-white">{a.title || "Untitled action"}</div>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                  {a.reasonCode ? (
-                    <button
-                      className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 hover:bg-white/10"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onFocusReason(a.reasonCode!);
-                      }}
-                      title="Focus this reason"
-                    >
-                      {a.reasonCode}
-                    </button>
-                  ) : null}
-                  {a.dueDate ? <span>Due {new Date(a.dueDate).toLocaleDateString()}</span> : <span>No due date</span>}
-                  <span className={cn("rounded-full border px-2 py-0.5", priorityPill(a.priority))}>
-                    {a.priority}
-                  </span>
-                </div>
-              </button>
-
-              <div className="col-span-3 flex items-center text-sm text-zinc-200">
-                {a.ownerName || a.ownerEmail || "—"}
-              </div>
-
-              <div className="col-span-3 flex items-center justify-end gap-2">
-                <span className={cn("rounded-full border px-2 py-1 text-[11px]", statusPill(a.status))}>
-                  {a.status.replace("_", " ")}
-                </span>
-
-                {a.status !== "done" ? (
-                  <button
-                    onClick={async () => {
-                      const result = await saveAction(
-                        { ...a, status: "done", updatedAt: new Date().toISOString() },
-                        false
-                      );
-                      if (!result.ok) {
-                        setError(result.error || "Failed to update action");
-                      }
-                    }}
-                    className="rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-2 py-1 text-[11px] text-emerald-200 hover:bg-emerald-500/15"
-                    title="Mark done"
-                  >
-                    Done
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))
-        )}
-
-        {list.length > 8 ? (
-          <div className="p-3 text-[11px] text-zinc-500">
-            Showing 8 / {list.length}. (Later: pagination + filters)
-          </div>
-        ) : null}
-      </div>
-
-      <ActionModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        initial={editing ?? initialNew}
-        onSave={saveAction}
-        onDelete={(id) => deleteAction(id)}
-        members={members}
-        isNew={!editing}
-      />
-    </div>
-  );
-}
-
 export default function DowntimePageClient() {
+  const { t, locale } = useI18n();
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -1295,6 +679,7 @@ export default function DowntimePageClient() {
   // URL-backed filters
   const range = (sp.get("range") as Range) || "30d";
   const machineId = sp.get("machineId") || null;
+  const view = ((sp.get("view") as DowntimeView) || "overview") as DowntimeView;
 
   // client-only filters (shareable)
   const metric = ((sp.get("metric") as Metric) || "minutes") as Metric;
@@ -1312,7 +697,6 @@ export default function DowntimePageClient() {
       ? { day: Number(hmDay), hour: Number(hmHour) }
       : null;
 
-
   const [pareto, setPareto] = useState<ApiParetoRes | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
@@ -1328,38 +712,39 @@ export default function DowntimePageClient() {
 
   const [eventsLimit, setEventsLimit] = useState<number>(200);
   const [eventsBefore, setEventsBefore] = useState<string | null>(null);
-  const debug = sp.get("debug") === "1";
 
   // simple client filter (fast): text search on machine/reason/wo
   const [eventSearch, setEventSearch] = useState("");
 
+  // "More filters" expander + machine picker source.
+  const [showFilters, setShowFilters] = useState(false);
+  const [machines, setMachines] = useState<ApiMachineRow[]>([]);
+
+  // Est. cost rate (loaded cost/min) sourced from the financial profile.
+  const [costRate, setCostRate] = useState<{ costPerMin: number; currency: string; placeholder: boolean } | null>(null);
+
+  // Drilldown table (full reason table) folded behind an expander in Overview.
+  const [showFullTable, setShowFullTable] = useState(false);
 
   const [drawer, setDrawer] = useState<{ open: boolean; row: MetricRow | null }>({
     open: false,
     row: null,
   });
 
-  function fmtMxn(n: number) {
-    return new Intl.NumberFormat("es-MX", {
-        style: "currency",
-        currency: "MXN",
-        maximumFractionDigits: 0,
-    }).format(n);
-    }
-
   function setParams(patch: Record<string, string | null>) {
     const next = buildSearch(sp, patch);
     router.replace(`${pathname}?${next}`, { scroll: false });
   }
-  const mxnPerMin = Number(sp.get("mxnPerMin") || "0");
-    const [mxnPerMinInput, setMxnPerMinInput] = useState<string>(sp.get("mxnPerMin") ?? "");
 
-    useEffect(() => {
-    setMxnPerMinInput(String(mxnPerMin || ""));
-    }, [mxnPerMin]);
-  
+  function fmtMoney(n: number, currency: string) {
+    return new Intl.NumberFormat(locale === "es-MX" ? "es-MX" : "en-US", {
+      style: "currency",
+      currency: currency || "USD",
+      maximumFractionDigits: 0,
+    }).format(n);
+  }
 
-  // Fetch (real)
+  // Fetch (pareto)
   useEffect(() => {
     let alive = true;
     const ac = new AbortController();
@@ -1383,13 +768,12 @@ export default function DowntimePageClient() {
           credentials: "include",
           signal: ac.signal,
         });
-
         const j1raw = (await r1.json().catch(() => ({}))) as ApiParetoRes;
 
         if (!alive) return;
 
         if (!r1.ok || j1raw.ok === false) {
-          setErr(j1raw?.error ?? "Failed to load pareto");
+          setErr(j1raw?.error ?? t("downtime.err.pareto"));
           setPareto(null);
           setLoading(false);
           return;
@@ -1399,7 +783,7 @@ export default function DowntimePageClient() {
         setLoading(false);
       } catch (e: any) {
         if (!alive) return;
-        setErr(e?.message ?? "Network error");
+        setErr(e?.message ?? t("common.networkError"));
         setLoading(false);
       }
     }
@@ -1411,6 +795,7 @@ export default function DowntimePageClient() {
     };
   }, [range, machineId, shift, planned, microstopLtMin, excludeUnclassified]);
 
+  // Reason catalog (breakdown menu)
   useEffect(() => {
     let alive = true;
     const ac = new AbortController();
@@ -1427,14 +812,14 @@ export default function DowntimePageClient() {
         if (!alive) return;
         if (!res.ok || json.ok === false) {
           setCatalogRows([]);
-          setCatalogErr(json.error ?? "Failed to load reason catalog");
+          setCatalogErr(json.error ?? t("downtime.err.catalog"));
           return;
         }
         setCatalogRows(Array.isArray(json.rows) ? json.rows : []);
       } catch (err: unknown) {
         if (!alive) return;
         setCatalogRows([]);
-        setCatalogErr(err instanceof Error ? err.message : "Network error");
+        setCatalogErr(err instanceof Error ? err.message : t("common.networkError"));
       }
     }
 
@@ -1445,57 +830,105 @@ export default function DowntimePageClient() {
     };
   }, []);
 
-    useEffect(() => {
-        let alive = true;
-        const ac = new AbortController();
+  // Machine list (for the "More filters" machine picker)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/machines", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as { ok?: boolean; machines?: ApiMachineRow[] };
+        if (!alive) return;
+        if (res.ok && json.ok) setMachines((json.machines ?? []).map((m) => ({ id: m.id, name: m.name })));
+      } catch {
+        if (alive) setMachines([]);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-        async function run() {
-            setEventsLoading(true);
-            setEventsErr(null);
+  // Cost rate (Est. cost KPI)
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/downtime/cost-rate", { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          costPerMin?: number;
+          currency?: string;
+          placeholder?: boolean;
+        };
+        if (!alive) return;
+        if (res.ok && json.ok) {
+          setCostRate({
+            costPerMin: json.costPerMin ?? 0,
+            currency: json.currency ?? "USD",
+            placeholder: json.placeholder ?? true,
+          });
+        }
+      } catch {
+        if (alive) setCostRate(null);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-            try {
-            const qs = new URLSearchParams();
-            qs.set("range", range);
-            qs.set("limit", String(eventsLimit));
-            if (machineId) qs.set("machineId", machineId);
-            if (reasonCode) qs.set("reasonCode", reasonCode);
-            qs.set("shift", shift);
-            qs.set("planned", planned);
-            qs.set("microstopLtMin", microstopLtMin);
-            if (excludeUnclassified) qs.set("excludeUnclassified", "1");
-            if (eventsBefore) qs.set("before", eventsBefore);
+  // Events
+  useEffect(() => {
+    let alive = true;
+    const ac = new AbortController();
 
-            const r = await fetch(`/api/analytics/downtime-events?${qs.toString()}`, {
-                cache: "no-cache",
-                credentials: "include",
-                signal: ac.signal,
-            });
+    async function run() {
+      setEventsLoading(true);
+      setEventsErr(null);
 
-            const j = (await r.json().catch(() => ({}))) as ApiDowntimeEventsRes;
-            if (!alive) return;
+      try {
+        const qs = new URLSearchParams();
+        qs.set("range", range);
+        qs.set("limit", String(eventsLimit));
+        if (machineId) qs.set("machineId", machineId);
+        if (reasonCode) qs.set("reasonCode", reasonCode);
+        qs.set("shift", shift);
+        qs.set("planned", planned);
+        qs.set("microstopLtMin", microstopLtMin);
+        if (excludeUnclassified) qs.set("excludeUnclassified", "1");
+        if (eventsBefore) qs.set("before", eventsBefore);
 
-            if (!r.ok || j.ok === false) {
-                setEventsErr(j?.error ?? "Failed to load events");
-                setEventsRes(null);
-                setEventsLoading(false);
-                return;
-            }
+        const r = await fetch(`/api/analytics/downtime-events?${qs.toString()}`, {
+          cache: "no-cache",
+          credentials: "include",
+          signal: ac.signal,
+        });
 
-            setEventsRes(j);
-            setEventsLoading(false);
-            } catch (e: any) {
-            if (!alive) return;
-            setEventsErr(e?.message ?? "Network error");
-            setEventsLoading(false);
-            }
+        const j = (await r.json().catch(() => ({}))) as ApiDowntimeEventsRes;
+        if (!alive) return;
+
+        if (!r.ok || j.ok === false) {
+          setEventsErr(j?.error ?? t("downtime.err.events"));
+          setEventsRes(null);
+          setEventsLoading(false);
+          return;
         }
 
-        run();
-        return () => {
-            alive = false;
-            ac.abort();
-        };
-        }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified, eventsLimit, eventsBefore, reloadNonce]);
+        setEventsRes(j);
+        setEventsLoading(false);
+      } catch (e: any) {
+        if (!alive) return;
+        setEventsErr(e?.message ?? t("common.networkError"));
+        setEventsLoading(false);
+      }
+    }
+
+    run();
+    return () => {
+      alive = false;
+      ac.abort();
+    };
+  }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified, eventsLimit, eventsBefore, reloadNonce]);
 
   // Derived data
   const events = eventsRes?.events ?? [];
@@ -1517,7 +950,6 @@ export default function DowntimePageClient() {
       excludeUnclassified: eventsRes?.excludeUnclassified,
     };
   }, [pareto, events, eventsRes?.orgId, eventsRes?.machineId, eventsRes?.range, eventsRes?.start, eventsRes?.totalMinutesAll, eventsRes?.totalMinutesClassified, eventsRes?.excludedUnclassifiedMinutes, eventsRes?.excludedUnclassifiedPct, eventsRes?.excludeUnclassified]);
-  const usingEventsFallback = (paretoEffective?.rows?.length ?? 0) > 0 && (pareto?.rows?.length ?? 0) === 0 && events.length > 0;
 
   const baseRows = paretoEffective?.rows ?? [];
   const metricRowsAll = useMemo(() => computeMetricRows(baseRows, metric), [baseRows, metric]);
@@ -1558,19 +990,11 @@ export default function DowntimePageClient() {
 
   const totalMinutesAll = paretoEffective?.totalMinutesAll ?? totalMinutes;
   const totalMinutesClassified = paretoEffective?.totalMinutesClassified ?? totalMinutes;
-  const excludedUnclassifiedMinutes =
-    paretoEffective?.excludedUnclassifiedMinutes ?? Math.max(0, totalMinutesAll - totalMinutesClassified);
-  const excludedUnclassifiedPct =
-    paretoEffective?.excludedUnclassifiedPct ??
-    (totalMinutesAll > 0 ? (excludedUnclassifiedMinutes / totalMinutesAll) * 100 : 0);
 
   const totalEventsAll = eventsRes?.totalEventsAll ?? totalStops;
   const totalEventsClassified = eventsRes?.totalEventsClassified ?? totalStops;
-  const excludedUnclassifiedEvents =
-    eventsRes?.excludedUnclassifiedEvents ?? Math.max(0, totalEventsAll - totalEventsClassified);
 
-  // B5 — classification rate as a headline KPI against the ≥80% target. Below target is
-  // surfaced in red so a low number reads as an action item, not background noise.
+  // B5 — classification rate against the ≥80% target.
   const CLASSIFICATION_TARGET_PCT = 80;
   const classificationRatePct =
     totalEventsAll > 0 ? Math.round((totalEventsClassified / totalEventsAll) * 1000) / 10 : null;
@@ -1581,8 +1005,6 @@ export default function DowntimePageClient() {
     const top3 = metricRowsAll.slice(0, 3);
     return top3.reduce((acc, r) => acc + (r.pctOfTotal ?? 0), 0);
   }, [metricRowsAll]);
-
-  const unclassifiedPct = useMemo(() => findUnclassifiedPct(metricRowsAll), [metricRowsAll]);
 
   const threshold80Index = useMemo(() => {
     // If API threshold80 exists, it’s based on minutes. For count metric, compute locally.
@@ -1605,85 +1027,69 @@ export default function DowntimePageClient() {
     }));
   }, [metricRowsAll]);
 
-const totalDowntimeMin = totalMinutes;
+  const totalDowntimeMin = totalMinutes;
 
-useEffect(() => {
-  setEventsBefore(null);
-}, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified]);
+  useEffect(() => {
+    setEventsBefore(null);
+  }, [range, machineId, reasonCode, shift, planned, microstopLtMin, excludeUnclassified]);
 
-const filteredEvents = useMemo(() => {
-  let list = events;
+  const filteredEvents = useMemo(() => {
+    let list = events;
 
-  // Heatmap filter (day/hour) — filters by overlap with that hour bucket
-  if (heatmapSel) {
-    list = list.filter((e) => eventTouchesSlot(e, heatmapSel.day, heatmapSel.hour));
-  }
+    // Heatmap filter (day/hour) — filters by overlap with that hour bucket
+    if (heatmapSel) {
+      list = list.filter((e) => eventTouchesSlot(e, heatmapSel.day, heatmapSel.hour));
+    }
 
-  const q = eventSearch.trim().toLowerCase();
-  if (!q) return list;
+    const q = eventSearch.trim().toLowerCase();
+    if (!q) return list;
 
-  return list.filter((e) => {
-    const hay = [
-      e.machineName ?? "",
-      e.reasonLabel ?? "",
-      e.reasonCode ?? "",
-      e.reasonText ?? "",
-      e.workOrderId ?? "",
-      e.episodeId ?? "",
-    ]
-      .join(" ")
-      .toLowerCase();
-    return hay.includes(q);
-  });
-}, [events, eventSearch, heatmapSel]);
+    return list.filter((e) => {
+      const hay = [
+        e.machineName ?? "",
+        e.reasonLabel ?? "",
+        e.reasonCode ?? "",
+        e.reasonText ?? "",
+        e.workOrderId ?? "",
+        e.episodeId ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [events, eventSearch, heatmapSel]);
 
+  const stops = totalStops;
 
+  // Est. cost = downtime minutes × loaded cost/min (only when a real rate exists).
+  const estCost =
+    costRate && !costRate.placeholder ? totalDowntimeMin * costRate.costPerMin : null;
 
-// Use filtered pareto totals so top filters always affect the KPI.
-const stops = totalStops;
+  const topReason = metricRowsAll[0] ?? null;
 
-// Window minutes for MTBF/Availability
-const windowMin =
-  range === "24h" ? 24 * 60 :
-  range === "7d"  ? 7 * 24 * 60 :
-  range === "30d" ? 30 * 24 * 60 : 0;
-
-// Availability loss % (downtime / window)
-const availabilityLossPct = windowMin > 0 ? (totalDowntimeMin / windowMin) * 100 : 0;
-
-// MTTR proxy = avg stop duration
-const mttrMin = stops > 0 ? totalDowntimeMin / stops : 0;
-
-// MTBF proxy = avg run time between stops
-const mtbfHours = stops > 0 ? (Math.max(0, windowMin - totalDowntimeMin) / stops) / 60 : 0;
-
-// Impact (MXN) if rate is given
-const rate = Number(mxnPerMinInput || "0");
-const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
-
-
+  // Secondary (non-default) filters surfaced as removable chips under the header.
+  const hasSecondaryFilters =
+    shift !== "ALL" || planned !== "all" || metric !== "minutes" || microstopLtMin !== "2";
 
   function exportCSV() {
     const rows = metricRowsAll;
     const header = [
-    "reasonCode",
-    "reasonLabel",
-    metric === "minutes" ? "minutesLost" : "count",
-    "stops",
-    "pctOfTotal",
-    "cumulativePct",
+      "reasonCode",
+      "reasonLabel",
+      metric === "minutes" ? "minutesLost" : "count",
+      "stops",
+      "pctOfTotal",
+      "cumulativePct",
     ];
     const lines = [
       `# excludeUnclassified=${excludeUnclassified ? 1 : 0}`,
       `# totalMinutesAll=${totalMinutesAll}`,
       `# totalMinutesClassified=${totalMinutesClassified}`,
-      `# excludedUnclassifiedMinutes=${excludedUnclassifiedMinutes}`,
-      `# excludedUnclassifiedPct=${excludedUnclassifiedPct}`,
       header.join(","),
     ];
 
     rows.forEach((r) => {
-      const v = metric === "minutes" ? (r.value ?? 0) : (r.value ?? 0);
+      const v = r.value ?? 0;
       const cells = [
         `"${String(r.reasonCode ?? "").replaceAll('"', '""')}"`,
         `"${String(r.reasonLabel ?? "").replaceAll('"', '""')}"`,
@@ -1704,25 +1110,14 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
     URL.revokeObjectURL(url);
   }
 
-  async function shareLink() {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      // silent (you can add a toast later)
-    } catch {
-      // ignore
-    }
-  }
+  const machineName = machineId ? machines.find((m) => m.id === machineId)?.name ?? null : null;
 
-
+  // ── Reusable header bits ────────────────────────────────────────────────
   const scopeChips = (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs text-zinc-400">Scope:</span>
-      <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-xs text-emerald-200">
-        Org
-      </span>
       {machineId ? (
         <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
-          Machine filtered
+          {machineName || t("downtime.scope.machineFiltered")}
           <button
             className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-white/10"
             onClick={() => setParams({ machineId: null, reasonCode: null })}
@@ -1730,14 +1125,10 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
             ✕
           </button>
         </span>
-      ) : (
-        <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-200">
-          All machines
-        </span>
-      )}
+      ) : null}
       {reasonCode ? (
         <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
-          Reason: {selectedReasonLabel ?? reasonCode}
+          {t("downtime.scope.reason")} {selectedReasonLabel ?? reasonCode}
           <button
             className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-white/10"
             onClick={() => setParams({ reasonCode: null })}
@@ -1748,153 +1139,43 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
       ) : null}
       {heatmapSel ? (
         <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
-            Heatmap: {DAY_LABELS[heatmapSel.day]} {String(heatmapSel.hour).padStart(2, "0")}:00
-            <button
+          {t("downtime.scope.heatmap")} {t(`downtime.day.${["sun", "mon", "tue", "wed", "thu", "fri", "sat"][heatmapSel.day]}`)} {String(heatmapSel.hour).padStart(2, "0")}:00
+          <button
             className="rounded-full border border-white/10 bg-black/20 px-2 py-0.5 text-[11px] text-zinc-200 hover:bg-white/10"
             onClick={() => setParams({ hmDay: null, hmHour: null })}
-            >
+          >
             ✕
-            </button>
+          </button>
         </span>
-        ) : null}
-
+      ) : null}
+      {shift !== "ALL" ? (
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
+          {t("downtime.filter.shift", { name: shift })}
+          <button className="text-zinc-300 hover:text-white" onClick={() => setParams({ shift: null })}>✕</button>
+        </span>
+      ) : null}
+      {planned !== "all" ? (
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
+          {t(`downtime.filter.${planned}`)}
+          <button className="text-zinc-300 hover:text-white" onClick={() => setParams({ planned: null })}>✕</button>
+        </span>
+      ) : null}
+      {metric !== "minutes" ? (
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
+          {t("downtime.metric.count")}
+          <button className="text-zinc-300 hover:text-white" onClick={() => setParams({ metric: null })}>✕</button>
+        </span>
+      ) : null}
+      {microstopLtMin !== "2" ? (
+        <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
+          {t("downtime.filter.microstopLt")} {microstopLtMin} {t("downtime.filter.min")}
+          <button className="text-zinc-300 hover:text-white" onClick={() => setParams({ microstopLtMin: null })}>✕</button>
+        </span>
+      ) : null}
     </div>
   );
-  
 
-    const filtersRow = (
-    <div className="mt-4 flex items-center justify-between gap-4">
-        {/* LEFT: range + metric + reset (never wrap) */}
-        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
-        <button
-            onClick={() => setParams({ range: "24h" })}
-            className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            range === "24h"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            )}
-        >
-            Today
-        </button>
-        <button
-            onClick={() => setParams({ range: "7d" })}
-            className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            range === "7d"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            )}
-        >
-            7D
-        </button>
-        <button
-            onClick={() => setParams({ range: "30d" })}
-            className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            range === "30d"
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            )}
-        >
-            30D
-        </button>
-
-        <div className="mx-2 h-6 w-px bg-white/10" />
-
-        <button
-            onClick={() => setParams({ metric: "minutes" })}
-            className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            metric === "minutes"
-                ? "border-white/10 bg-white/10 text-white"
-                : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            )}
-        >
-            Minutes
-        </button>
-        <button
-            onClick={() => setParams({ metric: "count" })}
-            className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            metric === "count"
-                ? "border-white/10 bg-white/10 text-white"
-                : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-            )}
-        >
-            Count
-        </button>
-
-        <div className="mx-2 h-6 w-px bg-white/10" />
-
-        <button
-            onClick={() =>
-            setParams({
-                range: "30d",
-                metric: "minutes",
-                shift: "all",
-                planned: "all",
-                microstopLtMin: "2",
-                excludeUnclassified: null,
-                reasonCode: null,
-                mxnPerMin: null,
-            })
-            }
-            className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 hover:bg-white/10"
-        >
-            Reset filters
-        </button>
-        </div>
-
-        {/* RIGHT: shift + planned/unplanned + microstop (also never wrap) */}
-        <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
-        <select
-            value={shift}
-            onChange={(e) => setParams({ shift: e.target.value })}
-            className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
-        >
-            <option value="all">All shifts</option>
-            <option value="A">Shift A</option>
-            <option value="B">Shift B</option>
-            <option value="C">Shift C</option>
-        </select>
-
-        <select
-            value={planned}
-            onChange={(e) => setParams({ planned: e.target.value })}
-            className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
-        >
-            <option value="all">Planned + Unplanned</option>
-            <option value="planned">Planned</option>
-            <option value="unplanned">Unplanned</option>
-        </select>
-
-        <div className="flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200">
-            <span className="text-zinc-400">Microstop &lt;</span>
-            <input
-            value={microstopLtMin}
-            onChange={(e) => setParams({ microstopLtMin: e.target.value })}
-            className="w-10 bg-transparent text-right text-xs text-white outline-none"
-            />
-            <span className="text-zinc-400">min</span>
-        </div>
-
-        <button
-          onClick={() =>
-            setParams({ excludeUnclassified: excludeUnclassified ? null : "1" })
-          }
-          className={cn(
-            "h-9 rounded-xl border px-3 text-xs",
-            excludeUnclassified
-              ? "border-amber-500/30 bg-amber-500/15 text-amber-100"
-              : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-          )}
-        >
-          Exclude unclassified
-        </button>
-        </div>
-    </div>
-    );
+  const hasAnyChip = Boolean(machineId || reasonCode || heatmapSel || hasSecondaryFilters);
 
   function HeroTooltip({
     active,
@@ -1912,24 +1193,52 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
         <div className="text-sm font-semibold text-white">{p.label}</div>
         <div className="mt-2 space-y-1 text-xs text-zinc-300">
           <div>
-            Value:{" "}
+            {t("downtime.tooltip.value")}{" "}
             <span className="text-white">
               {metric === "minutes" ? fmtDurationFromMinutes(p.value) : fmtNum(p.value, 0)}
             </span>
           </div>
           <div>
-            Share: <span className="text-white">{fmtPct(p.pct, 1)}</span>
+            {t("downtime.tooltip.share")} <span className="text-white">{fmtPct(p.pct, 1)}</span>
           </div>
           <div>
-            Stops: <span className="text-white">{fmtNum(p.count, 0)}</span>
+            {t("downtime.tooltip.stops")} <span className="text-white">{fmtNum(p.count, 0)}</span>
           </div>
           <div>
-            Cumulative: <span className="text-white">{fmtPct(p.cum, 0)}</span>
+            {t("downtime.tooltip.cumulative")} <span className="text-white">{fmtPct(p.cum, 0)}</span>
           </div>
         </div>
       </div>
     );
   }
+
+  const rangeBtn = (value: Range, label: string) => (
+    <button
+      onClick={() => setParams({ range: value })}
+      className={cn(
+        "h-9 rounded-xl border px-3 text-xs",
+        range === value
+          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+          : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
+      )}
+    >
+      {label}
+    </button>
+  );
+
+  const viewBtn = (value: DowntimeView, label: string) => (
+    <button
+      onClick={() => setParams({ view: value })}
+      className={cn(
+        "h-9 rounded-xl border px-4 text-xs",
+        view === value
+          ? "border-white/15 bg-white/10 text-white"
+          : "border-white/10 bg-white/5 text-zinc-300 hover:bg-white/10"
+      )}
+    >
+      {label}
+    </button>
+  );
 
   return (
     <div className="p-4 sm:p-6">
@@ -1947,100 +1256,176 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
 
         <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="text-2xl font-semibold text-white">Downtime Pareto — Full Report</div>
-            <div className="mt-1 text-sm text-zinc-400">
-              Analyze downtime patterns and prioritize improvements
-            </div>
-
-            <div className="mt-4">{scopeChips}</div>
-            {filtersRow}
+            <div className="text-2xl font-semibold text-white">{t("downtime.header.title")}</div>
+            <div className="mt-1 text-sm text-zinc-300">{t("downtime.header.subtitle")}</div>
           </div>
 
-          <div className="relative flex flex-wrap items-center gap-2 lg:justify-end">
-            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-            <span className="text-xs text-zinc-400">MXN/min</span>
-            <input
-                value={mxnPerMinInput}
-                onChange={(e) => setMxnPerMinInput(e.target.value.replace(/[^\d]/g, ""))}
-                onBlur={() => setParams({ mxnPerMin: mxnPerMinInput ? mxnPerMinInput : null })}
-                placeholder="0"
-                className="w-20 bg-transparent text-right text-sm text-white outline-none"
-            />
-            </div>
-
+          <div className="flex flex-wrap items-center gap-2 lg:justify-end">
             <button
               onClick={exportCSV}
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
             >
-              Export
+              {t("downtime.header.export")}
             </button>
-            <button
-              onClick={shareLink}
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"
-            >
-              Share
-            </button>
-
-            <span className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-zinc-400">
-              Plant select (soon)
-            </span>
-
             {machineId ? (
               <Link
                 href={`/machines/${encodeURIComponent(machineId)}`}
                 className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/20"
               >
-                Back to machine →
+                {t("downtime.header.backToMachine")}
               </Link>
             ) : null}
           </div>
         </div>
+
+        {/* Primary controls: range + classification toggle + more-filters */}
+        <div className="relative mt-5 flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="flex items-center gap-2">
+            {rangeBtn("24h", t("downtime.filter.today"))}
+            {rangeBtn("7d", t("downtime.filter.7d"))}
+            {rangeBtn("30d", t("downtime.filter.30d"))}
+          </div>
+
+          <div className="h-6 w-px bg-white/10" />
+
+          {/* Classification toggle (promoted) */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-zinc-300">{t("downtime.classToggle.label")}</span>
+            <div className="inline-flex overflow-hidden rounded-xl border border-white/10">
+              <button
+                onClick={() => setParams({ excludeUnclassified: null })}
+                className={cn(
+                  "h-9 px-3 text-xs",
+                  !excludeUnclassified ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300 hover:bg-white/10"
+                )}
+              >
+                {t("downtime.classToggle.all")}
+              </button>
+              <button
+                onClick={() => setParams({ excludeUnclassified: "1" })}
+                className={cn(
+                  "h-9 px-3 text-xs",
+                  excludeUnclassified ? "bg-emerald-500/15 text-emerald-100" : "bg-white/5 text-zinc-300 hover:bg-white/10"
+                )}
+              >
+                {t("downtime.classToggle.classifiedOnly")}
+              </button>
+            </div>
+            <span className={cn("text-xs", meetsClassificationTarget ? "text-emerald-300" : "text-amber-300")}>
+              {classificationRatePct == null
+                ? t("downtime.classToggle.rateNoData")
+                : t("downtime.classToggle.rate", {
+                    pct: fmtNum(classificationRatePct, 0),
+                    target: CLASSIFICATION_TARGET_PCT,
+                  })}
+            </span>
+          </div>
+
+          <div className="ml-auto">
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className={cn(
+                "inline-flex h-9 items-center gap-2 rounded-xl border px-3 text-xs",
+                showFilters || hasSecondaryFilters
+                  ? "border-white/15 bg-white/10 text-white"
+                  : "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              {t("downtime.moreFilters")}
+            </button>
+          </div>
+        </div>
+
+        {/* Secondary filters expander */}
+        {showFilters ? (
+          <div className="relative mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/20 p-3">
+            <select
+              value={machineId ?? "all"}
+              onChange={(e) => setParams({ machineId: e.target.value === "all" ? null : e.target.value, reasonCode: null })}
+              className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
+            >
+              <option value="all">{t("downtime.scope.allMachines")}</option>
+              {machines.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name || m.id}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={shift}
+              onChange={(e) => setParams({ shift: e.target.value === "all" ? null : e.target.value })}
+              className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
+            >
+              <option value="all">{t("downtime.filter.allShifts")}</option>
+              <option value="A">{t("downtime.filter.shift", { name: "A" })}</option>
+              <option value="B">{t("downtime.filter.shift", { name: "B" })}</option>
+              <option value="C">{t("downtime.filter.shift", { name: "C" })}</option>
+            </select>
+
+            <select
+              value={planned}
+              onChange={(e) => setParams({ planned: e.target.value === "all" ? null : e.target.value })}
+              className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
+            >
+              <option value="all">{t("downtime.filter.plannedUnplanned")}</option>
+              <option value="planned">{t("downtime.filter.planned")}</option>
+              <option value="unplanned">{t("downtime.filter.unplanned")}</option>
+            </select>
+
+            <div className="flex h-9 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200">
+              <span className="text-zinc-300">{t("downtime.filter.microstopLt")}</span>
+              <input
+                value={microstopLtMin}
+                onChange={(e) => setParams({ microstopLtMin: e.target.value })}
+                className="w-10 bg-transparent text-right text-xs text-white outline-none"
+              />
+              <span className="text-zinc-300">{t("downtime.filter.min")}</span>
+            </div>
+
+            <div className="inline-flex overflow-hidden rounded-xl border border-white/10">
+              <button
+                onClick={() => setParams({ metric: null })}
+                className={cn("h-9 px-3 text-xs", metric === "minutes" ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300 hover:bg-white/10")}
+              >
+                {t("downtime.metric.minutes")}
+              </button>
+              <button
+                onClick={() => setParams({ metric: "count" })}
+                className={cn("h-9 px-3 text-xs", metric === "count" ? "bg-white/10 text-white" : "bg-white/5 text-zinc-300 hover:bg-white/10")}
+              >
+                {t("downtime.metric.count")}
+              </button>
+            </div>
+
+            <button
+              onClick={() =>
+                setParams({
+                  metric: null,
+                  shift: null,
+                  planned: null,
+                  microstopLtMin: null,
+                  machineId: null,
+                  reasonCode: null,
+                })
+              }
+              className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 hover:bg-white/10"
+            >
+              {t("downtime.filter.reset")}
+            </button>
+          </div>
+        ) : null}
+
+        {hasAnyChip ? <div className="relative mt-4">{scopeChips}</div> : null}
       </div>
 
       {/* Loading / error */}
       {loading ? (
-        <div className="mt-6 text-sm text-zinc-400">Loading downtime pareto…</div>
+        <div className="mt-6 text-sm text-zinc-300">{t("downtime.loading")}</div>
       ) : err ? (
         <div className="mt-6 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
           {err}
-        </div>
-      ) : null}
-
-      {debug ? (
-        <div className="mt-6 rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="font-semibold text-white">Debug</div>
-            <div className="text-[11px] text-zinc-500">
-              Disable with <span className="text-zinc-300">debug=0</span>
-            </div>
-          </div>
-          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[11px] text-zinc-500">Status</div>
-              <div className="mt-1 text-zinc-200">
-                loading={String(loading)} · err={err ?? "null"} · eventsLoading={String(eventsLoading)} · eventsErr=
-                {eventsErr ?? "null"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[11px] text-zinc-500">Filters</div>
-              <div className="mt-1 text-zinc-200">
-                range={range} · machineId={machineId ?? "null"} · reasonCode={reasonCode ?? "null"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[11px] text-zinc-500">API payload sizes</div>
-              <div className="mt-1 text-zinc-200">
-                pareto.rows={(pareto?.rows?.length ?? 0)} · events={(eventsRes?.events?.length ?? 0)}
-              </div>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-[11px] text-zinc-500">Effective (used by UI)</div>
-              <div className="mt-1 text-zinc-200">
-                rows={(paretoEffective?.rows?.length ?? 0)} · usingEventsFallback={String(usingEventsFallback)}
-              </div>
-            </div>
-          </div>
         </div>
       ) : null}
 
@@ -2048,553 +1433,451 @@ const estImpactMxn = rate > 0 ? totalDowntimeMin * rate : 0;
         <>
           {eventsErr ? (
             <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-              Events list unavailable: {eventsErr}
+              {t("downtime.eventsUnavailable", { err: eventsErr })}
             </div>
           ) : null}
 
-          {excludeUnclassified ? (
-            <div className="mt-6 rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-              <div className="font-semibold">Filtered view: excluding UNCLASSIFIED / UNKNOWN</div>
-              <div className="mt-1 text-xs text-amber-200">
-                All downtime: {fmtDurationFromMinutes(totalMinutesAll)} · Classified: {fmtDurationFromMinutes(totalMinutesClassified)} · Excluded unclassified: {fmtDurationFromMinutes(excludedUnclassifiedMinutes)} ({fmtPct(excludedUnclassifiedPct, 1)})
-              </div>
-              <div className="mt-1 text-xs text-amber-300/90">
-                Events all: {fmtNum(totalEventsAll, 0)} · Classified events: {fmtNum(totalEventsClassified, 0)} · Excluded events: {fmtNum(excludedUnclassifiedEvents, 0)}
-              </div>
+          {/* KPI strip — Essentials + cost (5 tiles) */}
+          <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            <KpiTile
+              label={t("downtime.kpi.totalDowntime")}
+              value={fmtDurationFromMinutes(totalDowntimeMin)}
+              caption={t("downtime.kpi.totalDef")}
+              tone="primary"
+            />
+            <KpiTile
+              label={t("downtime.kpi.stopsCount")}
+              value={fmtNum(stops, 0)}
+              caption={t("downtime.kpi.stopsDef")}
+            />
+            <KpiTile
+              label={t("downtime.kpi.topReason")}
+              value={topReason ? fmtPct(topReason.pctOfTotal, 1) : null}
+              caption={topReason ? topReason.reasonLabel : undefined}
+              emptyCaption={t("downtime.breakdown.noData")}
+            />
+            <KpiTile
+              label={t("downtime.kpi.classifiedPct")}
+              value={classificationRatePct == null ? null : `${fmtNum(classificationRatePct, 0)}%`}
+              caption={t("downtime.kpi.classifiedDef", { target: CLASSIFICATION_TARGET_PCT })}
+              emptyCaption={t("downtime.classToggle.rateNoData")}
+              tone={meetsClassificationTarget ? "primary" : "neutral"}
+            />
+            {/* Est. cost — custom tile so the unset state can link to Settings */}
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div className="text-xs text-zinc-400">{t("downtime.kpi.estCost")}</div>
+              {estCost != null && costRate ? (
+                <>
+                  <div className="mt-2 text-2xl font-semibold text-white">{fmtMoney(estCost, costRate.currency)}</div>
+                  <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-400">{t("downtime.kpi.costDef")}</div>
+                </>
+              ) : (
+                <>
+                  <div className="mt-2 text-2xl font-semibold text-zinc-400">—</div>
+                  <Link href="/settings" className="mt-1 inline-block text-[11px] text-emerald-300 hover:text-emerald-200">
+                    {t("downtime.cost.setRates")} →
+                  </Link>
+                </>
+              )}
             </div>
-          ) : null}
+          </div>
 
-          {/* KPI strip */}
-          <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-8">
-            <KPI
-                label="Total downtime"
-                value={fmtDurationFromMinutes(totalDowntimeMin)}
-                sub={`${fmtDurationFromMinutes(totalDowntimeMin)} total`}
-                accent="emerald"
-            />
-            <KPI
-                label="Stops count"
-                value={fmtNum(stops, 0)}
-                sub="Distinct episodes (filtered)"
-                accent="zinc"
-            />
-            <KPI
-                label="Top reason share"
-                value={metricRowsAll[0] ? fmtPct(metricRowsAll[0].pctOfTotal, 1) : "—"}
-                sub={metricRowsAll[0] ? metricRowsAll[0].reasonLabel : ""}
-                accent="yellow"
-            />
-            <KPI
-                label="MTBF"
-                value={stops > 0 ? fmtDurationFromMinutes(mtbfHours * 60) : "—"}
-                sub="Proxy (window-based)"
-            />
-            <KPI
-                label="MTTR"
-                value={stops > 0 ? fmtDurationFromMinutes(mttrMin) : "—"}
-                sub="Avg stop duration"
-            />
-            <KPI
-                label="Availability loss"
-                value={windowMin > 0 ? `${fmtNum(availabilityLossPct, 1)}%` : "—"}
-                sub="Downtime / window"
-                accent="rose"
-            />
-            <KPI
-                label="Est. impact (MXN)"
-                value={rate > 0 ? fmtMxn(estImpactMxn) : "—"}
-                sub={rate > 0 ? `Rate: ${fmtMxn(rate)}/min` : "Set MXN/min"}
-                accent="rose"
-            />
-            <KPI
-                label="Classification rate"
-                value={classificationRatePct == null ? "—" : `${fmtNum(classificationRatePct, 0)}%`}
-                sub={`Target ≥${CLASSIFICATION_TARGET_PCT}% · ${fmtNum(unclassifiedPct, 0)}% unclassified`}
-                accent={meetsClassificationTarget ? "emerald" : "rose"}
-            />
-            </div>
+          {/* View switch */}
+          <div className="mt-6 flex flex-wrap items-center gap-2">
+            {viewBtn("overview", t("downtime.view.overview"))}
+            {viewBtn("events", t("downtime.view.events"))}
+          </div>
 
+          {/* ── Overview ── */}
+          {view === "overview" && (
+            <>
+              <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+                {/* Hero chart */}
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-lg font-semibold text-white">{t("downtime.hero.title")}</div>
+                      <div className="mt-1 text-xs text-zinc-300">
+                        {t("downtime.hero.subtitle", { range, metric: metric === "minutes" ? t("downtime.metric.minutes") : t("downtime.metric.count") })}
+                      </div>
+                    </div>
 
-          {/* Hero + breakdown */}
-          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            {/* Hero chart */}
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <div className="text-lg font-semibold text-white">Downtime Pareto Analysis</div>
-                  <div className="mt-1 text-xs text-zinc-400">
-                    Top reasons by impact · {range} · metric: {metric}
+                    <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-zinc-300">
+                      <div className="text-white">
+                        {t("downtime.hero.top3a")}{" "}
+                        <span className="font-semibold">{fmtPct(top3Share, 1)}</span>
+                      </div>
+                      <div className="mt-1 text-zinc-300">{t("downtime.hero.top3b")}</div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-zinc-300">
-                  <div className="text-white">
-                    Top 3 reasons explain{" "}
-                    <span className="font-semibold">{fmtPct(top3Share, 1)}</span>
-                  </div>
-                  <div className="mt-1 text-zinc-400">
-                    Fix these first = highest ROI
-                  </div>
-                </div>
-              </div>
-
-              <div
-                className="mt-4 h-[360px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
-                style={{ boxShadow: "var(--app-chart-shadow)" }}
-              >
-                <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-                  <ComposedChart
-                    data={heroData}
-                    onClick={(st: any) => {
-                      const p = st?.activePayload?.[0]?.payload;
-                      if (!p?.code) return;
-                      setParams({ reasonCode: p.code });
-                    }}
+                  <div
+                    className="mt-4 h-[360px] rounded-3xl border border-white/10 bg-black/30 p-4 backdrop-blur"
+                    style={{ boxShadow: "var(--app-chart-shadow)" }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
-                    <XAxis
-                      dataKey="label"
-                      interval={0}
-                      tick={{ fill: "var(--app-chart-tick)" }}
-                      tickFormatter={(v: string) => (v.length > 14 ? `${v.slice(0, 14)}…` : v)}
+                    <DowntimeParetoHero
+                      data={heroData}
+                      onBarClick={(code) => setParams({ reasonCode: code })}
+                      TooltipContent={HeroTooltip}
                     />
-                    <YAxis
-                      yAxisId="left"
-                      tick={{ fill: "var(--app-chart-tick)" }}
-                      tickFormatter={(v: number) =>
-                        metric === "minutes" ? `${v}` : `${v}`
-                      }
-                    />
-                    <YAxis
-                      yAxisId="right"
-                      orientation="right"
-                      domain={[0, 100]}
-                      tick={{ fill: "var(--app-chart-tick)" }}
-                      tickFormatter={(v: number) => `${v}%`}
-                    />
-                    <Tooltip content={<HeroTooltip />} cursor={{ stroke: "var(--app-chart-grid)" }} />
+                  </div>
 
-                    <Bar
-                      yAxisId="left"
-                      dataKey="value"
-                      radius={[10, 10, 0, 0]}
-                      isAnimationActive={false}
-                      fill="rgba(16,185,129,0.85)"
-                    />
-                    <Line
-                      yAxisId="right"
-                      type="monotone"
-                      dataKey="cum"
-                      stroke="rgba(110,231,183,0.95)"
-                      strokeWidth={2}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                    <ReferenceLine
-                      yAxisId="right"
-                      y={80}
-                      stroke="rgba(255,255,255,0.25)"
-                      strokeDasharray="6 6"
-                    />
-                  </ComposedChart>
-                </ResponsiveContainer>
+                  {threshold80Index != null && metricRowsAll[threshold80Index] ? (
+                    <div className="mt-3 text-xs text-zinc-300">
+                      {t("downtime.hero.threshold80")}{" "}
+                      <span className="text-white">{metricRowsAll[threshold80Index].reasonLabel}</span>
+                    </div>
+                  ) : null}
+                </div>
+
+                {/* Reason breakdown */}
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-lg font-semibold text-white">{t("downtime.breakdown.title")}</div>
+                      <div className="mt-1 text-xs text-zinc-300">{t("downtime.breakdown.clickRow")}</div>
+                    </div>
+                    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">
+                      {t("downtime.breakdown.top", { n: Math.min(12, metricRowsAll.length) })}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <div className="text-xs font-semibold text-white">{t("downtime.breakdown.menuTitle")}</div>
+                    {catalogErr ? (
+                      <div className="mt-2 text-[11px] text-rose-300">{catalogErr}</div>
+                    ) : null}
+                    <div className="mt-3 max-h-[180px] space-y-2 overflow-y-auto no-scrollbar pr-1">
+                      {catalogByCategory.map((group) => (
+                        <div key={group.categoryId} className="rounded-xl border border-white/10 bg-white/5 p-2">
+                          <div className="mb-1 text-[11px] font-semibold text-zinc-300">{group.categoryLabel}</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {group.rows.map((option) => {
+                              const active = reasonCode === option.reasonCode;
+                              return (
+                                <button
+                                  key={option.reasonCode}
+                                  onClick={() => setParams({ reasonCode: option.reasonCode })}
+                                  className={cn(
+                                    "rounded-lg border px-2 py-1 text-[11px]",
+                                    active
+                                      ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                                      : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/10"
+                                  )}
+                                >
+                                  {option.detailLabel}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                      {!catalogErr && catalogByCategory.length === 0 ? (
+                        <div className="text-[11px] text-zinc-400">{t("downtime.breakdown.noMenu")}</div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 max-h-[360px] overflow-y-auto no-scrollbar rounded-2xl border border-white/10 bg-black/20">
+                    <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-4 py-3 text-[11px] text-zinc-400">
+                      <div className="col-span-8">{t("downtime.col.reason")}</div>
+                      <div className="col-span-4 text-right">{metric === "minutes" ? t("downtime.metric.minutes") : t("downtime.metric.count")}</div>
+                    </div>
+
+                    {metricRowsAll.slice(0, 12).map((r) => {
+                      const active = reasonCode === r.reasonCode;
+                      return (
+                        <button
+                          key={r.reasonCode}
+                          className={cn(
+                            "grid w-full grid-cols-12 gap-2 px-4 py-3 text-left text-sm transition",
+                            "border-b border-white/5 hover:bg-white/5",
+                            active && "bg-emerald-500/10"
+                          )}
+                          onClick={() => {
+                            setDrawer({ open: true, row: r });
+                            setParams({ reasonCode: r.reasonCode });
+                          }}
+                        >
+                          <div className="col-span-8">
+                            <div className="truncate text-white">{r.reasonLabel}</div>
+                            <div className="mt-1 text-[11px] text-zinc-400">
+                              {fmtPct(r.pctOfTotal, 1)} · {t("downtime.breakdown.stopsCount", { n: fmtNum(r.count, 0) })}
+                            </div>
+                          </div>
+                          <div className="col-span-4 text-right">
+                            <div className="text-white">
+                              {metric === "minutes" ? `${fmtNum(r.value, 1)}m` : fmtNum(r.value, 0)}
+                            </div>
+                            <div className="mt-1 text-[11px] text-zinc-400">
+                              {t("downtime.breakdown.cum", { pct: fmtPct(r.cumulativePct, 0) })}
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {metricRowsAll.length === 0 ? (
+                      <div className="p-4 text-sm text-zinc-300">{t("downtime.breakdown.noData")}</div>
+                    ) : null}
+                  </div>
+                </div>
               </div>
 
-              {threshold80Index != null && metricRowsAll[threshold80Index] ? (
-                <div className="mt-3 text-xs text-zinc-400">
-                  80% threshold reached at{" "}
-                  <span className="text-white">{metricRowsAll[threshold80Index].reasonLabel}</span>
+              {/* Drilldown table behind an expander */}
+              <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-lg font-semibold text-white">{t("downtime.drill.title")}</div>
+                    <div className="mt-1 text-xs text-zinc-300">
+                      {t("downtime.drill.showing", { shown: metricRowsFiltered.length, total: metricRowsAll.length })}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowFullTable((v) => !v)}
+                    className="self-start rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-zinc-200 hover:bg-white/10"
+                  >
+                    {showFullTable ? t("downtime.hideFullTable") : t("downtime.showFullTable")}
+                  </button>
                 </div>
-              ) : null}
-            </div>
 
-            {/* Reason breakdown */}
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-lg font-semibold text-white">Reason Breakdown</div>
-                  <div className="mt-1 text-xs text-zinc-400">Click row for details</div>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-zinc-300">
-                  Top {Math.min(12, metricRowsAll.length)}
-                </div>
-              </div>
+                {showFullTable ? (
+                  <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
+                    <table className="w-full min-w-[860px] text-left text-sm">
+                      <thead className="border-b border-white/10 text-[11px] text-zinc-400">
+                        <tr>
+                          <th className="px-4 py-3">{t("downtime.col.reason")}</th>
+                          <th className="px-4 py-3 text-right">{t("downtime.metric.downtime")}</th>
+                          <th className="px-4 py-3 text-right">{t("downtime.metric.stops")}</th>
+                          <th className="px-4 py-3 text-right">{t("downtime.col.avgDuration")}</th>
+                          <th className="px-4 py-3 text-right">{t("downtime.col.share")}</th>
+                          <th className="px-4 py-3 text-right">{t("downtime.col.cum")}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {metricRowsFiltered.map((r) => {
+                          const avg =
+                            r.count > 0 && r.minutesLost != null ? r.minutesLost / r.count : null;
 
-              <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="text-xs font-semibold text-white">Downtime reason menu</div>
-                <div className="mt-1 text-[11px] text-zinc-400">
-                  From settings or `downtime_menu.md` fallback
-                </div>
-                {catalogErr ? (
-                  <div className="mt-2 text-[11px] text-rose-300">{catalogErr}</div>
-                ) : null}
-                <div className="mt-3 max-h-[180px] space-y-2 overflow-y-auto no-scrollbar pr-1">
-                  {catalogByCategory.map((group) => (
-                    <div key={group.categoryId} className="rounded-xl border border-white/10 bg-white/5 p-2">
-                      <div className="mb-1 text-[11px] font-semibold text-zinc-300">{group.categoryLabel}</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {group.rows.map((option) => {
-                          const active = reasonCode === option.reasonCode;
                           return (
-                            <button
-                              key={option.reasonCode}
-                              onClick={() => setParams({ reasonCode: option.reasonCode })}
+                            <tr
+                              key={r.reasonCode}
                               className={cn(
-                                "rounded-lg border px-2 py-1 text-[11px]",
-                                active
-                                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
-                                  : "border-white/10 bg-black/20 text-zinc-300 hover:bg-white/10"
+                                "cursor-pointer hover:bg-white/5",
+                                reasonCode === r.reasonCode && "bg-emerald-500/10"
                               )}
+                              onClick={() => {
+                                setDrawer({ open: true, row: r });
+                                setParams({ reasonCode: r.reasonCode });
+                              }}
                             >
-                              {option.detailLabel}
-                            </button>
+                              <td className="px-4 py-3">
+                                <div className="truncate text-white">{r.reasonLabel}</div>
+                                <div className="mt-1 text-[11px] text-zinc-400">{r.reasonCode}</div>
+                              </td>
+                              <td className="px-4 py-3 text-right text-white">
+                                {r.minutesLost != null ? fmtDurationFromMinutes(r.minutesLost) : "—"}
+                              </td>
+                              <td className="px-4 py-3 text-right text-white">{fmtNum(r.count, 0)}</td>
+                              <td className="px-4 py-3 text-right text-zinc-200">
+                                {avg == null ? "—" : fmtDurationFromMinutes(avg)}
+                              </td>
+                              <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.pctOfTotal, 1)}</td>
+                              <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.cumulativePct, 0)}</td>
+                            </tr>
                           );
                         })}
-                      </div>
-                    </div>
-                  ))}
-                  {!catalogErr && catalogByCategory.length === 0 ? (
-                    <div className="text-[11px] text-zinc-500">No reason menu available.</div>
-                  ) : null}
-                </div>
-              </div>
 
-              <div className="mt-4 max-h-[360px] overflow-y-auto no-scrollbar rounded-2xl border border-white/10 bg-black/20">
-                <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-4 py-3 text-[11px] text-zinc-500">
-                  <div className="col-span-8">Reason</div>
-                  <div className="col-span-4 text-right">{metric === "minutes" ? "Minutes" : "Count"}</div>
-                </div>
-
-                {metricRowsAll.slice(0, 12).map((r) => {
-                  const active = reasonCode === r.reasonCode;
-                  return (
-                    <button
-                      key={r.reasonCode}
-                      className={cn(
-                        "grid w-full grid-cols-12 gap-2 px-4 py-3 text-left text-sm transition",
-                        "border-b border-white/5 hover:bg-white/5",
-                        active && "bg-emerald-500/10"
-                      )}
-                      onClick={() => {
-                        setDrawer({ open: true, row: r });
-                        setParams({ reasonCode: r.reasonCode });
-                      }}
-                    >
-                      <div className="col-span-8">
-                        <div className="truncate text-white">{r.reasonLabel}</div>
-                        <div className="mt-1 text-[11px] text-zinc-400">
-                          {fmtPct(r.pctOfTotal, 1)} · {fmtNum(r.count, 0)} stops
-                        </div>
-                      </div>
-                      <div className="col-span-4 text-right">
-                        <div className="text-white">
-                          {metric === "minutes" ? `${fmtNum(r.value, 1)}m` : fmtNum(r.value, 0)}
-                        </div>
-                        <div className="mt-1 text-[11px] text-zinc-500">
-                          cum {fmtPct(r.cumulativePct, 0)}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-
-                {metricRowsAll.length === 0 ? (
-                  <div className="p-4 text-sm text-zinc-400">No data for this range.</div>
+                        {metricRowsFiltered.length === 0 ? (
+                          <tr>
+                            <td className="px-4 py-6 text-sm text-zinc-300" colSpan={6}>
+                              {t("downtime.drill.noRows")}
+                            </td>
+                          </tr>
+                        ) : null}
+                      </tbody>
+                    </table>
+                  </div>
                 ) : null}
               </div>
 
-              {/* Coverage mini */}
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="text-sm font-semibold text-white">Filtered downtime summary</div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  Reflects the active range/machine/shift/planned/microstop filters
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                    <div className="text-[11px] text-zinc-400">Episodes</div>
-                    <div className="mt-1 text-base font-semibold text-white">
-                      {fmtNum(stops, 0)}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/20 p-3">
-                    <div className="text-[11px] text-zinc-400">Minutes</div>
-                    <div className="mt-1 text-base font-semibold text-white">
-                      {fmtNum(totalDowntimeMin, 1)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          
-
-          {/* Drilldown table */}
-          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="text-lg font-semibold text-white">Drilldown table</div>
-                <div className="mt-1 text-xs text-zinc-400">
-                  Sortable later · click row opens drawer
-                </div>
-              </div>
-              <div className="text-xs text-zinc-400">
-                Showing {metricRowsFiltered.length} / {metricRowsAll.length}
-              </div>
-            </div>
-
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
-              <table className="w-full min-w-[860px] text-left text-sm">
-                <thead className="border-b border-white/10 text-[11px] text-zinc-500">
-                  <tr>
-                    <th className="px-4 py-3">Reason</th>
-                    <th className="px-4 py-3 text-right">Downtime</th>
-                    <th className="px-4 py-3 text-right">Stops</th>
-                    <th className="px-4 py-3 text-right">Avg duration</th>
-                    <th className="px-4 py-3 text-right">% share</th>
-                    <th className="px-4 py-3 text-right">Cum %</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/5">
-                  {metricRowsFiltered.map((r) => {
-                    const avg =
-                      r.count > 0 && r.minutesLost != null ? r.minutesLost / r.count : null;
-
-                    return (
-                      <tr
-                        key={r.reasonCode}
-                        className={cn(
-                          "cursor-pointer hover:bg-white/5",
-                          reasonCode === r.reasonCode && "bg-emerald-500/10"
-                        )}
-                        onClick={() => {
-                          setDrawer({ open: true, row: r });
-                          setParams({ reasonCode: r.reasonCode });
-                        }}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="truncate text-white">{r.reasonLabel}</div>
-                          <div className="mt-1 text-[11px] text-zinc-500">{r.reasonCode}</div>
-                        </td>
-                        <td className="px-4 py-3 text-right text-white">
-                          {r.minutesLost != null ? fmtDurationFromMinutes(r.minutesLost) : "—"}
-                        </td>
-                        <td className="px-4 py-3 text-right text-white">{fmtNum(r.count, 0)}</td>
-                        <td className="px-4 py-3 text-right text-zinc-200">
-                          {avg == null ? "—" : fmtDurationFromMinutes(avg)}
-                        </td>
-                        <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.pctOfTotal, 1)}</td>
-                        <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.cumulativePct, 0)}</td>
-                      </tr>
-                    );
-                  })}
-
-                  {metricRowsFiltered.length === 0 ? (
-                    <tr>
-                      <td className="px-4 py-6 text-sm text-zinc-400" colSpan={6}>
-                        No rows.
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Patterns + Events + Actions (layout placeholders, no endpoints yet) */}
-          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5 xl:col-span-2">
-              <div className="text-lg font-semibold text-white">Patterns (heatmaps)</div>
-              <div className="mt-1 text-xs text-zinc-400">
-                Add endpoints later: hour-of-day × day heatmap, shift comparisons
-              </div>
-              <Heatmap
-                events={events}
-                metric={metric}
-                selected={heatmapSel}
-                onSelect={(day, hour) => setParams({ hmDay: String(day), hmHour: String(hour) })}
-                onClear={() => setParams({ hmDay: null, hmHour: null })}
+              {/* Patterns heatmap — kept at the bottom: useful to visualize, out of the way */}
+              <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="text-lg font-semibold text-white">{t("downtime.patterns.title")}</div>
+                <div className="mt-1 text-xs text-zinc-300">{t("downtime.patterns.help")}</div>
+                <Heatmap
+                  events={events}
+                  metric={metric}
+                  selected={heatmapSel}
+                  onSelect={(day, hour) => setParams({ hmDay: String(day), hmHour: String(hour) })}
+                  onClear={() => setParams({ hmDay: null, hmHour: null })}
                 />
-
-            </div>
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-              <div className="text-lg font-semibold text-white">Actions & ownership</div>
-              <div className="mt-1 text-xs text-zinc-400">
-                Next: create action from reason/event (owner, due date, status)
               </div>
-              <ActionsOwnershipPanel
-                machineId={machineId}
-                reasonCode={reasonCode}
-                heatmapSel={heatmapSel}
-                onFocusReason={(code) => setParams({ reasonCode: code })}
-                />
+            </>
+          )}
 
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          {/* ── Events ── */}
+          {view === "events" && (
+            <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                <div className="text-lg font-semibold text-white">Event list (audit trail)</div>
-                <div className="mt-1 text-xs text-zinc-400">
-                    Real downtime episodes · filtered by scope + reason
-                </div>
+                  <div className="text-lg font-semibold text-white">{t("downtime.events.title")}</div>
+                  <div className="mt-1 text-xs text-zinc-300">{t("downtime.events.help")}</div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
-                <input
+                  <input
                     value={eventSearch}
                     onChange={(e) => setEventSearch(e.target.value)}
-                    placeholder="Search machine / reason / WO / episode…"
-                    className="h-9 w-[260px] rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white outline-none placeholder:text-zinc-500"
-                />
+                    placeholder={t("downtime.events.searchPlaceholder")}
+                    className="h-9 w-[260px] rounded-xl border border-white/10 bg-black/20 px-3 text-xs text-white outline-none placeholder:text-zinc-400"
+                  />
 
-                <select
+                  <select
                     value={String(eventsLimit)}
                     onChange={(e) => {
-                    setEventsBefore(null);
-                    setEventsLimit(Number(e.target.value));
+                      setEventsBefore(null);
+                      setEventsLimit(Number(e.target.value));
                     }}
                     className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 outline-none hover:bg-white/10"
-                >
+                  >
                     <option value="50">50</option>
                     <option value="100">100</option>
                     <option value="200">200</option>
                     <option value="300">300</option>
                     <option value="500">500</option>
-                </select>
+                  </select>
 
-                <button
+                  <button
                     onClick={() => setEventsBefore(null)}
                     className="h-9 rounded-xl border border-white/10 bg-white/5 px-3 text-xs text-zinc-200 hover:bg-white/10"
-                >
-                    Newest
-                </button>
+                  >
+                    {t("downtime.events.newest")}
+                  </button>
 
-                <button
+                  <button
                     disabled={!eventsRes?.nextBefore}
                     onClick={() => setEventsBefore(eventsRes?.nextBefore ?? null)}
                     className={cn(
-                    "h-9 rounded-xl border px-3 text-xs",
-                    eventsRes?.nextBefore
+                      "h-9 rounded-xl border px-3 text-xs",
+                      eventsRes?.nextBefore
                         ? "border-white/10 bg-white/5 text-zinc-200 hover:bg-white/10"
-                        : "border-white/10 bg-white/5 text-zinc-500 opacity-50 cursor-not-allowed"
+                        : "border-white/10 bg-white/5 text-zinc-400 opacity-50 cursor-not-allowed"
                     )}
-                >
-                    Older →
-                </button>
+                  >
+                    {t("downtime.events.older")}
+                  </button>
                 </div>
-            </div>
+              </div>
 
-            {eventsLoading ? (
-                <div className="mt-4 text-sm text-zinc-400">Loading events…</div>
-            ) : eventsErr ? (
+              {eventsLoading ? (
+                <div className="mt-4 text-sm text-zinc-300">{t("downtime.events.loading")}</div>
+              ) : eventsErr ? (
                 <div className="mt-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-200">
-                {eventsErr}
+                  {eventsErr}
                 </div>
-            ) : (
+              ) : (
                 <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
-                <table className="w-full min-w-[980px] text-left text-sm">
-                    <thead className="border-b border-white/10 text-[11px] text-zinc-500">
-                    <tr>
-                        <th className="px-4 py-3">Start</th>
-                        <th className="px-4 py-3">End</th>
-                        <th className="px-4 py-3">Machine</th>
-                        <th className="px-4 py-3">Reason</th>
-                        <th className="px-4 py-3">WO</th>
-                        <th className="px-4 py-3 text-right">Duration</th>
-                        <th className="px-4 py-3 text-right">Episode</th>
-                        <th className="px-4 py-3 text-right">Classify</th>
-                    </tr>
+                  <table className="w-full min-w-[980px] text-left text-sm">
+                    <thead className="border-b border-white/10 text-[11px] text-zinc-400">
+                      <tr>
+                        <th className="px-4 py-3">{t("downtime.events.col.start")}</th>
+                        <th className="px-4 py-3">{t("downtime.events.col.end")}</th>
+                        <th className="px-4 py-3">{t("downtime.events.col.machine")}</th>
+                        <th className="px-4 py-3">{t("downtime.col.reason")}</th>
+                        <th className="px-4 py-3">{t("downtime.events.col.wo")}</th>
+                        <th className="px-4 py-3 text-right">{t("downtime.events.col.duration")}</th>
+                        <th className="px-4 py-3 text-right">{t("downtime.events.col.episode")}</th>
+                        <th className="px-4 py-3 text-right">{t("downtime.events.col.classify")}</th>
+                      </tr>
                     </thead>
 
                     <tbody className="divide-y divide-white/5">
-                    {filteredEvents.map((e) => {
+                      {filteredEvents.map((e) => {
                         const isActive = reasonCode === e.reasonCode;
                         const durMin = e.durationMinutes ?? (e.durationSeconds != null ? e.durationSeconds / 60 : null);
 
                         return (
-                        <tr
+                          <tr
                             key={e.id}
                             className={cn(
-                            "cursor-pointer hover:bg-white/5",
-                            isActive && "bg-emerald-500/10"
+                              "cursor-pointer hover:bg-white/5",
+                              isActive && "bg-emerald-500/10"
                             )}
                             onClick={() => {
-                            // clicking an event focuses the rest of the page on its reason
-                            setParams({ reasonCode: e.reasonCode });
+                              setParams({ reasonCode: e.reasonCode });
                             }}
-                            title="Click to focus this reason"
-                        >
-                            <td className="px-4 py-3 text-zinc-200">{fmtDT(e.startAt)}</td>
-                            <td className="px-4 py-3 text-zinc-200">{fmtDT(e.endAt)}</td>
+                            title={t("downtime.events.focusRow")}
+                          >
+                            <td className="px-4 py-3 text-zinc-200">{fmtDT(e.startAt, locale)}</td>
+                            <td className="px-4 py-3 text-zinc-200">{fmtDT(e.endAt, locale)}</td>
                             <td className="px-4 py-3">
-                            <div className="truncate text-white">{e.machineName ?? "—"}</div>
-                            <div className="mt-1 text-[11px] text-zinc-500">{e.machineId}</div>
+                              <div className="truncate text-white">{e.machineName ?? "—"}</div>
+                              <div className="mt-1 text-[11px] text-zinc-400">{e.machineId}</div>
                             </td>
                             <td className="px-4 py-3">
-                            <div className="truncate text-white">{e.reasonLabel}</div>
-                            <div className="mt-1 text-[11px] text-zinc-500">{e.reasonCode}</div>
-                            {e.reasonText && e.reasonText !== e.reasonLabel ? (
-                              <div className="mt-1 text-[11px] text-zinc-400">{e.reasonText}</div>
-                            ) : null}
+                              <div className="truncate text-white">{e.reasonLabel}</div>
+                              <div className="mt-1 text-[11px] text-zinc-400">{e.reasonCode}</div>
+                              {e.reasonText && e.reasonText !== e.reasonLabel ? (
+                                <div className="mt-1 text-[11px] text-zinc-400">{e.reasonText}</div>
+                              ) : null}
                             </td>
                             <td className="px-4 py-3 text-zinc-200">{e.workOrderId ?? "—"}</td>
                             <td className="px-4 py-3 text-right text-white">
-                            {durMin == null ? "—" : fmtDurationFromMinutes(durMin)}
+                              {durMin == null ? "—" : fmtDurationFromMinutes(durMin)}
                             </td>
-                            <td className="px-4 py-3 text-right text-[11px] text-zinc-500">
-                            {e.episodeId ?? "—"}
+                            <td className="px-4 py-3 text-right text-[11px] text-zinc-400">
+                              {e.episodeId ?? "—"}
                             </td>
                             <td className="px-4 py-3 text-right">
-                            {(() => {
-                              const unclassified = /unclass|unknown/i.test(e.reasonCode) || /unclass|unknown/i.test(e.reasonLabel ?? "");
-                              return (
-                                <button
-                                  type="button"
-                                  className={cn(
-                                    "rounded-lg px-2.5 py-1 text-[11px] font-medium",
-                                    unclassified
-                                      ? "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
-                                      : "text-zinc-400 hover:bg-white/5"
-                                  )}
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    setReclassifyTarget({
-                                      reasonEntryId: e.id,
-                                      machineName: e.machineName,
-                                      reasonCode: e.reasonCode,
-                                      reasonLabel: e.reasonLabel,
-                                      startAt: e.startAt,
-                                    });
-                                  }}
-                                >
-                                  {unclassified ? "Classify" : "Reclassify"}
-                                </button>
-                              );
-                            })()}
+                              {(() => {
+                                const unclassified = /unclass|unknown/i.test(e.reasonCode) || /unclass|unknown/i.test(e.reasonLabel ?? "");
+                                return (
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      "rounded-lg px-2.5 py-1 text-[11px] font-medium",
+                                      unclassified
+                                        ? "bg-amber-500/20 text-amber-200 hover:bg-amber-500/30"
+                                        : "text-zinc-400 hover:bg-white/5"
+                                    )}
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      setReclassifyTarget({
+                                        reasonEntryId: e.id,
+                                        machineName: e.machineName,
+                                        reasonCode: e.reasonCode,
+                                        reasonLabel: e.reasonLabel,
+                                        startAt: e.startAt,
+                                      });
+                                    }}
+                                  >
+                                    {unclassified ? t("downtime.events.classify") : t("downtime.events.reclassify")}
+                                  </button>
+                                );
+                              })()}
                             </td>
-                        </tr>
+                          </tr>
                         );
-                    })}
+                      })}
 
-                    {filteredEvents.length === 0 ? (
+                      {filteredEvents.length === 0 ? (
                         <tr>
-                        <td className="px-4 py-6 text-sm text-zinc-400" colSpan={8}>
-                            No events found for this filter/range.
-                        </td>
+                          <td className="px-4 py-6 text-sm text-zinc-300" colSpan={8}>
+                            {t("downtime.events.noEvents")}
+                          </td>
                         </tr>
-                    ) : null}
+                      ) : null}
                     </tbody>
-                </table>
+                  </table>
                 </div>
-            )}
+              )}
 
-            <div className="mt-3 text-[11px] text-zinc-500">
-                Tip: click any row to focus the whole page on that reason (Pareto + table + drawer).
+              <div className="mt-3 text-[11px] text-zinc-400">
+                {t("downtime.events.tip")}
+              </div>
             </div>
-            </div>
-
+          )}
         </>
       )}
 

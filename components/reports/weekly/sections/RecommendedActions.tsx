@@ -24,7 +24,7 @@ export default function RecommendedActions({
       <div className="mb-2 text-sm font-semibold text-white">{t("reports.weekly.recommendedActions")}</div>
       <div className="space-y-2">
         {report.recommendedActions.length === 0 ? (
-          <div className="text-xs text-zinc-500">{t("reports.weekly.empty")}</div>
+          <div className="text-xs text-zinc-400">{t("reports.weekly.empty")}</div>
         ) : (
           report.recommendedActions.map((row, index) => (
             <div key={`${row.title}-${index}`} className="rounded-lg border border-white/10 bg-black/20 p-3">

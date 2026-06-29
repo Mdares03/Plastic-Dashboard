@@ -147,7 +147,7 @@ export default function ReportsCharts({
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-full items-center justify-center text-sm text-zinc-400">
                 {t("reports.noTrend")}
               </div>
             )}
@@ -172,7 +172,7 @@ export default function ReportsCharts({
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-full items-center justify-center text-sm text-zinc-400">
                 {t("reports.noTrend")}
               </div>
             )}
@@ -195,7 +195,7 @@ export default function ReportsCharts({
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-full items-center justify-center text-sm text-zinc-400">
                 {t("reports.noCycle")}
               </div>
             )}
@@ -230,7 +230,7 @@ export default function ReportsCharts({
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex h-full items-center justify-center text-sm text-zinc-500">
+              <div className="flex h-full items-center justify-center text-sm text-zinc-400">
                 {t("reports.noDowntime")}
               </div>
             )}

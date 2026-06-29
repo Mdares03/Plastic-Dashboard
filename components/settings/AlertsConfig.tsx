@@ -428,7 +428,7 @@ export function AlertsConfig() {
             }`}
           >
             <div className="mb-3 text-xs text-zinc-400">{t("alerts.policy.defaults")}</div>
-            <div className="mb-4 text-xs text-zinc-500">{t("alerts.policy.defaultsHelp")}</div>
+            <div className="mb-4 text-xs text-zinc-400">{t("alerts.policy.defaultsHelp")}</div>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               {ROLE_ORDER.map((role) => {
                 const rule = policyDraft.defaults[role];
@@ -683,7 +683,7 @@ export function AlertsConfig() {
                 </label>
               ))}
             </div>
-            <div className="mt-2 text-xs text-zinc-500">{t("alerts.contacts.eventTypesHelper")}</div>
+            <div className="mt-2 text-xs text-zinc-400">{t("alerts.contacts.eventTypesHelper")}</div>
           </label>
         </div>
 
@@ -776,7 +776,7 @@ export function AlertsConfig() {
                         </label>
                       ))}
                     </div>
-                    <div className="mt-2 text-xs text-zinc-500">{t("alerts.contacts.eventTypesHelper")}</div>
+                    <div className="mt-2 text-xs text-zinc-400">{t("alerts.contacts.eventTypesHelper")}</div>
                   </label>
                   <label className="flex items-center gap-2 text-xs text-zinc-400">
                     <input
@@ -807,7 +807,7 @@ export function AlertsConfig() {
                     {deletingContactId === contact.id ? t("alerts.contacts.deleting") : t("alerts.contacts.delete")}
                   </button>
                   {locked && (
-                    <span className="text-xs text-zinc-500">{t("alerts.contacts.linkedUser")}</span>
+                    <span className="text-xs text-zinc-400">{t("alerts.contacts.linkedUser")}</span>
                   )}
                 </div>
               </div>

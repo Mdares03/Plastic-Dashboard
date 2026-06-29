@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsConfig } from "@/components/settings/AlertsConfig";
 import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
 import { ReasonCatalogConfig } from "@/components/settings/ReasonCatalogConfig";
+import HealthChecks from "@/components/health/HealthChecks";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { SHIFT_OVERRIDE_DAYS, type ShiftOverrideDay } from "@/lib/settings";
 import { useScreenlessMode } from "@/lib/ui/screenlessMode";
@@ -81,8 +82,6 @@ type InviteRow = {
   expiresAt: string;
 };
 
-type HealthCheck = { name: string; status: "ok" | "warn" | "fail"; detail: string };
-
 const DEFAULT_SHIFT: Omit<Shift, "name"> = {
   start: "06:00",
   end: "15:00",
@@ -129,6 +128,7 @@ const SETTINGS_TABS = [
   { id: "alerts", labelKey: "settings.tabs.alerts" },
   { id: "financial", labelKey: "settings.tabs.financial" },
   { id: "reasonCatalog", labelKey: "settings.tabs.reasonCatalog" },
+  { id: "integrity", labelKey: "settings.tabs.integrity" },
   { id: "team", labelKey: "settings.tabs.team" },
 ] as const;
 
@@ -351,9 +351,6 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState("MEMBER");
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
   const [inviteSubmitting, setInviteSubmitting] = useState(false);
-  const [healthChecks, setHealthChecks] = useState<HealthCheck[] | null>(null);
-  const [healthAdmin, setHealthAdmin] = useState(false);
-  const [healthGeneratedAt, setHealthGeneratedAt] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<(typeof SETTINGS_TABS)[number]["id"]>("general");
   const hasMountedRef = useRef(false);
   const defaultShiftName = useCallback(
@@ -419,52 +416,12 @@ export default function SettingsPage() {
     }
   }, [t]);
 
-  // Admin-only consistency health (the always-on congruence guarantee). 401/403
-  // for non-admins simply hides the card.
-  const loadHealth = useCallback(async () => {
-    try {
-      // Two admin health surfaces: /consistency = DB-level integrity invariants;
-      // /metric-consistency = the cross-screen "same number everywhere" congruence
-      // (the client's "numbers don't match" complaint). Show them in one card.
-      const [integrity, congruence] = await Promise.all([
-        fetch("/api/health/consistency", { cache: "no-store" }),
-        fetch("/api/health/metric-consistency", { cache: "no-store" }),
-      ]);
-      if (integrity.status === 401 || integrity.status === 403) {
-        setHealthAdmin(false);
-        setHealthChecks(null);
-        return;
-      }
-      const [integrityBody, congruenceBody] = await Promise.all([
-        integrity.json().catch(() => null),
-        congruence.json().catch(() => null),
-      ]);
-      const checks: HealthCheck[] = [];
-      if (integrityBody && Array.isArray(integrityBody.checks)) {
-        checks.push(...(integrityBody.checks as HealthCheck[]));
-      }
-      if (congruenceBody && Array.isArray(congruenceBody.checks)) {
-        checks.push(...(congruenceBody.checks as HealthCheck[]));
-      }
-      if (checks.length > 0) {
-        setHealthAdmin(true);
-        setHealthChecks(checks);
-        setHealthGeneratedAt(
-          typeof integrityBody?.generatedAt === "string" ? integrityBody.generatedAt : null
-        );
-      }
-    } catch {
-      // Network error — leave the card hidden rather than show a broken panel.
-    }
-  }, []);
-
   // Only run once on mount to prevent infinite loops from dependency changes
   useEffect(() => {
     if (hasMountedRef.current) return;
     hasMountedRef.current = true;
     loadSettings();
     loadTeam();
-    loadHealth();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -922,7 +879,7 @@ export default function SettingsPage() {
                 <div className="text-xs text-zinc-400">{t("settings.org.plantName")}</div>
                 <div className="mt-1 text-sm text-zinc-300">{orgInfo?.name || t("common.loading")}</div>
                 {orgInfo?.slug ? (
-                  <div className="mt-1 text-[11px] text-zinc-500">
+                  <div className="mt-1 text-[11px] text-zinc-400">
                     {t("settings.org.slug")}: {orgInfo.slug}
                   </div>
                 ) : null}
@@ -944,7 +901,7 @@ export default function SettingsPage() {
                   className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white"
                 />
               </label>
-              <div className="text-xs text-zinc-500">
+              <div className="text-xs text-zinc-400">
                 {t("settings.updated")}:{" "}
                 {draft.updatedAt ? new Date(draft.updatedAt).toLocaleString(locale) : t("common.na")}
               </div>
@@ -1018,8 +975,8 @@ export default function SettingsPage() {
               />
             </div>
 
-            <div className="mt-3 text-xs text-zinc-500">
-              Org-wide setting. Hides Downtime from navigation for all users in this org.
+            <div className="mt-3 text-xs text-zinc-400">
+              {t("settings.modules.orgWideHint")}
             </div>
           </div>
         </div>
@@ -1369,58 +1326,18 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {activeTab === "integrity" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="mb-3 text-sm font-semibold text-white">{t("settings.integrity.title")}</div>
+            <p className="mb-4 text-xs text-zinc-400">{t("settings.integrity.subtitle")}</p>
+            <HealthChecks />
+          </div>
+        </div>
+      )}
+
       {activeTab === "team" && (
        <div className="space-y-4">
-        {healthAdmin && healthChecks && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-semibold text-white">System health</div>
-              <button
-                type="button"
-                onClick={loadHealth}
-                className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white hover:bg-white/10"
-              >
-                Refresh
-              </button>
-            </div>
-            <p className="mb-3 text-xs text-zinc-400">
-              Live consistency checks — every number traces to one authority (METRICS_SPEC R1–R8).
-            </p>
-            <div className="space-y-2">
-              {healthChecks.map((check) => {
-                const tone =
-                  check.status === "ok"
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                    : check.status === "warn"
-                      ? "border-amber-500/30 bg-amber-500/10 text-amber-200"
-                      : "border-red-500/30 bg-red-500/10 text-red-200";
-                const dot =
-                  check.status === "ok"
-                    ? "bg-emerald-400"
-                    : check.status === "warn"
-                      ? "bg-amber-400"
-                      : "bg-red-400";
-                return (
-                  <div
-                    key={check.name}
-                    className={`flex items-start gap-3 rounded-xl border p-3 ${tone}`}
-                  >
-                    <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${dot}`} />
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold text-white">{check.name}</div>
-                      <div className="text-xs text-zinc-300">{check.detail}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            {healthGeneratedAt && (
-              <div className="mt-3 text-[11px] text-zinc-500">
-                Checked {new Date(healthGeneratedAt).toLocaleString()}
-              </div>
-            )}
-          </div>
-        )}
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className="mb-3 flex items-center justify-between">

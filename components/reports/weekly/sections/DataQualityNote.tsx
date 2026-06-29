@@ -21,7 +21,7 @@ export default function DataQualityNote({
         {" · "}
         {t("reports.weekly.target")}: {target.toFixed(0)}%
       </div>
-      <div className="mt-2 text-xs text-zinc-500">{t("reports.weekly.dataQualityNote")}</div>
+      <div className="mt-2 text-xs text-zinc-400">{t("reports.weekly.dataQualityNote")}</div>
     </div>
   );
 }

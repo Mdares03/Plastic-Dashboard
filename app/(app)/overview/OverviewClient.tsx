@@ -342,13 +342,13 @@ export default function OverviewClient({
                   {e.machineName ? `${e.machineName}: ` : ""}
                   {e.title}
                 </div>
-                <div className="shrink-0 text-zinc-500">
+                <div className="shrink-0 text-zinc-400">
                   {formatElapsedSinceWithAgo(e.ts, locale, t("common.never"), { maxUnits: 2, minUnit: "second" })}
                 </div>
               </div>
             ))}
             {events.length === 0 && !eventsLoading ? (
-              <div className="text-xs text-zinc-500">{t("overview.eventsNone")}</div>
+              <div className="text-xs text-zinc-400">{t("overview.eventsNone")}</div>
             ) : null}
           </div>
         </div>

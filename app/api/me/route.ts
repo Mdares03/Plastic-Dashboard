@@ -12,20 +12,20 @@ export async function GET() {
     }
     const { userId, orgId } = session;
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { id: true, email: true, name: true, phone: true },
-    });
-
-    const org = await prisma.org.findUnique({
-      where: { id: orgId },
-      select: { id: true, name: true, slug: true },
-    });
-
-    const membership = await prisma.orgUser.findUnique({
-      where: { orgId_userId: { orgId, userId } },
-      select: { role: true },
-    });
+    const [user, org, membership] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, name: true, phone: true },
+      }),
+      prisma.org.findUnique({
+        where: { id: orgId },
+        select: { id: true, name: true, slug: true },
+      }),
+      prisma.orgUser.findUnique({
+        where: { orgId_userId: { orgId, userId } },
+        select: { role: true },
+      }),
+    ]);
 
     return NextResponse.json({ ok: true, user, org, membership });
   } catch {

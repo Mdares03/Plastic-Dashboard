@@ -301,3 +301,120 @@ export function buildRoiSummaryEmail(params: {
 
   return { subject, text, html };
 }
+
+/**
+ * A clearly-labeled sample alert so a client can experience the new (throttled,
+ * sane) alert format once — proving deliverability and that alerts work, without
+ * waiting for a real incident.
+ */
+export function buildTestAlertEmail(params: {
+  appName: string;
+  orgName: string;
+  recipientName: string;
+  alertsUrl: string;
+}) {
+  const subject = `[TEST] ${params.appName} alert — delivery check`;
+  const text =
+    `This is a TEST alert from ${params.appName} for ${params.orgName}.\n\n` +
+    `Hi ${params.recipientName}, you requested a test to confirm alerts reach you.\n` +
+    `If you received this, alert delivery is working. Real alerts are throttled: ` +
+    `one per incident, with an hourly safety cap — no more flooding.\n\n` +
+    `Alerts inbox:\n${params.alertsUrl}`;
+  const html =
+    `<p>This is a <strong>TEST</strong> alert from ${params.appName} for <strong>${params.orgName}</strong>.</p>` +
+    `<p>Hi ${params.recipientName}, you requested a test to confirm alerts reach you.</p>` +
+    `<p>If you received this, alert delivery is working. Real alerts are throttled: ` +
+    `<strong>one per incident</strong>, with an hourly safety cap — no more flooding.</p>` +
+    `<p><a href="${params.alertsUrl}">Open the alerts inbox</a></p>`;
+
+  return { subject, text, html };
+}
+
+function fmtMxn(value: number) {
+  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(value);
+}
+
+function fmtShortDate(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toISOString().slice(0, 10);
+}
+
+/**
+ * Weekly production summary email — the recurring, exec-readable artifact that
+ * lands in the decision-maker's inbox. Headline KPIs only, with a link to the
+ * full report. Money is omitted (not faked) when cost rates are unset.
+ */
+export function buildWeeklyReportEmail(params: {
+  appName: string;
+  orgName: string;
+  report: {
+    period: { from: string; to: string };
+    oeeAvg: number;
+    production: { good: number; target: number; pct: number };
+    estimatedLossMXN: number;
+    financialVisibility: { hasAnyCost: boolean };
+    classificationRate: number;
+    classificationTarget: number;
+  };
+  reportUrl: string;
+}) {
+  const { report } = params;
+  const from = fmtShortDate(report.period.from);
+  const to = fmtShortDate(report.period.to);
+  const oee = `${report.oeeAvg.toFixed(0)}%`;
+  const prod = `${report.production.good.toLocaleString()} / ${report.production.target.toLocaleString()} (${report.production.pct.toFixed(0)}%)`;
+  const lossLine = report.financialVisibility.hasAnyCost
+    ? `Estimated loss: ${fmtMxn(report.estimatedLossMXN)}.`
+    : "Estimated loss: not shown (cost rates not configured yet).";
+  const classified = `${(report.classificationRate * 100).toFixed(0)}% (target ≥${(report.classificationTarget * 100).toFixed(0)}%)`;
+
+  const subject = `${params.orgName}: weekly production summary (${from} → ${to})`;
+  const text =
+    `Weekly summary for ${params.orgName} (${params.appName}), ${from} → ${to}.\n\n` +
+    `OEE (avg): ${oee}.\n` +
+    `Production (good/target): ${prod}.\n` +
+    `${lossLine}\n` +
+    `Downtime classified: ${classified}.\n\n` +
+    `Open the full report:\n${params.reportUrl}`;
+  const html =
+    `<p>Weekly summary for <strong>${params.orgName}</strong> (${params.appName}), ${from} → ${to}.</p>` +
+    `<ul>` +
+    `<li><strong>OEE (avg):</strong> ${oee}</li>` +
+    `<li><strong>Production (good/target):</strong> ${prod}</li>` +
+    `<li><strong>${lossLine}</strong></li>` +
+    `<li><strong>Downtime classified:</strong> ${classified}</li>` +
+    `</ul>` +
+    `<p><a href="${params.reportUrl}">Open the full report</a></p>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * One-time "reliability restored" assurance email — the go-live summary for the
+ * decision-maker: numbers reconcile, alerts are throttled, security is hardened,
+ * with links to the live proof.
+ */
+export function buildAssuranceEmail(params: {
+  appName: string;
+  orgName: string;
+  trustUrl: string;
+  roiUrl: string;
+}) {
+  const subject = `${params.orgName}: reliability restored — ${params.appName}`;
+  const points = [
+    "Every number reconciles — the dashboard, reports and financial/ROI figures all read from one source, verified live.",
+    "Alerts are throttled — one alert per incident with an hourly safety cap. No more flooding.",
+    "Security is hardened — rate limiting, fixed token leaks, faster session revocation.",
+    "Downtime is shift-aware and capped — no runaway stop can inflate the numbers.",
+  ];
+  const text =
+    `${params.orgName} — reliability update (${params.appName}).\n\n` +
+    points.map((p) => `• ${p}`).join("\n") +
+    `\n\nSee the live proof:\n${params.trustUrl}\n\nROI tracker:\n${params.roiUrl}`;
+  const html =
+    `<p><strong>${params.orgName} — reliability update</strong> (${params.appName}).</p>` +
+    `<ul>${points.map((p) => `<li>${p}</li>`).join("")}</ul>` +
+    `<p><a href="${params.trustUrl}">See the live proof</a> · <a href="${params.roiUrl}">ROI tracker</a></p>`;
+
+  return { subject, text, html };
+}

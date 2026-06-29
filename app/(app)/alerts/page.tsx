@@ -1,14 +1,14 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireSession } from "@/lib/auth/requireSession";
-import { getAlertsInboxData } from "@/lib/alerts/getAlertsInboxData";
+import { getAlertsInboxData, getAlertThrottleStats } from "@/lib/alerts/getAlertsInboxData";
 import AlertsClient from "./AlertsClient";
 
 export default async function AlertsPage() {
   const session = await requireSession();
   if (!session) redirect("/login?next=/alerts");
 
-  const [machines, shiftRows, inbox] = await Promise.all([
+  const [machines, shiftRows, inbox, throttleStats, membership] = await Promise.all([
     prisma.machine.findMany({
       where: { orgId: session.orgId },
       orderBy: { createdAt: "desc" },
@@ -24,7 +24,13 @@ export default async function AlertsPage() {
       range: "24h",
       limit: 250,
     }),
+    getAlertThrottleStats(session.orgId),
+    prisma.orgUser.findUnique({
+      where: { orgId_userId: { orgId: session.orgId, userId: session.userId } },
+      select: { role: true },
+    }),
   ]);
+  const canSendTest = membership?.role === "OWNER" || membership?.role === "ADMIN";
 
   const initialEvents = inbox.events.map((event) => ({
     ...event,
@@ -41,6 +47,8 @@ export default async function AlertsPage() {
       initialMachines={machines}
       initialShifts={initialShifts}
       initialEvents={initialEvents}
+      throttleStats={throttleStats}
+      canSendTest={canSendTest}
     />
   );
 }

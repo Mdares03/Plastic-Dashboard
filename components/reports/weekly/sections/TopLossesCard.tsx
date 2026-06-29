@@ -38,7 +38,7 @@ export default function TopLossesCard({
                 {row.minutes.toFixed(0)} min
                 {report.financialVisibility.hasMachineCost ? ` · ${fmtMoney(row.estimatedCostMXN, locale)}` : ""}
               </div>
-              {row.contextNote ? <div className="mt-1 text-xs text-zinc-500">{row.contextNote}</div> : null}
+              {row.contextNote ? <div className="mt-1 text-xs text-zinc-400">{row.contextNote}</div> : null}
             </div>
           ))
         )}

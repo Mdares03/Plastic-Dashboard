@@ -561,7 +561,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
                   <div className="text-xs uppercase tracking-wide text-zinc-400">{t("machines.card.oee")}</div>
                 </div>
 
-                <div className="mt-2 text-[11px] text-zinc-500">{t("machines.card.scopeWoTotals")}</div>
+                <div className="mt-2 text-[11px] text-zinc-400">{t("machines.card.scopeWoTotals")}</div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300">
                   <span>{t("recap.card.good")}: {formatInt(wo?.goodParts)}</span>
@@ -591,7 +591,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
         <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/10 bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-500">
+              <tr className="border-b border-white/10 bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-400">
                 <th className="px-4 py-3 text-left font-medium">{t("machines.col.machine")}</th>
                 <th className="px-4 py-3 text-left font-medium">{t("machines.status")}</th>
                 <th className="px-4 py-3 text-right font-medium">{t("machines.card.oee")}</th>

@@ -1,9 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams, useRouter } from "next/navigation";
-import DowntimeParetoCard from "@/components/analytics/DowntimeParetoCard";
+import ChartSkeleton from "@/components/charts/ChartSkeleton";
 import { usePathname } from "next/navigation";
+import { useI18n } from "@/lib/i18n/useI18n";
+
+// Recharts is heavy; load the chart card only when this page renders it.
+const DowntimeParetoCard = dynamic(() => import("@/components/analytics/DowntimeParetoCard"), {
+  ssr: false,
+  loading: () => <ChartSkeleton heightClass="h-80" />,
+});
 
 
 import { DOWNTIME_RANGES, coerceDowntimeRange, type DowntimeRange } from "@/lib/analytics/downtimeRange";
@@ -15,6 +23,7 @@ type MachineLite = {
 };
 
 export default function DowntimeParetoReportClient() {
+  const { t } = useI18n();
   const sp = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -63,15 +72,15 @@ export default function DowntimeParetoReportClient() {
   }, []);
 
   const machineOptions = useMemo(() => {
-    return [{ id: "", name: "All machines" }, ...machines];
-  }, [machines]);
+    return [{ id: "", name: t("pareto.allMachines") }, ...machines];
+  }, [machines, t]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <div className="text-lg font-semibold text-white">Downtime Pareto</div>
-          <div className="text-sm text-zinc-400">Org-wide report with drilldown</div>
+          <div className="text-lg font-semibold text-white">{t("pareto.title")}</div>
+          <div className="text-sm text-zinc-300">{t("pareto.subtitle")}</div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -80,9 +89,9 @@ export default function DowntimeParetoReportClient() {
             value={range}
             onChange={(e) => setRange(e.target.value as DowntimeRange)}
           >
-            <option className="bg-black text-white" value="24h">Last 24h</option>
-            <option className="bg-black text-white" value="7d">Last 7d</option>
-            <option className="bg-black text-white" value="30d">Last 30d</option>
+            <option className="bg-black text-white" value="24h">{t("pareto.range.24h")}</option>
+            <option className="bg-black text-white" value="7d">{t("pareto.range.7d")}</option>
+            <option className="bg-black text-white" value="30d">{t("pareto.range.30d")}</option>
           </select>
 
           <select

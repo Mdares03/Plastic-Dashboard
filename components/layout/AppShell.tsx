@@ -2,17 +2,21 @@
 
 import { useEffect, useState } from "react";
 import { Menu } from "lucide-react";
-import { Sidebar } from "@/components/layout/Sidebar";
+import { Sidebar, type SidebarMe } from "@/components/layout/Sidebar";
 import { RouteAudit } from "@/components/perf/RouteAudit";
 import { UtilityControls } from "@/components/layout/UtilityControls";
+import VerifiedBadge from "@/components/health/VerifiedBadge";
+import FreshnessPill from "@/components/health/FreshnessPill";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 export function AppShell({
   children,
   initialTheme,
+  initialMe,
 }: {
   children: React.ReactNode;
   initialTheme?: "dark" | "light";
+  initialMe?: SidebarMe | null;
 }) {
   const { t } = useI18n();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -34,7 +38,7 @@ export function AppShell({
     <div className="h-screen overflow-hidden bg-black text-white">
       <RouteAudit />
       <div className="flex h-full">
-        <Sidebar />
+        <Sidebar initialMe={initialMe} />
         <div className="flex h-full flex-1 flex-col">
           <header className="sticky top-0 z-30 flex min-h-[3.5rem] flex-wrap items-center justify-between gap-3 border-b border-white/10 bg-black/20 px-4 py-2 backdrop-blur">
             <div className="flex items-center gap-3">
@@ -50,7 +54,11 @@ export function AppShell({
                 {t("sidebar.productTitle")}
               </div>
             </div>
-            <UtilityControls initialTheme={initialTheme} />
+            <div className="flex items-center gap-2">
+              <FreshnessPill />
+              <VerifiedBadge />
+              <UtilityControls initialTheme={initialTheme} />
+            </div>
           </header>
           <main className="flex-1 overflow-y-auto">{children}</main>
         </div>
@@ -65,7 +73,7 @@ export function AppShell({
             onClick={() => setDrawerOpen(false)}
           />
           <div className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-black/40">
-            <Sidebar variant="drawer" onNavigate={() => setDrawerOpen(false)} onClose={() => setDrawerOpen(false)} />
+            <Sidebar variant="drawer" initialMe={initialMe} onNavigate={() => setDrawerOpen(false)} onClose={() => setDrawerOpen(false)} />
           </div>
         </div>
       )}

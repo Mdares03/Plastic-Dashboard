@@ -49,19 +49,19 @@ export default function HeaderBand({
 
       <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-zinc-300 sm:grid-cols-4">
         <div>
-          <div className="text-xs text-zinc-500">{t("reports.weekly.range")}</div>
+          <div className="text-xs text-zinc-400">{t("reports.weekly.range")}</div>
           <div>{fmtDate(report.period.from, locale)} - {fmtDate(report.period.to, locale)}</div>
         </div>
         <div>
-          <div className="text-xs text-zinc-500">{t("reports.weekly.org")}</div>
+          <div className="text-xs text-zinc-400">{t("reports.weekly.org")}</div>
           <div>{report.org.name}</div>
         </div>
         <div>
-          <div className="text-xs text-zinc-500">{t("reports.weekly.plant")}</div>
+          <div className="text-xs text-zinc-400">{t("reports.weekly.plant")}</div>
           <div>{report.org.plant}</div>
         </div>
         <div>
-          <div className="text-xs text-zinc-500">{t("reports.weekly.machinesIncluded")}</div>
+          <div className="text-xs text-zinc-400">{t("reports.weekly.machinesIncluded")}</div>
           <div>{report.machineIds.length}</div>
         </div>
       </div>

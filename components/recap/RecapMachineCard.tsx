@@ -112,9 +112,9 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
         <div className={`text-3xl font-semibold ${machine.oee == null ? "text-zinc-400" : "text-white"}`}>{primaryMetric}</div>
         <div className="text-xs uppercase tracking-wide text-zinc-400">{t("recap.card.oee")}</div>
       </div>
-      {machine.oee == null ? <div className="mt-1 text-xs text-zinc-500">{t("recap.kpi.noData")}</div> : null}
+      {machine.oee == null ? <div className="mt-1 text-xs text-zinc-400">{t("recap.kpi.noData")}</div> : null}
 
-      {zeroActivity ? <div className="mt-1 text-xs text-zinc-500">{t("recap.card.noProduction")}</div> : null}
+      {zeroActivity ? <div className="mt-1 text-xs text-zinc-400">{t("recap.card.noProduction")}</div> : null}
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-300">
         <span>{t("recap.card.good")}: {machine.goodParts}</span>
@@ -156,7 +156,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
         </div>
       ) : null}
 
-      <div className={`mt-3 text-xs ${isUrgent ? "text-red-200 font-semibold" : isCalm ? "text-zinc-500" : "text-zinc-400"}`}>
+      <div className={`mt-3 text-xs ${isUrgent ? "text-red-200 font-semibold" : isCalm ? "text-zinc-400" : "text-zinc-400"}`}>
         {isUrgent
           ? t("recap.card.stoppedFor", {
               duration: formatElapsedFromMinutes(ongoingStopMin, { maxUnits: 2 }),

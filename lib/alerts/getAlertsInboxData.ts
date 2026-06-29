@@ -14,6 +14,31 @@ const RANGE_MS: Record<string, number> = {
   "30d": 30 * 24 * 60 * 60 * 1000,
 };
 
+/**
+ * Org-level alert-notification rollup over a window — backs the "smart throttling
+ * is on" banner. `suppressed` is the circuit breaker / per-incident dedup doing
+ * its job (the cure for the old CEO-spam wound); `sent` are real deliveries.
+ */
+export async function getAlertThrottleStats(
+  orgId: string,
+  windowMs: number = RANGE_MS["30d"],
+): Promise<{ sent: number; suppressed: number; failed: number }> {
+  const since = new Date(Date.now() - windowMs);
+  const grouped = await prisma.alertNotification.groupBy({
+    by: ["status"],
+    where: { orgId, sentAt: { gte: since } },
+    _count: { _all: true },
+  });
+  const stats = { sent: 0, suppressed: 0, failed: 0 };
+  for (const g of grouped) {
+    const s = (g.status || "").toLowerCase();
+    if (s === "sent") stats.sent = g._count._all;
+    else if (s === "suppressed") stats.suppressed = g._count._all;
+    else if (s === "failed") stats.failed = g._count._all;
+  }
+  return stats;
+}
+
 type AlertsInboxParams = {
   orgId: string;
   range?: string;

@@ -4,6 +4,7 @@ import { isInPlannedShift } from "@/lib/metrics/shift";
 import type { ShiftPlanningContext } from "@/lib/metrics/shift";
 import { loadShiftPlanningContext } from "@/lib/reports/queries/shiftPlanning";
 import { getPlannedReasonCodes } from "@/lib/downtime/plannedCodes";
+import { resolveCostPerMin } from "@/lib/financial/costPerMin";
 import type { ReasonRow } from "@/lib/metrics/types";
 
 /**
@@ -98,22 +99,6 @@ function toPeriod(
     unplannedMin: round1(unplannedMin),
     unplannedMinPerDay: round1(unplannedMin / days),
   };
-}
-
-/** Resolved cost per stopped minute (machine + operator + energy) + a placeholder flag. */
-async function resolveCostPerMin(orgId: string): Promise<{ costPerMin: number; currency: string; placeholder: boolean }> {
-  const p = await prisma.orgFinancialProfile.findUnique({ where: { orgId } });
-  const machine = p?.machineCostPerMin ?? null;
-  const operator = p?.operatorCostPerMin ?? 0;
-  let energy = p?.energyCostPerMin ?? null;
-  if (energy == null && p?.ratedRunningKw != null && p?.kwhRate != null) {
-    energy = (p.ratedRunningKw / 60) * p.kwhRate * (p.energyMultiplier ?? 1);
-  }
-  const costPerMin = (machine ?? 0) + operator + (energy ?? 0);
-  // Placeholder = no profile, or the machine rate is still the documented 1/min stub
-  // (docs/ROI_MODEL.md). Money figures are illustrative until a real rate is entered.
-  const placeholder = !p || machine == null || machine <= 1;
-  return { costPerMin, currency: p?.defaultCurrency ?? "USD", placeholder };
 }
 
 function readRoiConfig(defaultsJson: unknown): { baselineStart?: Date; baselineEnd?: Date; targetReductionPct: number } {

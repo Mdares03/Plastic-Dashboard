@@ -220,7 +220,7 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
   };
 
   const inputCls =
-    "mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white placeholder:text-zinc-600";
+    "mt-1 w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-xs text-white placeholder:text-zinc-400";
 
   const kindBtn = (k: CatalogKind, label: string) => (
     <button
@@ -239,7 +239,7 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
     <div className="space-y-6">
       <div className="rounded-xl border border-white/10 bg-black/20 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-[11px] text-zinc-500">
+          <div className="text-[11px] text-zinc-400">
             {t("settings.reasonCatalog.dbVersionHint", { version: catalogVersion })}
           </div>
           <button
@@ -251,7 +251,7 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
             {t("settings.reasonCatalog.reload")}
           </button>
         </div>
-        {loading ? <p className="mt-2 text-xs text-zinc-500">{t("settings.loading")}</p> : null}
+        {loading ? <p className="mt-2 text-xs text-zinc-400">{t("settings.loading")}</p> : null}
         {error ? (
           <p className="mt-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-xs text-red-200">{error}</p>
         ) : null}
@@ -380,10 +380,10 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
       {selected ? (
         <div className="rounded-xl border border-white/10 bg-black/20 p-4">
           <div className="text-xs font-semibold text-zinc-300">{t("settings.reasonCatalog.stepReason")}</div>
-          <p className="mt-1 text-[11px] text-zinc-500">{t("settings.reasonCatalog.digitsOnlyHint")}</p>
+          <p className="mt-1 text-[11px] text-zinc-400">{t("settings.reasonCatalog.digitsOnlyHint")}</p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <div className="text-[11px] text-zinc-400">
-              <span className="block text-zinc-500">{t("settings.reasonCatalog.fullCodePreview")}</span>
+              <span className="block text-zinc-400">{t("settings.reasonCatalog.fullCodePreview")}</span>
               <span className="mt-1 inline-flex min-h-[2rem] items-center rounded-lg border border-white/10 bg-black/40 px-3 font-mono text-sm text-emerald-200">
                 {formatPrintedPreview(selected.codePrefix, newDigits)}
               </span>
@@ -420,10 +420,10 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
           </div>
 
           <div className="mt-4">
-            <div className="text-[11px] font-semibold text-zinc-500">{t("settings.reasonCatalog.reasonsInCategory")}</div>
+            <div className="text-[11px] font-semibold text-zinc-400">{t("settings.reasonCatalog.reasonsInCategory")}</div>
             <div className="mt-2 space-y-2">
               {selected.items.length === 0 ? (
-                <div className="text-xs text-zinc-500">{t("settings.reasonCatalog.noItemsYet")}</div>
+                <div className="text-xs text-zinc-400">{t("settings.reasonCatalog.noItemsYet")}</div>
               ) : (
                 selected.items.map((it) => (
                   <div
@@ -452,7 +452,7 @@ export function ReasonCatalogConfig({ disabled }: { disabled?: boolean }) {
         </div>
       ) : null}
 
-      <p className="text-[11px] leading-relaxed text-zinc-500">{t("settings.reasonCatalog.hint")}</p>
+      <p className="text-[11px] leading-relaxed text-zinc-400">{t("settings.reasonCatalog.hint")}</p>
     </div>
   );
 }

@@ -2,16 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import dynamic from "next/dynamic";
+import ChartSkeleton from "@/components/charts/ChartSkeleton";
 import { useI18n } from "@/lib/i18n/useI18n";
+
+// Recharts is heavy; code-split the cost chart so it loads only on this page.
+const FinancialAreaChart = dynamic(() => import("./FinancialAreaChart"), {
+  ssr: false,
+  loading: () => <ChartSkeleton heightClass="h-full" />,
+});
 
 type MachineRow = {
   id: string;
@@ -281,7 +280,7 @@ export default function FinancialClient({
       <div className="grid gap-4 lg:grid-cols-4">
         {(impact?.currencySummaries ?? []).slice(0, 4).map((summary) => (
           <div key={summary.currency} className="rounded-2xl border border-white/10 bg-black/40 p-4">
-            <div className="text-xs uppercase tracking-wide text-zinc-500">{t("financial.totalLoss")}</div>
+            <div className="text-xs uppercase tracking-wide text-zinc-400">{t("financial.totalLoss")}</div>
             <div className="mt-2 text-2xl font-semibold text-white">
               {formatMoney(summary.totals.total, summary.currency, locale)}
             </div>
@@ -302,7 +301,7 @@ export default function FinancialClient({
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-semibold text-white">{t("financial.chart.title")}</h2>
-              <p className="text-xs text-zinc-500">{t("financial.chart.subtitle")}</p>
+              <p className="text-xs text-zinc-400">{t("financial.chart.subtitle")}</p>
             </div>
             <div className="flex gap-2">
               {["24h", "7d", "30d"].map((value) => (
@@ -327,42 +326,7 @@ export default function FinancialClient({
           </div>
 
           <div className="mt-4 h-64">
-            <ResponsiveContainer width="100%" height="100%" minHeight={200}>
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="slowFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#facc15" stopOpacity={0.5} />
-                    <stop offset="95%" stopColor="#facc15" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="microFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#fb7185" stopOpacity={0.5} />
-                    <stop offset="95%" stopColor="#fb7185" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="macroFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f97316" stopOpacity={0.5} />
-                    <stop offset="95%" stopColor="#f97316" stopOpacity={0.05} />
-                  </linearGradient>
-                  <linearGradient id="scrapFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.5} />
-                    <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="var(--app-chart-grid)" />
-                <XAxis dataKey="day" tick={{ fill: "var(--app-chart-tick)", fontSize: 10 }} />
-                <YAxis tick={{ fill: "var(--app-chart-tick)", fontSize: 10 }} />
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--app-chart-tooltip-bg)",
-                    border: "1px solid var(--app-chart-tooltip-border)",
-                  }}
-                  labelStyle={{ color: "var(--app-chart-label)" }}
-                />
-                <Area type="monotone" dataKey="slowCycle" stackId="1" stroke="#facc15" fill="url(#slowFill)" />
-                <Area type="monotone" dataKey="microstop" stackId="1" stroke="#fb7185" fill="url(#microFill)" />
-                <Area type="monotone" dataKey="macrostop" stackId="1" stroke="#f97316" fill="url(#macroFill)" />
-                <Area type="monotone" dataKey="scrap" stackId="1" stroke="#38bdf8" fill="url(#scrapFill)" />
-              </AreaChart>
-            </ResponsiveContainer>
+            <FinancialAreaChart data={chartData} />
           </div>
         </div>
 
@@ -370,7 +334,7 @@ export default function FinancialClient({
           <h2 className="text-lg font-semibold text-white">{t("financial.filters.title")}</h2>
           <div className="space-y-3 text-sm text-zinc-300">
             <div>
-              <label className="text-xs uppercase text-zinc-500">{t("financial.filters.machine")}</label>
+              <label className="text-xs uppercase text-zinc-400">{t("financial.filters.machine")}</label>
               <select
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2"
                 value={machineFilter}
@@ -385,7 +349,7 @@ export default function FinancialClient({
               </select>
             </div>
             <div>
-              <label className="text-xs uppercase text-zinc-500">{t("financial.filters.location")}</label>
+              <label className="text-xs uppercase text-zinc-400">{t("financial.filters.location")}</label>
               <select
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2"
                 value={locationFilter}
@@ -400,7 +364,7 @@ export default function FinancialClient({
               </select>
             </div>
             <div>
-              <label className="text-xs uppercase text-zinc-500">{t("financial.filters.sku")}</label>
+              <label className="text-xs uppercase text-zinc-400">{t("financial.filters.sku")}</label>
               <input
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2"
                 value={skuFilter}
@@ -409,7 +373,7 @@ export default function FinancialClient({
               />
             </div>
             <div>
-              <label className="text-xs uppercase text-zinc-500">{t("financial.filters.currency")}</label>
+              <label className="text-xs uppercase text-zinc-400">{t("financial.filters.currency")}</label>
               <input
                 className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2"
                 value={currencyFilter}
@@ -421,7 +385,7 @@ export default function FinancialClient({
         </div>
       </div>
 
-      {loading && <div className="text-xs text-zinc-500">{t("financial.loadingMachines")}</div>}
+      {loading && <div className="text-xs text-zinc-400">{t("financial.loadingMachines")}</div>}
     </div>
   );
 }

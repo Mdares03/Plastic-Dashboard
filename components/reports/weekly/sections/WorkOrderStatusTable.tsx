@@ -30,7 +30,7 @@ export default function WorkOrderStatusTable({
           <tbody>
             {report.workOrderStatus.length === 0 ? (
               <tr>
-                <td colSpan={7} className="py-3 text-zinc-500">{t("reports.weekly.empty")}</td>
+                <td colSpan={7} className="py-3 text-zinc-400">{t("reports.weekly.empty")}</td>
               </tr>
             ) : (
               report.workOrderStatus.map((row) => (

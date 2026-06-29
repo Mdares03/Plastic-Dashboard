@@ -207,11 +207,11 @@ export default function DowntimeParetoCard({
             Total: <span className="text-white">{formatElapsedFromMinutes(totalMinutes, { maxUnits: 2 })}</span>
             {covPct != null ? (
               <>
-                <span className="mx-2 text-zinc-600">•</span>
+                <span className="mx-2 text-zinc-400">•</span>
                 Coverage: <span className="text-white">{covPct.toFixed(0)}%</span>
                 {pending != null ? (
                   <>
-                    <span className="mx-2 text-zinc-600">•</span>
+                    <span className="mx-2 text-zinc-400">•</span>
                     Pending: <span className="text-white">{pending}</span>
                   </>
                 ) : null}

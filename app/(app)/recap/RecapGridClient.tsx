@@ -263,7 +263,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
             <h1 className="text-2xl font-semibold text-white">{t("recap.grid.title")}</h1>
             <p className="text-sm text-zinc-400">{t("recap.grid.subtitle")}</p>
             {freshAgeSec != null ? (
-              <p className="mt-1 text-xs text-zinc-500">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</p>
+              <p className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</p>
             ) : null}
           </div>
 
@@ -338,7 +338,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
       ) : null}
 
       {loading && data.machines.length > 0 ? (
-        <div className="mb-3 text-xs text-zinc-500">{t("common.loading")}</div>
+        <div className="mb-3 text-xs text-zinc-400">{t("common.loading")}</div>
       ) : null}
 
       {filteredMachines.length === 0 ? (
@@ -360,7 +360,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
         <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-white/10 bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-500">
+              <tr className="border-b border-white/10 bg-zinc-900/80 text-xs uppercase tracking-wide text-zinc-400">
                 <th className="px-4 py-3 text-left font-medium">{t("machines.col.machine")}</th>
                 <th className="px-4 py-3 text-left font-medium">{t("machines.status")}</th>
                 <th className="px-4 py-3 text-right font-medium">{t("recap.card.oee")}</th>

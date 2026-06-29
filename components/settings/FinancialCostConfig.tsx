@@ -346,7 +346,7 @@ export function FinancialCostConfig() {
     setFormulaErrors(nextFormulaErrors);
     if (Object.keys(nextFormulaErrors).length > 0) {
       setShowFormulaEditor(true);
-      setSaveStatus("Hay fórmulas inválidas. Corrige los errores y vuelve a guardar.");
+      setSaveStatus(t("financial.config.formulaErrors"));
       setSaving(false);
       return;
     }
@@ -534,7 +534,7 @@ export function FinancialCostConfig() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold text-white">{t("financial.config.title")}</h2>
-          <p className="text-xs text-zinc-500">{t("financial.config.subtitle")}</p>
+          <p className="text-xs text-zinc-400">{t("financial.config.subtitle")}</p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -585,8 +585,8 @@ export function FinancialCostConfig() {
           </div>
 
           <details className="mt-5 rounded-xl border border-white/10 bg-black/30 p-3">
-            <summary className="cursor-pointer text-sm font-semibold text-white">Fórmulas avanzadas</summary>
-            <p className="mt-2 text-xs text-zinc-400">Sobrescriben los cálculos por defecto. Editar con precaución.</p>
+            <summary className="cursor-pointer text-sm font-semibold text-white">{t("financial.config.advancedFormulas")}</summary>
+            <p className="mt-2 text-xs text-zinc-400">{t("financial.config.advancedFormulasHelp")}</p>
 
             {!showFormulaEditor ? (
               <button
@@ -594,7 +594,7 @@ export function FinancialCostConfig() {
                 onClick={() => setShowFormulaEditor(true)}
                 className="mt-3 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 hover:bg-amber-500/20"
               >
-                Mostrar editor
+                {t("financial.config.showEditor")}
               </button>
             ) : null}
 
@@ -617,7 +617,7 @@ export function FinancialCostConfig() {
                 ))}
 
                 <div className="rounded-lg border border-white/10 bg-black/40 p-3">
-                  <div className="text-[11px] text-zinc-400">Variables válidas:</div>
+                  <div className="text-[11px] text-zinc-400">{t("financial.config.validVariables")}</div>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {FINANCIAL_FORMULA_VARIABLES.map((name) => (
                       <code key={name} className="rounded border border-white/10 bg-black/40 px-2 py-1 text-[11px] text-zinc-300">
@@ -643,7 +643,7 @@ export function FinancialCostConfig() {
             </button>
           </div>
           {locationRows.length === 0 && (
-            <div className="text-xs text-zinc-500">{t("financial.config.noneLocation")}</div>
+            <div className="text-xs text-zinc-400">{t("financial.config.noneLocation")}</div>
           )}
           {locationRows.map((row) => (
             <div key={row.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
@@ -701,7 +701,7 @@ export function FinancialCostConfig() {
             </button>
           </div>
           {machineRows.length === 0 && (
-            <div className="text-xs text-zinc-500">{t("financial.config.noneMachine")}</div>
+            <div className="text-xs text-zinc-400">{t("financial.config.noneMachine")}</div>
           )}
           {machineRows.map((row) => (
             <div key={row.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
@@ -759,7 +759,7 @@ export function FinancialCostConfig() {
             </button>
           </div>
           {productRows.length === 0 && (
-            <div className="text-xs text-zinc-500">{t("financial.config.noneProduct")}</div>
+            <div className="text-xs text-zinc-400">{t("financial.config.noneProduct")}</div>
           )}
           {productRows.map((row) => (
             <div key={row.id} className="rounded-xl border border-white/10 bg-black/30 p-4">
@@ -796,7 +796,7 @@ export function FinancialCostConfig() {
         </div>
       </div>
 
-      {loading && <div className="text-xs text-zinc-500">{t("financial.config.loading")}</div>}
+      {loading && <div className="text-xs text-zinc-400">{t("financial.config.loading")}</div>}
     </div>
   );
 }

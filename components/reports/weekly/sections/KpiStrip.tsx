@@ -60,7 +60,7 @@ export default function KpiStrip({
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       {kpis.map((kpi) => (
         <div key={kpi.label} className="rounded-xl border border-white/10 bg-white/5 p-4">
-          <div className="text-xs text-zinc-500">{kpi.label}</div>
+          <div className="text-xs text-zinc-400">{kpi.label}</div>
           <div className={`mt-2 text-2xl font-semibold ${kpi.tone}`}>{kpi.value}</div>
           <div className="mt-1 text-xs text-zinc-400">{kpi.hint}</div>
         </div>

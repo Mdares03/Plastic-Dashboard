@@ -8,10 +8,10 @@ datasource db {
 }
 
 model Org {
-  id                         String                      @id @default(uuid())
+  id                         String                        @id @default(uuid())
   name                       String
-  slug                       String                      @unique
-  createdAt                  DateTime                    @default(now())
+  slug                       String                        @unique
+  createdAt                  DateTime                      @default(now())
   machines                   Machine[]
   events                     MachineEvent[]
   heartbeats                 MachineHeartbeat[]
@@ -22,6 +22,7 @@ model Org {
   alertContacts              AlertContact[]
   alertNotifications         AlertNotification[]
   alertIncidents             AlertIncident[]
+  workOrderGapAcks           WorkOrderGapAcknowledgement[]
   alertPolicies              AlertPolicy?
   downtimeActions            DowntimeAction[]
   locationFinancialOverrides LocationFinancialOverride[]
@@ -34,8 +35,8 @@ model Org {
   shifts                     OrgShift[]
   productCostOverrides       ProductCostOverride[]
   settingsAudits             SettingsAudit[]
-  reasonCatalogCategories     ReasonCatalogCategory[]
-  reasonCatalogItems          ReasonCatalogItem[]
+  reasonCatalogCategories    ReasonCatalogCategory[]
+  reasonCatalogItems         ReasonCatalogItem[]
 }
 
 model User {
@@ -111,22 +112,22 @@ model Session {
 }
 
 model Machine {
-  id                   String                     @id @default(uuid())
+  id                   String                        @id @default(uuid())
   orgId                String
   name                 String
   code                 String?
-  createdAt            DateTime                   @default(now())
+  createdAt            DateTime                      @default(now())
   location             String?
-  updatedAt            DateTime                   @updatedAt
-  apiKey               String?                    @unique
-  schemaVersion        String?                    @map("schema_version")
-  seq                  BigInt?                    @map("seq")
-  tsDevice             DateTime                   @default(now()) @map("ts")
-  tsServer             DateTime                   @default(now()) @map("ts_server")
-  pairingCode          String?                    @unique @map("pairing_code")
-  pairingCodeExpiresAt DateTime?                  @map("pairing_code_expires_at")
-  pairingCodeUsedAt    DateTime?                  @map("pairing_code_used_at")
-  org                  Org                        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  updatedAt            DateTime                      @updatedAt
+  apiKey               String?                       @unique
+  schemaVersion        String?                       @map("schema_version")
+  seq                  BigInt?                       @map("seq")
+  tsDevice             DateTime                      @default(now()) @map("ts")
+  tsServer             DateTime                      @default(now()) @map("ts_server")
+  pairingCode          String?                       @unique @map("pairing_code")
+  pairingCodeExpiresAt DateTime?                     @map("pairing_code_expires_at")
+  pairingCodeUsedAt    DateTime?                     @map("pairing_code_used_at")
+  org                  Org                           @relation(fields: [orgId], references: [id], onDelete: Cascade)
   cycles               MachineCycle[]
   events               MachineEvent[]
   heartbeats           MachineHeartbeat[]
@@ -134,41 +135,44 @@ model Machine {
   reasonEntries        ReasonEntry[]
   alertNotifications   AlertNotification[]
   alertIncidents       AlertIncident[]
+  workOrderGapAcks     WorkOrderGapAcknowledgement[]
   downtimeActions      DowntimeAction[]
   financialOverrides   MachineFinancialOverride[]
   settings             MachineSettings?
   workOrders           MachineWorkOrder[]
   settingsAudits       SettingsAudit[]
-  productionEnabled    Boolean  @default(true) @map("production_enabled")
-
+  productionEnabled    Boolean                       @default(true) @map("production_enabled")
 
   @@unique([orgId, name])
   @@index([orgId])
 }
 
 model MachineHeartbeat {
-  id            String   @id @default(uuid())
-  orgId         String
-  machineId     String
-  ts            DateTime @default(now())
-  status        String
-  message       String?
-  ip            String?
-  fwVersion     String?
-  schemaVersion String?  @map("schema_version")
-  seq           BigInt?  @map("seq")
-  tsServer      DateTime @default(now()) @map("ts_server")
+  id                String   @id @default(uuid())
+  orgId             String
+  machineId         String
+  ts                DateTime @default(now())
+  status            String
+  message           String?
+  ip                String?
+  fwVersion         String?
+  schemaVersion     String?  @map("schema_version")
+  seq               BigInt?  @map("seq")
+  tsServer          DateTime @default(now()) @map("ts_server")
   // P6.4: edge clock-sync state (timedatectl NTPSynchronized). null = not reported.
-  clockSynced   Boolean? @map("clock_synced")
+  clockSynced       Boolean? @map("clock_synced")
   // Edge split (plan §D/§E): the Pi's view of the wireless ESP32 reader link.
   // null = not a split machine / not reported. readerOnline=false drives DATA_LOSS.
   readerOnline      Boolean? @map("reader_online")
   readerClockSynced Boolean? @map("reader_clock_synced")
   readerBufferDepth Int?     @map("reader_buffer_depth")
-  machine       Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  org           Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  machine           Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org               Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@index([orgId, machineId, ts])
+  // Health checks fetch the latest heartbeat per machine by cloud-receive time;
+  // this lets that ordered lookup index-seek instead of scanning per machine.
+  @@index([orgId, machineId, tsServer])
 }
 
 model MachineKpiSnapshot {
@@ -201,6 +205,9 @@ model MachineKpiSnapshot {
 
   @@unique([orgId, machineId, seq], map: "uq_kpi_org_machine_seq")
   @@index([orgId, machineId, ts])
+  // Latest-KPI-per-machine lookup in the delivery-pipeline health check orders by
+  // cloud-receive time; index it so that lookup seeks instead of scanning.
+  @@index([orgId, machineId, tsServer])
 }
 
 model MachineEvent {
@@ -254,24 +261,24 @@ model MachineCycle {
 }
 
 model MachineWorkOrder {
-  id          String   @id @default(uuid())
-  orgId       String
-  machineId   String
-  workOrderId String
-  sku         String?
-  targetQty   Int?
-  cycleTime   Float?
-  status      String   @default("PENDING")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  goodParts   Int      @default(0) @map("good_parts")
-  scrapParts  Int      @default(0) @map("scrap_parts")
-  cycleCount  Int      @default(0) @map("cycle_count")
-  mold        String?
-  cavitiesTotal  Int? @map("cavities_total")
-  cavitiesActive Int? @map("cavities_active")
-  machine     Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  org         Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id             String   @id @default(uuid())
+  orgId          String
+  machineId      String
+  workOrderId    String
+  sku            String?
+  targetQty      Int?
+  cycleTime      Float?
+  status         String   @default("PENDING")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  goodParts      Int      @default(0) @map("good_parts")
+  scrapParts     Int      @default(0) @map("scrap_parts")
+  cycleCount     Int      @default(0) @map("cycle_count")
+  mold           String?
+  cavitiesTotal  Int?     @map("cavities_total")
+  cavitiesActive Int?     @map("cavities_active")
+  machine        Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org            Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([machineId, workOrderId])
   @@index([orgId, machineId])
@@ -341,27 +348,27 @@ model ReasonCatalogItem {
 }
 
 model OrgSettings {
-  orgId                      String   @id @map("org_id")
-  timezone                   String   @default("UTC")
-  shiftChangeCompMin         Int      @default(10) @map("shift_change_comp_min")
-  lunchBreakMin              Int      @default(30) @map("lunch_break_min")
-  stoppageMultiplier         Float    @default(1.5) @map("stoppage_multiplier")
-  oeeAlertThresholdPct       Float    @default(90) @map("oee_alert_threshold_pct")
-  macroStoppageMultiplier    Float    @default(5) @map("macro_stoppage_multiplier")
-  performanceThresholdPct    Float    @default(85) @map("performance_threshold_pct")
-  qualitySpikeDeltaPct       Float    @default(5) @map("quality_spike_delta_pct")
-  alertsJson                 Json?    @map("alerts_json")
-  defaultsJson               Json?    @map("defaults_json")
-  version                    Int      @default(1)
-  updatedAt                  DateTime @updatedAt @map("updated_at")
-  updatedBy                  String?  @map("updated_by")
-  shiftScheduleOverridesJson Json?    @map("shift_schedule_overrides_json")
+  orgId                      String    @id @map("org_id")
+  timezone                   String    @default("UTC")
+  shiftChangeCompMin         Int       @default(10) @map("shift_change_comp_min")
+  lunchBreakMin              Int       @default(30) @map("lunch_break_min")
+  stoppageMultiplier         Float     @default(1.5) @map("stoppage_multiplier")
+  oeeAlertThresholdPct       Float     @default(90) @map("oee_alert_threshold_pct")
+  macroStoppageMultiplier    Float     @default(5) @map("macro_stoppage_multiplier")
+  performanceThresholdPct    Float     @default(85) @map("performance_threshold_pct")
+  qualitySpikeDeltaPct       Float     @default(5) @map("quality_spike_delta_pct")
+  alertsJson                 Json?     @map("alerts_json")
+  defaultsJson               Json?     @map("defaults_json")
+  version                    Int       @default(1)
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+  updatedBy                  String?   @map("updated_by")
+  shiftScheduleOverridesJson Json?     @map("shift_schedule_overrides_json")
   // ROI tracker config (set in the UI on /reports/roi). Dedicated columns so the general
   // settings writer (which rebuilds defaults_json from a whitelist) can't clobber them.
   roiBaselineStart           DateTime? @map("roi_baseline_start")
   roiBaselineEnd             DateTime? @map("roi_baseline_end")
   roiTargetReductionPct      Float?    @map("roi_target_reduction_pct")
-  org                        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  org                        Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_settings")
 }
@@ -522,24 +529,51 @@ model AlertNotification {
 /// "active" and one "resolved" per incident (with optional repeat), instead of
 /// one email per event ping — the CEO-spam fix. See lib/alerts/throttle.ts.
 model AlertIncident {
-  id           String    @id @default(uuid())
-  orgId        String    @map("org_id")
-  machineId    String    @map("machine_id")
-  incidentKey  String    @map("incident_key")
-  eventType    String    @map("event_type")
-  status       String    @default("active") // active | resolved
-  firstSeen    DateTime  @default(now()) @map("first_seen")
-  lastSeen     DateTime  @default(now()) @map("last_seen")
-  lastNotifiedAt DateTime? @map("last_notified_at")
-  resolvedAt   DateTime? @map("resolved_at")
-  notifyCount  Int       @default(0) @map("notify_count")
-  suppressedCount Int    @default(0) @map("suppressed_count")
-  machine      Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
-  org          Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  id              String    @id @default(uuid())
+  orgId           String    @map("org_id")
+  machineId       String    @map("machine_id")
+  incidentKey     String    @map("incident_key")
+  eventType       String    @map("event_type")
+  status          String    @default("active") // active | resolved
+  firstSeen       DateTime  @default(now()) @map("first_seen")
+  lastSeen        DateTime  @default(now()) @map("last_seen")
+  lastNotifiedAt  DateTime? @map("last_notified_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  notifyCount     Int       @default(0) @map("notify_count")
+  suppressedCount Int       @default(0) @map("suppressed_count")
+  machine         Machine   @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org             Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([orgId, machineId, incidentKey])
   @@index([orgId, machineId, status])
   @@map("alert_incidents")
+}
+
+/**
+ * A reviewed, accepted delivery gap on a work order. A gap = the WO's own counter
+ * recorded more cycles than the number of MachineCycle rows that reached the cloud
+ * (messages lost in transit — e.g. the 06-15→06-18 outbox freeze, or a sensor
+ * outage). The numbers shown are not wrong, just incomplete; an ack records that a
+ * human (or the one-time pre-fix bulk-accept) has accounted for it, so the Work
+ * Orders board stops flagging it as an unexplained — and only a NEW unexplained gap
+ * stands out. `reason`: outbox-freeze-prefix | sensor-outage | manual.
+ */
+model WorkOrderGapAcknowledgement {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  machineId      String   @map("machine_id")
+  workOrderId    String   @map("work_order_id")
+  missingAtAck   Int      @map("missing_at_ack")
+  reason         String
+  note           String?
+  acknowledgedBy String?  @map("acknowledged_by")
+  acknowledgedAt DateTime @default(now()) @map("acknowledged_at")
+  machine        Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  org            Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, machineId, workOrderId])
+  @@index([orgId, machineId])
+  @@map("work_order_gap_acks")
 }
 
 model OrgShift {

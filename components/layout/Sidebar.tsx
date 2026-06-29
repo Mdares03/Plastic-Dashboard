@@ -7,11 +7,14 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  ClipboardList,
   DollarSign,
   LayoutGrid,
   Loader2,
   LogOut,
+  PackageCheck,
   Settings,
+  ShieldCheck,
   Sunrise,
   Wrench,
   X,
@@ -38,30 +41,42 @@ const items: NavItem[] = [
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
   { href: "/financial", labelKey: "nav.financial", icon: DollarSign, ownerOnly: true },
   { href: "/downtime", labelKey: "nav.downtime", icon: BarChart3 },
-  { href: "/methodology", labelKey: "nav.methodology", icon: BookOpen },
+  { href: "/work-orders", labelKey: "nav.workOrders", icon: PackageCheck },
+  { href: "/action-items", labelKey: "nav.actionItems", icon: ClipboardList },
+  { href: "/trust", labelKey: "nav.trust", icon: ShieldCheck, ownerOnly: true },
 ];
+// Grouped at the bottom next to Settings — reference material, not an operational page.
+const methodologyItem: NavItem = { href: "/methodology", labelKey: "nav.methodology", icon: BookOpen };
 const settingsItem: NavItem = { href: "/settings", labelKey: "nav.settings", icon: Settings };
+
+export type SidebarMe = {
+  user?: { name?: string | null; email?: string | null };
+  org?: { name?: string | null };
+  membership?: { role?: string | null };
+};
 
 type SidebarProps = {
   variant?: "desktop" | "drawer";
   onNavigate?: () => void;
   onClose?: () => void;
+  /** Seeded server-side from the session so the sidebar never flashes "User / Loading…". */
+  initialMe?: SidebarMe | null;
 };
 
-export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarProps) {
+export function Sidebar({ variant = "desktop", onNavigate, onClose, initialMe }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const { t } = useI18n();
   const { screenlessMode } = useScreenlessMode();
   const [isPending, startTransition] = useTransition();
   const [pendingHref, setPendingHref] = useState<string | null>(null);
-  const [me, setMe] = useState<{
-    user?: { name?: string | null; email?: string | null };
-    org?: { name?: string | null };
-    membership?: { role?: string | null };
-  } | null>(null);
+  const [me, setMe] = useState<SidebarMe | null>(initialMe ?? null);
 
   useEffect(() => {
+    // Seeded from SSR (initialMe) — no on-mount fetch, so the sidebar renders the
+    // user/org immediately with no "User / Loading…" flash. The effect stays as a
+    // fallback only when the shell wasn't server-seeded.
+    if (initialMe) return;
     let alive = true;
     async function loadMe() {
       try {
@@ -78,7 +93,7 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
     return () => {
       alive = false;
     };
-  }, []);
+  }, [initialMe]);
 
   async function onLogout() {
     await fetch("/api/logout", { method: "POST" });
@@ -92,20 +107,14 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
   const visibleItems = useMemo(() => {
     return items.filter((it) => {
       if (it.ownerOnly && !isOwner) return false;
-      if (screenlessMode && it.href === "/downtime") return false;
+      if (screenlessMode && (it.href === "/downtime" || it.href === "/action-items")) return false;
       return true;
     });
   }, [isOwner, screenlessMode]);
 
   useEffect(() => {
-    if (screenlessMode && pathname.startsWith("/downtime")) {
-      router.replace("/overview");
-    }
-  }, [screenlessMode, pathname, router]);
-
-  useEffect(() => {
     if (!screenlessMode) return;
-    if (pathname === "/downtime" || pathname.startsWith("/downtime/")) {
+    if (pathname.startsWith("/downtime") || pathname.startsWith("/action-items")) {
       router.replace("/overview");
     }
   }, [screenlessMode, pathname, router]);
@@ -190,7 +199,7 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
       <div className="px-5 py-4 flex items-center justify-between gap-3">
         <div>
           <div className="text-white font-semibold tracking-wide">{t("sidebar.productTitle")}</div>
-          <div className="text-xs text-zinc-500">{t("sidebar.productSubtitle")}</div>
+          <div className="text-xs text-zinc-400">{t("sidebar.productSubtitle")}</div>
         </div>
         {variant === "drawer" && onClose && (
           <button
@@ -206,7 +215,10 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
 
       <nav className="px-3 py-2 flex-1 flex flex-col gap-2">
         <div className="space-y-1">{visibleItems.map(renderNavItem)}</div>
-        <div className="mt-auto space-y-1 border-t border-white/10 pt-2">{renderNavItem(settingsItem)}</div>
+        <div className="mt-auto space-y-1 border-t border-white/10 pt-2">
+          {renderNavItem(methodologyItem)}
+          {renderNavItem(settingsItem)}
+        </div>
       </nav>
 
       <div className="px-5 py-4 border-t border-white/10 space-y-3">
@@ -214,7 +226,7 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose }: SidebarPro
           <div className="text-sm text-white">
             {me?.user?.name || me?.user?.email || t("sidebar.userFallback")}
           </div>
-          <div className="text-xs text-zinc-500">
+          <div className="text-xs text-zinc-400">
             {me?.org?.name
               ? `${me.org.name} - ${t(`sidebar.role.${roleKey}`)}`
               : t("sidebar.loadingOrg")}

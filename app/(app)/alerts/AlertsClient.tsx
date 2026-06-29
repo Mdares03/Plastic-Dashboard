@@ -56,12 +56,34 @@ export default function AlertsClient({
   initialMachines = [],
   initialShifts = [],
   initialEvents = [],
+  throttleStats,
+  canSendTest = false,
 }: {
   initialMachines?: MachineRow[];
   initialShifts?: ShiftRow[];
   initialEvents?: AlertEvent[];
+  throttleStats?: { sent: number; suppressed: number; failed: number };
+  canSendTest?: boolean;
 }) {
   const { t, locale } = useI18n();
+  const [testState, setTestState] = useState<{ status: "idle" | "sending" | "sent" | "error"; message?: string }>({
+    status: "idle",
+  });
+
+  async function sendTestAlert() {
+    setTestState({ status: "sending" });
+    try {
+      const res = await fetch("/api/alerts/test", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; sentTo?: string; error?: string };
+      if (!res.ok || !data.ok) {
+        setTestState({ status: "error", message: data.error || t("alerts.trust.testFailed") });
+        return;
+      }
+      setTestState({ status: "sent", message: t("alerts.trust.sentTo", { email: data.sentTo || "" }) });
+    } catch {
+      setTestState({ status: "error", message: t("alerts.trust.testFailed") });
+    }
+  }
   const [events, setEvents] = useState<AlertEvent[]>(() => initialEvents);
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
   const [shifts, setShifts] = useState<ShiftRow[]>(() => initialShifts);
@@ -273,10 +295,55 @@ export default function AlertsClient({
         <p className="mt-2 text-sm text-zinc-400">{t("alerts.subtitle")}</p>
       </div>
 
+      {/* Trust banner — "no more spam": throttling is on, with proof (suppressed counts). */}
+      <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-emerald-200">{t("alerts.trust.title")}</div>
+            <p className="mt-1 text-xs text-zinc-300">{t("alerts.trust.body")}</p>
+          </div>
+          {throttleStats && (
+            <div className="flex shrink-0 flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-zinc-200">
+                {t("alerts.trust.sent", { n: throttleStats.sent })}
+              </span>
+              <span className="rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-1 text-emerald-200">
+                {t("alerts.trust.suppressed", { n: throttleStats.suppressed })}
+              </span>
+              {throttleStats.failed > 0 && (
+                <span className="rounded-full border border-red-500/25 bg-red-500/10 px-3 py-1 text-red-200">
+                  {t("alerts.trust.failed", { n: throttleStats.failed })}
+                </span>
+              )}
+              <span className="text-[11px] text-zinc-400">{t("alerts.trust.window")}</span>
+            </div>
+          )}
+        </div>
+        {canSendTest && (
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={sendTestAlert}
+              disabled={testState.status === "sending"}
+              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white hover:bg-white/10 disabled:opacity-50"
+            >
+              {testState.status === "sending" ? t("alerts.trust.sending") : t("alerts.trust.sendTest")}
+            </button>
+            {testState.message && (
+              <span
+                className={`text-xs ${testState.status === "error" ? "text-red-300" : "text-emerald-300"}`}
+              >
+                {testState.message}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-semibold text-white">{t("alerts.inbox.filters.title")}</div>
-          {loading && <div className="text-xs text-zinc-500">{t("alerts.inbox.loadingFilters")}</div>}
+          {loading && <div className="text-xs text-zinc-400">{t("alerts.inbox.loadingFilters")}</div>}
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="text-xs text-zinc-400">
@@ -431,7 +498,7 @@ export default function AlertsClient({
       <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-semibold text-white">{t("alerts.inbox.title")}</div>
-          {loadingEvents && <div className="text-xs text-zinc-500">{t("alerts.inbox.loading")}</div>}
+          {loadingEvents && <div className="text-xs text-zinc-400">{t("alerts.inbox.loading")}</div>}
         </div>
 
         {error && (
@@ -448,7 +515,7 @@ export default function AlertsClient({
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-sm text-zinc-300">
               <thead>
-                <tr className="text-xs uppercase text-zinc-500">
+                <tr className="text-xs uppercase text-zinc-400">
                   <th className="border-b border-white/10 px-3 py-2 text-left">{t("alerts.inbox.table.time")}</th>
                   <th className="border-b border-white/10 px-3 py-2 text-left">{t("alerts.inbox.table.machine")}</th>
                   <th className="border-b border-white/10 px-3 py-2 text-left">{t("alerts.inbox.table.site")}</th>
@@ -479,7 +546,7 @@ export default function AlertsClient({
                         <div className="mt-1 text-xs text-zinc-400">{ev.description}</div>
                       )}
                       {(ev.workOrderId || ev.sku) && (
-                        <div className="mt-1 text-[11px] text-zinc-500">
+                        <div className="mt-1 text-[11px] text-zinc-400">
                           {ev.workOrderId ? `${t("alerts.inbox.meta.workOrder")}: ${ev.workOrderId}` : null}
                           {ev.workOrderId && ev.sku ? " • " : null}
                           {ev.sku ? `${t("alerts.inbox.meta.sku")}: ${ev.sku}` : null}

@@ -105,6 +105,27 @@ pg_dump "$PROD_DATABASE_URL" -Fc -f backups/control_tower_$(date +%Y%m%d_%H%M).d
 > Note: the active BEMIS pilot data is under org `6d2abda2-…` (slug `bemis-2`), not `7eae9e2d-…`
 > (slug `bemis`, which has no downtime rows). Use the right orgId when running the exhibits.
 
+## Scheduled emails (cron-only, secret-gated)
+
+All three fan out across orgs and send to each org's **active alert contacts**. They fail closed
+(503) if their secret env var is unset, so there is no safe logged-in caller. Schedule via external
+cron/systemd; pass the secret as `?token=` or `Authorization: Bearer`. Add `&orgId=<id>` to scope.
+
+| Email | Route | Secret env var | Suggested cadence |
+|---|---|---|---|
+| ROI summary | `POST /api/reports/roi/email` | `ROI_SUMMARY_EMAIL_SECRET` | weekly or monthly |
+| Weekly production summary | `POST /api/reports/weekly/email` | `WEEKLY_REPORT_EMAIL_SECRET` | weekly (e.g. Mon 07:00) |
+| Downtime-action reminders | `POST /api/downtime/actions/reminders` | `DOWNTIME_ACTION_REMINDER_SECRET` | daily |
+
+Example cron (weekly summary, Mondays 07:00):
+```
+0 7 * * 1 curl -fsS -X POST "https://<host>/api/reports/weekly/email?token=$WEEKLY_REPORT_EMAIL_SECRET" >/dev/null
+```
+
+The **one-time "reliability restored" assurance email** is owner-triggered from the `/trust` page
+("Email the reliability summary"), `POST /api/trust/assurance-email` — not cron. The weekly report is
+also viewable/printable on demand at `/reports/weekly` (`?print=1` opens the print dialog → Save as PDF).
+
 ## Edge deploy (Phase 6)
 
 Canonical edge artifact: `edge/flows.json` (the live flow, adopted from `flows (74)`

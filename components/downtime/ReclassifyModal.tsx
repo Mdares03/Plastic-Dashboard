@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type ReasonItem = { id: string; name: string; reasonCode: string };
 type ReasonCategory = { id: string; name: string; items: ReasonItem[] };
@@ -29,6 +30,7 @@ export default function ReclassifyModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [categories, setCategories] = useState<ReasonCategory[] | null>(null);
   const [categoryId, setCategoryId] = useState<string>("");
   const [reasonCode, setReasonCode] = useState<string>("");
@@ -45,12 +47,12 @@ export default function ReclassifyModal({
         const j = await r.json().catch(() => ({}));
         if (!alive) return;
         if (!r.ok || j.ok === false) {
-          setError(j?.error ?? "Failed to load reasons");
+          setError(j?.error ?? t("reclassify.loadFailed"));
         } else {
           setCategories(j.categories ?? []);
         }
       } catch (e: unknown) {
-        if (alive) setError(e instanceof Error ? e.message : "Network error");
+        if (alive) setError(e instanceof Error ? e.message : t("common.networkError"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -58,6 +60,7 @@ export default function ReclassifyModal({
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeCategory = categories?.find((c) => c.id === categoryId) ?? null;
@@ -82,13 +85,13 @@ export default function ReclassifyModal({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.ok === false) {
-        setError(j?.error ?? "Failed to save");
+        setError(j?.error ?? t("reclassify.saveFailed"));
         setSaving(false);
         return;
       }
       onDone();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Network error");
+      setError(e instanceof Error ? e.message : t("common.networkError"));
       setSaving(false);
     }
   }
@@ -105,24 +108,22 @@ export default function ReclassifyModal({
         role="dialog"
         aria-modal="true"
       >
-        <h2 className="text-lg font-semibold text-white">Classify downtime</h2>
-        <p className="mt-1 text-xs text-zinc-400">
-          {target.machineName ?? "—"} · {target.startAt ? new Date(target.startAt).toLocaleString() : "—"}
+        <h2 className="text-lg font-semibold text-white">{t("reclassify.title")}</h2>
+        <p className="mt-1 text-xs text-zinc-300">
+          {target.machineName ?? "—"} · {target.startAt ? new Date(target.startAt).toLocaleString(locale) : "—"}
         </p>
-        <p className="mt-1 text-xs text-zinc-500">
-          Current: <span className="text-zinc-300">{target.reasonLabel || target.reasonCode}</span>
+        <p className="mt-1 text-xs text-zinc-400">
+          {t("reclassify.current")} <span className="text-zinc-200">{target.reasonLabel || target.reasonCode}</span>
         </p>
 
         {loading ? (
-          <div className="mt-6 text-sm text-zinc-400">Loading reasons…</div>
+          <div className="mt-6 text-sm text-zinc-300">{t("reclassify.loadingReasons")}</div>
         ) : categories && categories.length === 0 ? (
-          <div className="mt-6 text-sm text-amber-300">
-            No reason catalog configured yet. Add reasons in Settings → Reason catalog first.
-          </div>
+          <div className="mt-6 text-sm text-amber-300">{t("reclassify.noCatalog")}</div>
         ) : (
           <div className="mt-5 space-y-4">
             <label className="block">
-              <span className="text-xs text-zinc-400">Category</span>
+              <span className="text-xs text-zinc-300">{t("reclassify.category")}</span>
               <select
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white"
                 value={categoryId}
@@ -131,25 +132,25 @@ export default function ReclassifyModal({
                   setReasonCode("");
                 }}
               >
-                <option value="">Select…</option>
+                <option value="">{t("common.select")}</option>
                 {categories?.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}
-                <option value="">— or —</option>
+                <option value="">{t("reclassify.orSeparator")}</option>
               </select>
             </label>
 
             <label className="block">
-              <span className="text-xs text-zinc-400">Reason</span>
+              <span className="text-xs text-zinc-300">{t("reclassify.reason")}</span>
               <select
                 className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white disabled:opacity-50"
                 value={reasonCode}
                 disabled={!activeCategory}
                 onChange={(e) => setReasonCode(e.target.value)}
               >
-                <option value="">Select…</option>
+                <option value="">{t("common.select")}</option>
                 {activeCategory?.items.map((it) => (
                   <option key={it.id} value={it.reasonCode}>
                     {it.name}
@@ -160,39 +161,39 @@ export default function ReclassifyModal({
 
             <button
               type="button"
-              className={`text-xs underline ${isOther ? "text-emerald-300" : "text-zinc-400"}`}
+              className={`text-xs underline ${isOther ? "text-emerald-300" : "text-zinc-300"}`}
               onClick={() => {
                 setReasonCode(OTHER_CODE);
                 setCategoryId("");
               }}
             >
-              Other (free text)
+              {t("reclassify.other")}
             </button>
 
             {isOther ? (
               <label className="block">
-                <span className="text-xs text-zinc-400">Describe the reason</span>
+                <span className="text-xs text-zinc-300">{t("reclassify.describe")}</span>
                 <input
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white placeholder:text-zinc-400"
                   value={otherText}
                   onChange={(e) => setOtherText(e.target.value)}
-                  placeholder="e.g. waiting on forklift"
+                  placeholder={t("reclassify.placeholder")}
                   autoFocus
                 />
               </label>
             ) : null}
 
-            {error ? <div className="text-xs text-red-400">{error}</div> : null}
+            {error ? <div className="text-xs text-red-300">{error}</div> : null}
           </div>
         )}
 
         <div className="mt-6 flex justify-end gap-3">
           <button
             type="button"
-            className="rounded-lg px-4 py-2 text-sm text-zinc-300 hover:bg-white/5"
+            className="rounded-lg px-4 py-2 text-sm text-zinc-200 hover:bg-white/5"
             onClick={onClose}
           >
-            Cancel
+            {t("common.cancel")}
           </button>
           <button
             type="button"
@@ -200,7 +201,7 @@ export default function ReclassifyModal({
             disabled={!canSave}
             onClick={save}
           >
-            {saving ? "Saving…" : "Save reason"}
+            {saving ? t("reclassify.saving") : t("reclassify.save")}
           </button>
         </div>
       </div>

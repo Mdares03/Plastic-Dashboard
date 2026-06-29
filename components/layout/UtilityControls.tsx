@@ -94,7 +94,7 @@ export function UtilityControls({ className, initialTheme = "dark" }: UtilityCon
         >
           EN
         </button>
-        <span className="text-zinc-500">|</span>
+        <span className="text-zinc-400">|</span>
         <button
           type="button"
           onClick={() => switchLocale("es-MX")}
