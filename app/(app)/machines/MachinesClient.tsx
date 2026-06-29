@@ -124,7 +124,10 @@ function MachineListRow({ m, t, onNavigate }: { m: MachineRow; t: TFunc; onNavig
       } catch {}
     }
     void load();
-    const interval = setInterval(() => void load(), 60000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void load();
+    }, 60000);
     return () => { alive = false; clearInterval(interval); };
   }, [m.id]);
 

@@ -30,6 +30,26 @@ function normalizeInputDate(value: string) {
   return d.toISOString();
 }
 
+// Isolated 1-second tick so the freshness label stays live without re-rendering
+// the detail charts/timeline every second.
+function RecapDetailFreshness({
+  generatedAt,
+  t,
+}: {
+  generatedAt: string;
+  t: (key: string, params?: Record<string, string | number>) => string;
+}) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const generatedAtMs = new Date(generatedAt).getTime();
+  if (!Number.isFinite(generatedAtMs)) return null;
+  const freshAgeSec = Math.max(0, Math.floor((nowMs - generatedAtMs) / 1000));
+  return <div className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</div>;
+}
+
 export default function RecapDetailClient({ machineId, initialData }: Props) {
   const { t, locale } = useI18n();
   const router = useRouter();
@@ -38,7 +58,6 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
   const [isPending, startTransition] = useTransition();
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
   const [timelineLoading, setTimelineLoading] = useState(true);
-  const [nowMs, setNowMs] = useState(() => Date.now());
 
   const [customStart, setCustomStart] = useState(toInputDate(initialData.range.start));
   const [customEnd, setCustomEnd] = useState(toInputDate(initialData.range.end));
@@ -75,8 +94,6 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
   }
 
   const machine = initialData.machine;
-  const generatedAtMs = new Date(initialData.generatedAt).getTime();
-  const freshAgeSec = Number.isFinite(generatedAtMs) ? Math.max(0, Math.floor((nowMs - generatedAtMs) / 1000)) : null;
   const timelineStart = timeline?.range.start ?? initialData.range.start;
   const timelineEnd = timeline?.range.end ?? initialData.range.end;
   const timelineSegments = timeline?.segments ?? [];
@@ -109,11 +126,6 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
     };
   }, [initialData.range.end, initialData.range.start, machineId]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
   return (
     <div className="p-4 sm:p-6">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -123,9 +135,7 @@ export default function RecapDetailClient({ machineId, initialData }: Props) {
           </Link>
           <h1 className="mt-1 text-2xl font-semibold text-white">{machine.name || machineId}</h1>
           <div className="text-sm text-zinc-400">{machine.location || t("common.na")}</div>
-          {freshAgeSec != null ? (
-            <div className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</div>
-          ) : null}
+          <RecapDetailFreshness generatedAt={initialData.generatedAt} t={t} />
         </div>
 
         <div className="flex flex-wrap gap-2 text-sm">

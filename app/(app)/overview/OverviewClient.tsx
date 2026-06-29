@@ -98,7 +98,10 @@ export default function OverviewClient({
     }
 
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      load();
+    }, 30000);
     return () => {
       alive = false;
       clearInterval(t);

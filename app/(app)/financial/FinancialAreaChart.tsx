@@ -56,10 +56,10 @@ export default function FinancialAreaChart({ data }: { data: FinancialChartPoint
           }}
           labelStyle={{ color: "var(--app-chart-label)" }}
         />
-        <Area type="monotone" dataKey="slowCycle" stackId="1" stroke="#facc15" fill="url(#slowFill)" />
-        <Area type="monotone" dataKey="microstop" stackId="1" stroke="#fb7185" fill="url(#microFill)" />
-        <Area type="monotone" dataKey="macrostop" stackId="1" stroke="#f97316" fill="url(#macroFill)" />
-        <Area type="monotone" dataKey="scrap" stackId="1" stroke="#38bdf8" fill="url(#scrapFill)" />
+        <Area type="monotone" dataKey="slowCycle" stackId="1" stroke="#facc15" fill="url(#slowFill)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="microstop" stackId="1" stroke="#fb7185" fill="url(#microFill)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="macrostop" stackId="1" stroke="#f97316" fill="url(#macroFill)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="scrap" stackId="1" stroke="#38bdf8" fill="url(#scrapFill)" isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );

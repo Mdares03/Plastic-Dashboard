@@ -208,6 +208,10 @@ model MachineKpiSnapshot {
   // Latest-KPI-per-machine lookup in the delivery-pipeline health check orders by
   // cloud-receive time; index it so that lookup seeks instead of scanning.
   @@index([orgId, machineId, tsServer])
+  // The overview ETag computes MAX(ts_server) per org on every poll. Without
+  // ts_server as the second key, that fell back to a full seq scan (~150ms and
+  // growing). This composite lets it backward-index-seek in sub-ms.
+  @@index([orgId, tsServer])
 }
 
 model MachineEvent {

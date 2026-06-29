@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { LayoutGrid, List } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/lib/i18n/useI18n";
 import type { RecapMachineStatus, RecapSummaryMachine, RecapSummaryResponse } from "@/lib/recap/types";
@@ -70,7 +70,7 @@ function recapSortPriority(m: RecapSummaryMachine): number {
   return 6;
 }
 
-function RecapListRow({ machine, t }: { machine: RecapSummaryMachine; t: TFunc }) {
+const RecapListRow = memo(function RecapListRow({ machine, t }: { machine: RecapSummaryMachine; t: TFunc }) {
   const [cycles, setCycles] = useState<CyclePoint[]>([]);
 
   useEffect(() => {
@@ -83,7 +83,10 @@ function RecapListRow({ machine, t }: { machine: RecapSummaryMachine; t: TFunc }
       } catch {}
     }
     void load();
-    const interval = setInterval(() => void load(), 60000);
+    const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      void load();
+    }, 60000);
     return () => { alive = false; clearInterval(interval); };
   }, [machine.machineId]);
 
@@ -175,6 +178,20 @@ function RecapListRow({ machine, t }: { machine: RecapSummaryMachine; t: TFunc }
       </td>
     </tr>
   );
+});
+
+// Owns the 1-second tick in isolation so the "updated N s ago" label can stay live
+// without re-rendering the whole machine grid every second.
+function RecapFreshness({ generatedAt, t }: { generatedAt: string; t: TFunc }) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const generatedAtMs = new Date(generatedAt).getTime();
+  if (!Number.isFinite(generatedAtMs)) return null;
+  const freshAgeSec = Math.max(0, Math.floor((nowMs - generatedAtMs) / 1000));
+  return <p className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</p>;
 }
 
 export default function RecapGridClient({ initialData, machineOptions = [], initialMachineId = "all" }: Props) {
@@ -188,13 +205,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
   const [locationFilter, setLocationFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | RecapMachineStatus>("all");
   const [selectedMachineId, setSelectedMachineId] = useState(() => normalizeMachineId(initialMachineId));
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -242,9 +253,6 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
     });
   }, [data.machines, locationFilter, statusFilter]);
 
-  const generatedAtMs = new Date(data.generatedAt).getTime();
-  const freshAgeSec = Number.isFinite(generatedAtMs) ? Math.max(0, Math.floor((nowMs - generatedAtMs) / 1000)) : null;
-
   const handleMachineChange = (nextMachineId: string) => {
     const normalized = normalizeMachineId(nextMachineId);
     setSelectedMachineId(normalized);
@@ -262,9 +270,7 @@ export default function RecapGridClient({ initialData, machineOptions = [], init
           <div>
             <h1 className="text-2xl font-semibold text-white">{t("recap.grid.title")}</h1>
             <p className="text-sm text-zinc-400">{t("recap.grid.subtitle")}</p>
-            {freshAgeSec != null ? (
-              <p className="mt-1 text-xs text-zinc-400">{t("recap.grid.updatedAgo", { sec: freshAgeSec })}</p>
-            ) : null}
+            <RecapFreshness generatedAt={data.generatedAt} t={t} />
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-sm">

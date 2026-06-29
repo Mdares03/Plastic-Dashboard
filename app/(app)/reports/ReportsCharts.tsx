@@ -143,6 +143,7 @@ export default function ReportsCharts({
                     dot={false}
                     strokeWidth={2}
                     connectNulls={false}
+                    isAnimationActive={false}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -226,7 +227,7 @@ export default function ReportsCharts({
                       t("reports.scrapRate"),
                     ]}
                   />
-                  <Line type="monotone" dataKey="value" stroke="#f97316" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="value" stroke="#f97316" dot={false} strokeWidth={2} isAnimationActive={false} />
                 </LineChart>
               </ResponsiveContainer>
             ) : (

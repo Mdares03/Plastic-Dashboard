@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useI18n } from "@/lib/i18n/useI18n";
 
 const THEME_COOKIE = "mis_theme";
@@ -50,7 +49,6 @@ type UtilityControlsProps = {
 };
 
 export function UtilityControls({ className, initialTheme = "dark" }: UtilityControlsProps) {
-  const router = useRouter();
   const { locale, setLocale, t } = useI18n();
   const [theme, setTheme] = useState<"dark" | "light">(initialTheme);
 
@@ -65,8 +63,9 @@ export function UtilityControls({ className, initialTheme = "dark" }: UtilityCon
   }
 
   function switchLocale(nextLocale: "en" | "es-MX") {
+    // I18nProvider swaps the dictionary client-side and every useI18n() consumer
+    // re-renders; no server round-trip needed, so locale switch is instant.
     setLocale(nextLocale);
-    router.refresh();
   }
 
   return (

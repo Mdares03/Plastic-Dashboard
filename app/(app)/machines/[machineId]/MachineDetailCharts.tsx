@@ -127,7 +127,7 @@ export function CycleDeviationChart({
           </>
         ) : null}
 
-        <Line dataKey="ideal" dot={false} activeDot={false} stroke="var(--app-chart-grid)" />
+        <Line dataKey="ideal" dot={false} activeDot={false} stroke="var(--app-chart-grid)" isAnimationActive={false} />
         <Scatter
           dataKey="actual"
           isAnimationActive={false}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import type { RecapSummaryMachine, RecapTimelineResponse } from "@/lib/recap/types";
 import RecapMiniTimeline from "@/components/recap/RecapMiniTimeline";
@@ -31,7 +31,7 @@ function statusLabel(status: RecapSummaryMachine["status"], t: (key: string) => 
   return t("recap.status.offline");
 }
 
-export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Props) {
+function RecapMachineCard({ machine, rangeStart, rangeEnd }: Props) {
   const { t, locale } = useI18n();
   const [timeline, setTimeline] = useState<RecapTimelineResponse | null>(null);
 
@@ -74,6 +74,7 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
 
     void loadTimeline();
     const timer = window.setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       void loadTimeline();
     }, 60000);
 
@@ -168,3 +169,5 @@ export default function RecapMachineCard({ machine, rangeStart, rangeEnd }: Prop
     </Link>
   );
 }
+
+export default memo(RecapMachineCard);
