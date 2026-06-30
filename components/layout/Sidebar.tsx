@@ -199,14 +199,20 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose, initialMe }:
   return (
     <aside className={shellClass} aria-label={t("sidebar.productTitle")}>
       <div className="px-5 py-4 flex items-center justify-between gap-3">
-        <Image
-          src="/maliountech-logo.png"
-          alt={t("branding.companyName")}
-          width={180}
-          height={85}
-          priority
-          className="h-auto w-[160px] max-w-full"
-        />
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Image
+            src="/maliountech-logo.png"
+            alt={t("branding.companyName")}
+            width={180}
+            height={85}
+            priority
+            unoptimized
+            className="h-9 w-auto shrink-0"
+          />
+          <span className="text-xl font-semibold tracking-tight text-white">
+            {t("sidebar.productTitle")}
+          </span>
+        </div>
         {variant === "drawer" && onClose && (
           <button
             type="button"

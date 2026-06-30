@@ -51,14 +51,20 @@ export function AppShell({
               >
                 <Menu className="h-4 w-4" />
               </button>
-              <Image
-                src="/maliountech-logo.png"
-                alt={t("branding.companyName")}
-                width={120}
-                height={56}
-                priority
-                className="h-7 w-auto md:hidden"
-              />
+              <div className="flex items-center gap-2 md:hidden">
+                <Image
+                  src="/maliountech-logo.png"
+                  alt={t("branding.companyName")}
+                  width={120}
+                  height={56}
+                  priority
+                  unoptimized
+                  className="h-6 w-auto"
+                />
+                <span className="text-base font-semibold tracking-tight text-white">
+                  {t("sidebar.productTitle")}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <FreshnessPill />
