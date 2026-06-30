@@ -37,7 +37,7 @@ async function main() {
   console.log("  heartbeat:", hb ? `${hb.ts.toISOString()} (${ago(hb.ts)}) status=${hb.status} readerOnline=${hb.readerOnline} clockSynced=${hb.clockSynced}` : "none");
   console.log("  kpi snap :", kpi ? `${kpi.ts.toISOString()} (${ago(kpi.ts)}) cycleCount=${kpi.cycleCount}` : "none");
   console.log("  cycle row:", cyc ? `${cyc.ts.toISOString()} (${ago(cyc.ts)}) cycleCount=${cyc.cycleCount}` : "none");
-  console.log("  event    :", evt ? `${evt.ts.toISOString()} (${ago(evt.ts)}) type=${(evt as any).eventType}` : "none");
+  console.log("  event    :", evt ? `${evt.ts.toISOString()} (${ago(evt.ts)}) type=${evt.eventType}` : "none");
 }
 
 main().finally(() => prisma.$disconnect());

@@ -43,7 +43,13 @@ async function main() {
         (before.machines ?? []).map((m: { machineId: string }) => [m.machineId, m]),
       );
       for (const am of after.machines) {
-        const bm = beforeById.get(am.machineId) as any;
+        const bm = beforeById.get(am.machineId) as
+          | {
+              oee?: { avg?: number | null };
+              downtime?: { totalMin?: number | null };
+              production?: { goodParts?: number | null };
+            }
+          | undefined;
         if (!bm) continue;
         const dOee = delta(num(bm.oee?.avg), num(am.oee.avg));
         const dDown = delta(num(bm.downtime?.totalMin), num(am.downtime.totalMin));
