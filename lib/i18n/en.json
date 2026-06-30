@@ -1217,7 +1217,7 @@
   "onboarding.subtitle": "Provision machines, cost rates, shifts, reasons and contacts in one pass.",
   "onboarding.downloadTemplate": "Download template",
   "onboarding.uploadTemplate": "Upload template",
-  "onboarding.upload.parseError": "Could not read that file — make sure it's the JSON template.",
+  "onboarding.upload.parseError": "Could not read that file — use the downloaded .xlsx or .json template.",
   "onboarding.step.company": "Company",
   "onboarding.step.machines": "Machines",
   "onboarding.step.shifts": "Shifts",

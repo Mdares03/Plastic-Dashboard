@@ -284,8 +284,17 @@ export default function OnboardingPage() {
   const onUpload = useCallback(async (file: File) => {
     setUploadError(null);
     try {
-      const text = await file.text();
-      const json = JSON.parse(text);
+      // Parse server-side (xlsx via SheetJS, or json) so we don't ship a
+      // spreadsheet parser to the browser.
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/onboarding/parse", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.ok) {
+        setUploadError(data?.error ?? tt("onboarding.upload.parseError", "Could not read that file — use the .xlsx or .json template."));
+        return;
+      }
+      const json = data.config ?? {};
       setForm((prev) => ({
         org: { name: json.org?.name ?? prev.org.name, timezone: json.org?.timezone ?? prev.org.timezone },
         financial: {
@@ -333,7 +342,7 @@ export default function OnboardingPage() {
       }));
       setStep("review");
     } catch {
-      setUploadError(tt("onboarding.upload.parseError", "Could not read that file — make sure it's the JSON template."));
+      setUploadError(tt("onboarding.upload.parseError", "Could not read that file — use the downloaded .xlsx or .json template."));
     }
   }, [tt]);
 
@@ -378,7 +387,7 @@ export default function OnboardingPage() {
             {tt("onboarding.uploadTemplate", "Upload template")}
             <input
               type="file"
-              accept="application/json,.json"
+              accept=".xlsx,.xls,.csv,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/json"
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];

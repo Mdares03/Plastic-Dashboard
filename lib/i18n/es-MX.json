@@ -1217,7 +1217,7 @@
   "onboarding.subtitle": "Aprovisiona máquinas, tarifas de costo, turnos, motivos y contactos en un solo paso.",
   "onboarding.downloadTemplate": "Descargar plantilla",
   "onboarding.uploadTemplate": "Subir plantilla",
-  "onboarding.upload.parseError": "No se pudo leer ese archivo: asegúrate de que sea la plantilla JSON.",
+  "onboarding.upload.parseError": "No se pudo leer ese archivo: usa la plantilla .xlsx o .json descargada.",
   "onboarding.step.company": "Empresa",
   "onboarding.step.machines": "Máquinas",
   "onboarding.step.shifts": "Turnos",
