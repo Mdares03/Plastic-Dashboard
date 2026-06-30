@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
@@ -9,7 +10,6 @@ import {
   BookOpen,
   ClipboardList,
   DollarSign,
-  LayoutGrid,
   Loader2,
   LogOut,
   PackageCheck,
@@ -34,8 +34,10 @@ type NavItem = {
 };
 
 const items: NavItem[] = [
+  // Item 4: a single "Resumen" entry (the daily recap, last 24h). Overview was a
+  // confusing second "Resumen" in es-MX; it's dropped from the nav but still
+  // reachable by URL / screenless redirects.
   { href: "/recap", labelKey: "nav.recap", icon: Sunrise },
-  { href: "/overview", labelKey: "nav.overview", icon: LayoutGrid },
   { href: "/machines", labelKey: "nav.machines", icon: Wrench },
   { href: "/reports", labelKey: "nav.reports", icon: BarChart3 },
   { href: "/alerts", labelKey: "nav.alerts", icon: Bell },
@@ -197,10 +199,14 @@ export function Sidebar({ variant = "desktop", onNavigate, onClose, initialMe }:
   return (
     <aside className={shellClass} aria-label={t("sidebar.productTitle")}>
       <div className="px-5 py-4 flex items-center justify-between gap-3">
-        <div>
-          <div className="text-white font-semibold tracking-wide">{t("sidebar.productTitle")}</div>
-          <div className="text-xs text-zinc-400">{t("sidebar.productSubtitle")}</div>
-        </div>
+        <Image
+          src="/maliountech-logo.png"
+          alt={t("branding.companyName")}
+          width={180}
+          height={85}
+          priority
+          className="h-auto w-[160px] max-w-full"
+        />
         {variant === "drawer" && onClose && (
           <button
             type="button"

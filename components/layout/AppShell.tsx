@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Image from "next/image";
 import { Menu } from "lucide-react";
 import { Sidebar, type SidebarMe } from "@/components/layout/Sidebar";
 import { RouteAudit } from "@/components/perf/RouteAudit";
@@ -50,9 +51,14 @@ export function AppShell({
               >
                 <Menu className="h-4 w-4" />
               </button>
-              <div className="text-sm font-semibold tracking-wide md:hidden">
-                {t("sidebar.productTitle")}
-              </div>
+              <Image
+                src="/maliountech-logo.png"
+                alt={t("branding.companyName")}
+                width={120}
+                height={56}
+                priority
+                className="h-7 w-auto md:hidden"
+              />
             </div>
             <div className="flex items-center gap-2">
               <FreshnessPill />

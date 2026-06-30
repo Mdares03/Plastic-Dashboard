@@ -55,6 +55,21 @@ describe("R8 — machine state ladder", () => {
     ).toBe("stopped");
   });
 
+  // Demo feedback item 9: a stale "active" macrostop must not survive a resumed
+  // cycle. Without the resume guard the machine reads "stopped 9d" while it runs.
+  it("macrostop clears once a cycle resumes after it started (no more 'stopped 9d')", () => {
+    const events = [event("macrostop", at(58 * MIN), { status: "active" })];
+    expect(
+      deriveMachineState({
+        heartbeatTs: freshHb,
+        heartbeatStatus: "RUN",
+        events,
+        cycleTimestampsMs: [at(59 * MIN).getTime()], // cycle after the stop start → resumed
+        now: NOW,
+      }),
+    ).toBe("running");
+  });
+
   it("microstop ranks below stop, above running", () => {
     const events = [event("microstop", at(59 * MIN), { status: "active" })];
     expect(

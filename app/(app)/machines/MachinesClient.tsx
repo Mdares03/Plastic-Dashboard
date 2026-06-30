@@ -370,7 +370,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
             {showCreate ? t("machines.cancel") : t("machines.addMachine")}
           </button>
           <Link
-            href="/overview"
+            href="/recap"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-center text-sm text-white hover:bg-white/10 sm:w-auto"
           >
             {t("machines.backOverview")}

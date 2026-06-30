@@ -55,7 +55,17 @@ export function deriveMachineState(input: MachineStateInput): MachinePulseState 
     moldResolvedEndMs != null &&
     !input.cycleTimestampsMs.some((t) => t > moldResolvedEndMs);
 
-  const macroActive = activeEpisodeStartMs(input.events, "macrostop", nowMs, STOP_ACTIVE_STALE_MS) != null;
+  const macroStartMs = activeEpisodeStartMs(input.events, "macrostop", nowMs, STOP_ACTIVE_STALE_MS);
+  // A macrostop is over once the machine is demonstrably producing again. Mirror
+  // the mold-change resume guard: if a cycle landed after the stop started, the
+  // lingering "active" macrostop is stale and must not drive a "stopped Nd"
+  // state/badge. (Fixes the "stopped 9d" vs "running" contradiction — demo item 9.)
+  // Heartbeat status alone is NOT treated as resume evidence: the Pi can report
+  // RUN/ONLINE as mere liveness, so an active macrostop still outranks hb=RUN
+  // until a real production cycle proves resumption.
+  const macroResumed =
+    macroStartMs != null && input.cycleTimestampsMs.some((t) => t > macroStartMs);
+  const macroActive = macroStartMs != null && !macroResumed;
   const microActive =
     activeEpisodeStartMs(input.events, "microstop", nowMs, STOP_ACTIVE_STALE_MS) != null ||
     activeEpisodeStartMs(input.events, "slow-cycle", nowMs, STOP_ACTIVE_STALE_MS) != null;

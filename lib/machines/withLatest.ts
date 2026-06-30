@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getLatestRates } from "@/lib/metrics";
+import { RECAP_HEARTBEAT_STALE_MS, STOP_ACTIVE_STALE_MS } from "@/lib/metrics/spec";
 import { TERMINAL_WO_STATUSES } from "@/lib/workOrders/status";
 import type { OverviewLatestKpi, OverviewMachineRow } from "@/lib/overview/types";
 
@@ -169,6 +170,37 @@ export async function fetchLatestMacrostops(
   return Array.from(byMachine.values());
 }
 
+/**
+ * Reconcile a possibly-stale "active" macrostop against the live heartbeat (demo
+ * feedback item 9 — "stopped 9d" vs "running"). The Node-RED edge keeps pinging an
+ * active macrostop every ~10s, so the event can look "fresh" long after the machine
+ * resumed; meanwhile `startedAtMs` (last_cycle_timestamp) can be days stale, which
+ * is what produces the bogus "stopped 9d" badge.
+ *
+ * A genuine ongoing stop reports a STOP/DOWN/IDLE heartbeat. So when the latest
+ * heartbeat is fresh and RUN/ONLINE *and* the stop claims to have started more than
+ * one freshness window before that heartbeat, the stop is stale — the machine is
+ * running again. We treat such a macrostop as resolved for display. This mirrors
+ * deriveMachineState's cycle-resume guard for the list view, which has no per-row
+ * cycle data. The first ~2 min of a real stop (start ≈ now) is never suppressed.
+ */
+function isMacrostopSupersededByRun(
+  macrostop: LatestMacrostopRow | null | undefined,
+  heartbeat: LatestHeartbeatRow | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!macrostop || macrostop.status !== "active") return false;
+  if (!heartbeat) return false;
+  const hbTs = (heartbeat.tsServer ?? heartbeat.ts)?.getTime();
+  if (hbTs == null) return false;
+  if (nowMs - hbTs > RECAP_HEARTBEAT_STALE_MS) return false; // heartbeat itself stale → not live evidence
+  const hbStatus = String(heartbeat.status ?? "").toUpperCase();
+  if (hbStatus !== "RUN" && hbStatus !== "ONLINE") return false;
+  // Live RUN heartbeat that postdates the claimed stop start by more than a
+  // freshness window ⇒ the "active" macrostop is stale.
+  return hbTs > macrostop.startedAtMs + STOP_ACTIVE_STALE_MS;
+}
+
 export async function fetchActiveWorkOrders(
   orgId: string,
   machineIds: string[]
@@ -289,11 +321,20 @@ export function mergeMachineOverviewRows(params: {
   const macrostopMap = new Map(macrostops.map((row) => [row.machineId, row]));
   const activeWorkOrderMap = new Map(activeWorkOrders.map((row) => [row.machineId, row]));
 
+  const nowMs = now.getTime();
   return machines.map((machine) => ({
     ...machine,
     latestHeartbeat: (heartbeatMap.get(machine.id) ?? null) as OverviewMachineRow["latestHeartbeat"],
     latestKpi: includeKpi ? gateLatestKpi(kpiMap.get(machine.id) ?? null, now) : null,
-    latestMacrostop: macrostopMap.get(machine.id) ?? null,
+    latestMacrostop: (() => {
+      const macro = macrostopMap.get(machine.id) ?? null;
+      const hb = heartbeatMap.get(machine.id) ?? null;
+      // Stale "active" macrostop contradicted by a live RUN heartbeat → resolved (item 9).
+      if (macro && isMacrostopSupersededByRun(macro, hb, nowMs)) {
+        return { ...macro, status: "resolved" as const };
+      }
+      return macro;
+    })(),
     activeWorkOrder: (() => {
       const row = activeWorkOrderMap.get(machine.id);
       if (!row) return null;
