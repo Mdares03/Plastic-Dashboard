@@ -50,3 +50,6 @@ next-env.d.ts
 .env.*
 /etc/mis-control-tower.env
 backups/
+
+# Phase C: cron report-email logs
+/logs/

@@ -1,16 +1,20 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getBaseUrl } from "@/lib/appUrl";
 import { buildWeeklyReportEmail, sendEmail } from "@/lib/email";
 import { buildWeeklyReport } from "@/lib/reports/weeklyReport";
+import { runScheduledReport } from "@/lib/reports/dispatch";
+import { tryGenerateReportPdf } from "@/lib/reports/pdf";
 
 /**
  * Weekly production-summary email. Cron-only, secret-gated (fail-closed, same
  * model as the ROI summary + downtime-action reminders): it fans out across
- * every org, so there is no safe logged-in caller. Schedule it (cron/systemd) to
- * POST here weekly.
+ * every org, so there is no safe logged-in caller.
  *
- *   POST /api/reports/weekly/email?token=<WEEKLY_REPORT_EMAIL_SECRET>[&orgId=...]
+ * Per-org scheduling (item 1): the cron may run as often as hourly; runScheduledReport
+ * decides per-org due-ness from OrgReportSchedule (recipients, cadence, lastSentAt
+ * dedupe), so this endpoint no longer blindly sends every call.
+ *
+ *   POST /api/reports/weekly/email?token=<WEEKLY_REPORT_EMAIL_SECRET>[&orgId=...][&force=1]
  */
 
 const APP_NAME = process.env.APP_NAME || "MIS Control Tower";
@@ -29,42 +33,38 @@ export async function POST(req: Request) {
   const auth = authorize(req);
   if (!auth.ok) return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
 
-  const onlyOrgId = new URL(req.url).searchParams.get("orgId");
+  const url = new URL(req.url);
+  const onlyOrgId = url.searchParams.get("orgId");
+  const force = url.searchParams.get("force") === "1";
   const baseUrl = getBaseUrl(req);
 
-  const orgs = await prisma.org.findMany({
-    where: onlyOrgId ? { id: onlyOrgId } : {},
-    select: { id: true, name: true },
-  });
-
-  const sent: string[] = [];
-  const failures: Array<{ orgId: string; error: string }> = [];
-
-  for (const org of orgs) {
-    try {
-      const contacts = await prisma.alertContact.findMany({
-        where: { orgId: org.id, isActive: true, email: { not: null } },
-        select: { email: true },
-      });
-      const recipients = [...new Set(contacts.map((c) => c.email).filter((e): e is string => !!e))];
-      if (recipients.length === 0) continue;
-
-      const report = await buildWeeklyReport({ orgId: org.id });
+  const result = await runScheduledReport({
+    reportType: "weekly",
+    onlyOrgId,
+    force,
+    send: async ({ org, recipients }) => {
+      const report = await buildWeeklyReport({ orgId: org.id, comparePrevious: true });
       const email = buildWeeklyReportEmail({
         appName: APP_NAME,
         orgName: org.name,
         report,
         reportUrl: `${baseUrl}/reports/weekly`,
       });
-
+      // Best-effort PDF attachment — if Chromium isn't available the email still sends.
+      const pdf = await tryGenerateReportPdf({ payload: { type: "weekly", orgId: org.id }, baseUrl });
+      const attachments = pdf
+        ? [{ filename: "weekly_report.pdf", content: pdf, contentType: "application/pdf" }]
+        : undefined;
       for (const to of recipients) {
-        await sendEmail({ to, subject: email.subject, text: email.text, html: email.html });
-        sent.push(to);
+        await sendEmail({ to, subject: email.subject, text: email.text, html: email.html, attachments });
       }
-    } catch (err) {
-      failures.push({ orgId: org.id, error: err instanceof Error ? err.message : "Failed" });
-    }
-  }
+    },
+  });
 
-  return NextResponse.json({ ok: true, sentCount: sent.length, failures });
+  return NextResponse.json({
+    ok: true,
+    sentCount: result.sent.length,
+    skipped: result.skipped,
+    failures: result.failures,
+  });
 }

@@ -10,6 +10,7 @@ import { getRecommendedActions } from "@/lib/reports/queries/recommendedActions"
 import { getScrapTopSkus } from "@/lib/reports/queries/scrapTopSkus";
 import { getWorkOrderStatus } from "@/lib/reports/queries/workOrderStatus";
 import type { MachineCostProfile, WeeklyReport } from "@/lib/reports/types";
+import { computeKpiComparison } from "@/lib/reports/comparison";
 
 function clampPct(value: number) {
   return Math.max(0, Math.min(100, value));
@@ -108,6 +109,8 @@ export async function buildWeeklyReport(params: {
   from?: Date;
   to?: Date;
   machineId?: string;
+  /** Also compute the prior equal-length window and attach period-over-period deltas. */
+  comparePrevious?: boolean;
 }): Promise<WeeklyReport> {
   const { orgId, machineId } = params;
   const { from, to } = getDateRange(params);
@@ -252,12 +255,39 @@ export async function buildWeeklyReport(params: {
     (profile) => profile.scrapCostPerUnit != null
   );
 
+  // Period-over-period: build the immediately-preceding window of equal length from
+  // the same authority, then diff headline KPIs. Guarded so the recursion is one deep.
+  let comparison: WeeklyReport["comparison"];
+  if (params.comparePrevious) {
+    const lengthMs = to.getTime() - from.getTime();
+    const prevTo = new Date(from.getTime());
+    const prevFrom = new Date(from.getTime() - lengthMs);
+    const previous = await buildWeeklyReport({ orgId, machineId, from: prevFrom, to: prevTo });
+    comparison = computeKpiComparison(
+      {
+        period: { from: toIso(from), to: toIso(to) },
+        oeeAvg: oeeSnapshot.oeeAvg,
+        production,
+        estimatedLossMXN,
+        classificationRate: classification.rate,
+      },
+      {
+        period: previous.period,
+        oeeAvg: previous.oeeAvg,
+        production: previous.production,
+        estimatedLossMXN: previous.estimatedLossMXN,
+        classificationRate: previous.classificationRate,
+      }
+    );
+  }
+
   return {
     period: {
       from: toIso(from),
       to: toIso(to),
       generatedAt: toIso(new Date()),
     },
+    comparison,
     org: {
       name: org?.name ?? "Organización",
       plant: resolvePlantName(org?.name ?? "Organización", scopedMachines),

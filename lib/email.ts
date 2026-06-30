@@ -1,10 +1,17 @@
 import nodemailer from "nodemailer";
 import { logLine } from "@/lib/logger";
+type EmailAttachment = {
+  filename: string;
+  content: Buffer;
+  contentType?: string;
+};
+
 type EmailPayload = {
   to: string;
   subject: string;
   text: string;
   html: string;
+  attachments?: EmailAttachment[];
 };
 
 let cachedTransport: nodemailer.Transporter | null = null;
@@ -108,6 +115,7 @@ export async function sendEmail(payload: EmailPayload) {
         subject: payload.subject,
         text: payload.text,
         html: payload.html,
+        attachments: payload.attachments,
         headers: {
           "X-Mailer": "MIS Control Tower",
         },
@@ -344,6 +352,14 @@ function fmtShortDate(iso: string) {
  * lands in the decision-maker's inbox. Headline KPIs only, with a link to the
  * full report. Money is omitted (not faked) when cost rates are unset.
  */
+/** Signed delta string, e.g. "+5.4 pts" / "−1.2 pts" (em-dash minus, no "+0"). */
+function fmtDeltaPts(value: number, unit = "pts"): string {
+  const rounded = Math.round(value * 10) / 10;
+  if (rounded === 0) return `±0 ${unit}`;
+  const sign = rounded > 0 ? "+" : "−";
+  return `${sign}${Math.abs(rounded)} ${unit}`;
+}
+
 export function buildWeeklyReportEmail(params: {
   appName: string;
   orgName: string;
@@ -355,18 +371,32 @@ export function buildWeeklyReportEmail(params: {
     financialVisibility: { hasAnyCost: boolean };
     classificationRate: number;
     classificationTarget: number;
+    comparison?: {
+      deltas: {
+        oeeAvgPts: number;
+        productionPctPts: number;
+        estimatedLossMXN: number;
+        classificationRatePts: number;
+      };
+    };
   };
   reportUrl: string;
 }) {
   const { report } = params;
   const from = fmtShortDate(report.period.from);
   const to = fmtShortDate(report.period.to);
-  const oee = `${report.oeeAvg.toFixed(0)}%`;
-  const prod = `${report.production.good.toLocaleString()} / ${report.production.target.toLocaleString()} (${report.production.pct.toFixed(0)}%)`;
+  const d = report.comparison?.deltas;
+  const oeeDelta = d ? ` (${fmtDeltaPts(d.oeeAvgPts)} vs prior)` : "";
+  const prodDelta = d ? ` (${fmtDeltaPts(d.productionPctPts)} vs prior)` : "";
+  const classDelta = d ? ` (${fmtDeltaPts(d.classificationRatePts)} vs prior)` : "";
+  const oee = `${report.oeeAvg.toFixed(0)}%${oeeDelta}`;
+  const prod = `${report.production.good.toLocaleString()} / ${report.production.target.toLocaleString()} (${report.production.pct.toFixed(0)}%)${prodDelta}`;
+  // Loss delta: negative = improvement; show with explicit direction when known.
+  const lossDelta = d && report.financialVisibility.hasAnyCost ? ` (${fmtDeltaPts(d.estimatedLossMXN, "MXN")} vs prior)` : "";
   const lossLine = report.financialVisibility.hasAnyCost
-    ? `Estimated loss: ${fmtMxn(report.estimatedLossMXN)}.`
+    ? `Estimated loss: ${fmtMxn(report.estimatedLossMXN)}${lossDelta}.`
     : "Estimated loss: not shown (cost rates not configured yet).";
-  const classified = `${(report.classificationRate * 100).toFixed(0)}% (target ≥${(report.classificationTarget * 100).toFixed(0)}%)`;
+  const classified = `${(report.classificationRate * 100).toFixed(0)}% (target ≥${(report.classificationTarget * 100).toFixed(0)}%)${classDelta}`;
 
   const subject = `${params.orgName}: weekly production summary (${from} → ${to})`;
   const text =
@@ -385,6 +415,67 @@ export function buildWeeklyReportEmail(params: {
     `<li><strong>Downtime classified:</strong> ${classified}</li>` +
     `</ul>` +
     `<p><a href="${params.reportUrl}">Open the full report</a></p>`;
+
+  return { subject, text, html };
+}
+
+/**
+ * Daily production summary email (item 1/4) — the last-24h recap as a recurring,
+ * exec-readable artifact. Same headline KPIs as the weekly email, framed daily, with
+ * period-over-period deltas vs the prior 24h when available.
+ */
+export function buildDailyReportEmail(params: {
+  appName: string;
+  orgName: string;
+  report: {
+    period: { from: string; to: string };
+    oeeAvg: number;
+    production: { good: number; target: number; pct: number };
+    estimatedLossMXN: number;
+    financialVisibility: { hasAnyCost: boolean };
+    classificationRate: number;
+    classificationTarget: number;
+    comparison?: {
+      deltas: {
+        oeeAvgPts: number;
+        productionPctPts: number;
+        estimatedLossMXN: number;
+        classificationRatePts: number;
+      };
+    };
+  };
+  reportUrl: string;
+}) {
+  const { report } = params;
+  const day = fmtShortDate(report.period.to);
+  const d = report.comparison?.deltas;
+  const oeeDelta = d ? ` (${fmtDeltaPts(d.oeeAvgPts)} vs prior day)` : "";
+  const prodDelta = d ? ` (${fmtDeltaPts(d.productionPctPts)} vs prior day)` : "";
+  const oee = `${report.oeeAvg.toFixed(0)}%${oeeDelta}`;
+  const prod = `${report.production.good.toLocaleString()} / ${report.production.target.toLocaleString()} (${report.production.pct.toFixed(0)}%)${prodDelta}`;
+  const lossDelta = d && report.financialVisibility.hasAnyCost ? ` (${fmtDeltaPts(d.estimatedLossMXN, "MXN")} vs prior day)` : "";
+  const lossLine = report.financialVisibility.hasAnyCost
+    ? `Estimated loss: ${fmtMxn(report.estimatedLossMXN)}${lossDelta}.`
+    : "Estimated loss: not shown (cost rates not configured yet).";
+  const classified = `${(report.classificationRate * 100).toFixed(0)}% (target ≥${(report.classificationTarget * 100).toFixed(0)}%)`;
+
+  const subject = `${params.orgName}: daily summary (${day})`;
+  const text =
+    `Daily summary for ${params.orgName} (${params.appName}) — last 24h to ${day}.\n\n` +
+    `OEE (avg): ${oee}.\n` +
+    `Production (good/target): ${prod}.\n` +
+    `${lossLine}\n` +
+    `Downtime classified: ${classified}.\n\n` +
+    `Open the recap:\n${params.reportUrl}`;
+  const html =
+    `<p>Daily summary for <strong>${params.orgName}</strong> (${params.appName}) — last 24h to ${day}.</p>` +
+    `<ul>` +
+    `<li><strong>OEE (avg):</strong> ${oee}</li>` +
+    `<li><strong>Production (good/target):</strong> ${prod}</li>` +
+    `<li><strong>${lossLine}</strong></li>` +
+    `<li><strong>Downtime classified:</strong> ${classified}</li>` +
+    `</ul>` +
+    `<p><a href="${params.reportUrl}">Open the recap</a></p>`;
 
   return { subject, text, html };
 }

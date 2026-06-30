@@ -23,5 +23,17 @@ export default function WeeklyReportClient({ report }: { report: WeeklyReportPay
   const t = (key: string, vars?: Record<string, string | number>) =>
     translateWith(esMX as Dictionary, key, vars);
 
-  return <WeeklyReport report={report} locale="es-MX" t={t} />;
+  return (
+    <div className="relative">
+      <div className="flex justify-end px-4 pt-4 sm:px-6 print:hidden">
+        <a
+          href="/api/reports/pdf?type=weekly"
+          className="rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30"
+        >
+          {t("reports.downloadPdf")}
+        </a>
+      </div>
+      <WeeklyReport report={report} locale="es-MX" t={t} />
+    </div>
+  );
 }

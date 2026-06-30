@@ -5,6 +5,7 @@ import Link from "next/link";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/components/charts/ChartSkeleton";
 import { useI18n } from "@/lib/i18n/useI18n";
+import SavingsCalendar from "./SavingsCalendar";
 
 // Recharts is heavy; code-split the cost chart so it loads only on this page.
 const FinancialAreaChart = dynamic(() => import("./FinancialAreaChart"), {
@@ -384,6 +385,8 @@ export default function FinancialClient({
           </div>
         </div>
       </div>
+
+      <SavingsCalendar machineId={machineFilter || undefined} location={locationFilter || undefined} />
 
       {loading && <div className="text-xs text-zinc-400">{t("financial.loadingMachines")}</div>}
     </div>

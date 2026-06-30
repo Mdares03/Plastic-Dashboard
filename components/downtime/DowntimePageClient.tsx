@@ -1067,6 +1067,32 @@ export default function DowntimePageClient() {
 
   const topReason = metricRowsAll[0] ?? null;
 
+  // Item 7 — "Money story": per-reason cost = minutes × loaded cost/min (only when a
+  // real rate exists). Always uses the MINUTES share (money tracks minutes, not the
+  // toggled metric), so the rows sum to the Est. cost KPI by construction (congruent).
+  const savingsByReason = useMemo(() => {
+    if (!costRate || costRate.placeholder) return [];
+    const minuteRows = computeMetricRows(baseRows, "minutes");
+    return minuteRows
+      .map((r) => ({
+        reasonCode: r.reasonCode,
+        reasonLabel: r.reasonLabel,
+        minutes: r.minutesLost ?? 0,
+        count: r.count,
+        pctOfTotal: r.pctOfTotal,
+        cost: (r.minutesLost ?? 0) * costRate.costPerMin,
+      }))
+      .filter((r) => r.cost > 0);
+  }, [baseRows, costRate]);
+
+  const totalSavings = useMemo(
+    () => savingsByReason.reduce((acc, r) => acc + r.cost, 0),
+    [savingsByReason]
+  );
+
+  // Show the money column on tables only when a real (non-placeholder) rate exists.
+  const showMoneyCol = Boolean(costRate && !costRate.placeholder);
+
   // Secondary (non-default) filters surfaced as removable chips under the header.
   const hasSecondaryFilters =
     shift !== "ALL" || planned !== "all" || metric !== "minutes" || microstopLtMin !== "2";
@@ -1624,6 +1650,82 @@ export default function DowntimePageClient() {
                 </div>
               </div>
 
+              {/* Savings by reason — the "money story" (Item 7) */}
+              <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <div className="text-lg font-semibold text-white">{t("downtime.savings.title")}</div>
+                    <div className="mt-1 text-xs text-zinc-300">{t("downtime.savings.subtitle")}</div>
+                  </div>
+                  {costRate && !costRate.placeholder && savingsByReason.length > 0 ? (
+                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+                      {t("downtime.savings.total", { amount: fmtMoney(totalSavings, costRate.currency) })}
+                    </div>
+                  ) : null}
+                </div>
+
+                {!costRate || costRate.placeholder ? (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
+                    {t("downtime.savings.placeholder")}{" "}
+                    <Link href="/settings" className="text-emerald-300 hover:text-emerald-200">
+                      {t("downtime.cost.setRates")} →
+                    </Link>
+                  </div>
+                ) : savingsByReason.length === 0 ? (
+                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
+                    {t("downtime.savings.noData")}
+                  </div>
+                ) : (
+                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                    <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-4 py-3 text-[11px] text-zinc-400">
+                      <div className="col-span-6">{t("downtime.col.reason")}</div>
+                      <div className="col-span-3 text-right">{t("downtime.savings.col.share")}</div>
+                      <div className="col-span-3 text-right">{t("downtime.savings.col.impact")}</div>
+                    </div>
+                    {savingsByReason.slice(0, 12).map((r) => {
+                      const active = reasonCode === r.reasonCode;
+                      const costShare = totalSavings > 0 ? (r.cost / totalSavings) * 100 : 0;
+                      return (
+                        <button
+                          key={r.reasonCode}
+                          className={cn(
+                            "grid w-full grid-cols-12 items-center gap-2 px-4 py-3 text-left text-sm transition",
+                            "border-b border-white/5 hover:bg-white/5",
+                            active && "bg-emerald-500/10"
+                          )}
+                          onClick={() => setParams({ reasonCode: r.reasonCode })}
+                        >
+                          <div className="col-span-6 min-w-0">
+                            <div className="truncate text-white">{r.reasonLabel}</div>
+                            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-white/5">
+                              <div
+                                className="h-full rounded-full bg-emerald-400/70"
+                                style={{ width: `${Math.min(100, costShare)}%` }}
+                              />
+                            </div>
+                            <div className="mt-1 text-[11px] text-zinc-400">
+                              {t("downtime.savings.stops", {
+                                n: fmtNum(r.count, 0),
+                                minutes: fmtDurationFromMinutes(r.minutes),
+                              })}
+                            </div>
+                          </div>
+                          <div className="col-span-3 text-right">
+                            <div className="text-white">{fmtPct(r.pctOfTotal, 1)}</div>
+                            <div className="mt-1 text-[11px] text-zinc-400">
+                              {t("downtime.savings.share", { pct: fmtPct(costShare, 0) })}
+                            </div>
+                          </div>
+                          <div className="col-span-3 text-right font-semibold text-emerald-200">
+                            {fmtMoney(r.cost, costRate.currency)}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
               {/* Drilldown table behind an expander */}
               <div className="mt-6 rounded-3xl border border-white/10 bg-white/5 p-5">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1652,6 +1754,9 @@ export default function DowntimePageClient() {
                           <th className="px-4 py-3 text-right">{t("downtime.col.avgDuration")}</th>
                           <th className="px-4 py-3 text-right">{t("downtime.col.share")}</th>
                           <th className="px-4 py-3 text-right">{t("downtime.col.cum")}</th>
+                          {showMoneyCol ? (
+                            <th className="px-4 py-3 text-right">{t("downtime.col.impact")}</th>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-white/5">
@@ -1684,13 +1789,18 @@ export default function DowntimePageClient() {
                               </td>
                               <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.pctOfTotal, 1)}</td>
                               <td className="px-4 py-3 text-right text-zinc-200">{fmtPct(r.cumulativePct, 0)}</td>
+                              {showMoneyCol && costRate ? (
+                                <td className="px-4 py-3 text-right font-medium text-emerald-200">
+                                  {fmtMoney((r.minutesLost ?? 0) * costRate.costPerMin, costRate.currency)}
+                                </td>
+                              ) : null}
                             </tr>
                           );
                         })}
 
                         {metricRowsFiltered.length === 0 ? (
                           <tr>
-                            <td className="px-4 py-6 text-sm text-zinc-300" colSpan={6}>
+                            <td className="px-4 py-6 text-sm text-zinc-300" colSpan={showMoneyCol ? 7 : 6}>
                               {t("downtime.drill.noRows")}
                             </td>
                           </tr>

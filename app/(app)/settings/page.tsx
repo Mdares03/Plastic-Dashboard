@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertsConfig } from "@/components/settings/AlertsConfig";
 import { FinancialCostConfig } from "@/components/settings/FinancialCostConfig";
 import { ReasonCatalogConfig } from "@/components/settings/ReasonCatalogConfig";
+import { ReportScheduleConfig } from "@/components/settings/ReportScheduleConfig";
 import HealthChecks from "@/components/health/HealthChecks";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { SHIFT_OVERRIDE_DAYS, type ShiftOverrideDay } from "@/lib/settings";
@@ -127,6 +128,7 @@ const SETTINGS_TABS = [
   { id: "thresholds", labelKey: "settings.tabs.thresholds" },
   { id: "alerts", labelKey: "settings.tabs.alerts" },
   { id: "financial", labelKey: "settings.tabs.financial" },
+  { id: "reports", labelKey: "settings.tabs.reports" },
   { id: "reasonCatalog", labelKey: "settings.tabs.reasonCatalog" },
   { id: "integrity", labelKey: "settings.tabs.integrity" },
   { id: "team", labelKey: "settings.tabs.team" },
@@ -908,6 +910,17 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.onboarding.title")}</div>
+            <p className="mt-1 text-xs text-zinc-400">{t("settings.onboarding.desc")}</p>
+            <a
+              href="/onboarding"
+              className="mt-3 inline-block rounded-xl border border-emerald-400/40 bg-emerald-500/20 px-4 py-2 text-sm text-emerald-100 hover:bg-emerald-500/30"
+            >
+              {t("settings.onboarding.open")}
+            </a>
+          </div>
+
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <div className="mb-3 text-sm font-semibold text-white">{t("settings.defaults")}</div>
@@ -1311,6 +1324,18 @@ export default function SettingsPage() {
       {activeTab === "financial" && (
         <div className="space-y-6">
           <FinancialCostConfig />
+        </div>
+      )}
+
+      {activeTab === "reports" && (
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <div className="text-sm font-semibold text-white">{t("settings.reports.title")}</div>
+            <p className="mt-1 text-xs text-zinc-400">{t("settings.reports.subtitle")}</p>
+            <div className="mt-4">
+              <ReportScheduleConfig />
+            </div>
+          </div>
         </div>
       )}
 

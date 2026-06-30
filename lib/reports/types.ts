@@ -1,7 +1,12 @@
+import type { KpiComparison } from "@/lib/reports/comparison";
+
 export interface WeeklyReport {
   period: { from: string; to: string; generatedAt: string };
   org: { name: string; plant: string };
   machineIds: string[];
+
+  /** Period-over-period headline-KPI deltas vs the prior equal-length window (item 1). */
+  comparison?: KpiComparison;
 
   production: { good: number; target: number; pct: number };
   oeeAvg: number;

@@ -37,6 +37,7 @@ model Org {
   settingsAudits             SettingsAudit[]
   reasonCatalogCategories    ReasonCatalogCategory[]
   reasonCatalogItems         ReasonCatalogItem[]
+  reportSchedules            OrgReportSchedule[]
 }
 
 model User {
@@ -375,6 +376,36 @@ model OrgSettings {
   org                        Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@map("org_settings")
+}
+
+/// Per-org, per-report-kind email schedule (item 1). One row per (org, reportType).
+/// The cron endpoints fan out across orgs and consult these rows to decide due-ness
+/// and recipients, so scheduling is configurable in-app instead of a fixed cron.
+model OrgReportSchedule {
+  id          String    @id @default(uuid())
+  orgId       String    @map("org_id")
+  /// daily | weekly | roi — the report content kind.
+  reportType  String    @map("report_type")
+  enabled     Boolean   @default(false)
+  /// daily | weekly | monthly — how often this report is emailed.
+  frequency   String    @default("weekly")
+  /// Explicit recipient emails. Empty => fall back to the org's active alert contacts.
+  recipients  String[]  @default([])
+  /// Preferred send hour in UTC (0–23); the cron may run more often and dedupes via lastSentAt.
+  hourUtc     Int       @default(13) @map("hour_utc")
+  /// 0–6 (0=Sunday) for weekly frequency; null otherwise.
+  dayOfWeek   Int?      @map("day_of_week")
+  /// 1–28 for monthly frequency; null otherwise.
+  dayOfMonth  Int?      @map("day_of_month")
+  lastSentAt  DateTime? @map("last_sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  updatedBy   String?   @map("updated_by")
+  org         Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, reportType])
+  @@index([orgId])
+  @@map("org_report_schedules")
 }
 
 model OrgFinancialProfile {
