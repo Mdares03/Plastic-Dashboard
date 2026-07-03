@@ -166,7 +166,7 @@ export function ImpactChart({ rows, t }: { rows: ImpactRow[]; t: Translator }) {
             border: "1px solid var(--app-chart-tooltip-border)",
           }}
           labelStyle={{ color: "var(--app-chart-label)" }}
-          formatter={(val: number | string | undefined) => [
+          formatter={(val: unknown) => [
             `${val == null ? 0 : Number(val).toFixed(1)}s`,
             t("machine.detail.modal.extraTimeLabel"),
           ]}

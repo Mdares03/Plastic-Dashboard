@@ -1,26 +1,42 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MIS Control Tower
 
-## Getting Started
+Next.js 16 + Prisma + PostgreSQL dashboard for injection-molding OEE, downtime, and
+financial-loss tracking, fed by Raspberry Pi edge devices (Node-RED) over the ingest API.
 
-First, run the development server:
+- **Architecture / data flow:** [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+- **Metrics rules (R1–R8) — every number's authority:** [docs/METRICS_SPEC.md](./docs/METRICS_SPEC.md)
+- **ROI model:** [docs/ROI_MODEL.md](./docs/ROI_MODEL.md)
+- **Operations / deploy runbook:** [docs/RUNBOOK.md](./docs/RUNBOOK.md)
+- **Security posture:** [docs/SECURITY.md](./docs/SECURITY.md)
+- **DB retention + rollups:** [scripts/retention/](./scripts/retention/SCHEDULING.md)
+
+## Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # Turbopack dev server on http://localhost:3000
+npm test           # vitest golden tests (metrics/financial/alerts)
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Production build and deploy
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Dev uses Turbopack, production build uses Webpack.** Next.js 16 defaults to Turbopack for both, but Turbopack production builds have known issues. This project uses:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `npm run dev` → `next dev --turbopack` (fast dev)
+- `npm run build` → `next build --webpack` (stable production build)
 
-## Downtime Action Reminders
+**When deploying** (e.g. for `https://mis.maliountech.com.mx`):
+
+1. **Build:** Run `npm run build` (Webpack).
+2. **Migrate (required):** Run `npm run prisma:migrate:deploy` and confirm it exits successfully before restart.
+3. **Start/Restart:** Run `npm run start` (or your process manager such as `sudo systemctl restart mis-control-tower`) to serve the built app.
+4. **Schema drift check:** Verify `_prisma_migrations` includes `20260519190000_add_org_financial_formulas` after deploy.
+5. **Smoke check:** Open `/financial` as an OWNER user and confirm the page renders (no "Something went wrong").
+6. If you previously built with Turbopack, run `rm -rf .next` then `npm run build` for a clean Webpack build.
+7. Hard-refresh the browser (or clear site data) after redeploying so clients don’t load old Turbopack chunks.
+
+## Downtime action reminders
 
 Reminders are sent by calling `POST /api/downtime/actions/reminders`. This endpoint does not run automatically, so you need to schedule it with cron or systemd. It sends at most one reminder per threshold (1w/1d/1h/overdue) and resets if the due date changes.
 The secret can be any random string; it just needs to match what your scheduler sends in the Authorization header.
@@ -38,9 +54,7 @@ APP_BASE_URL=https://your-domain
 0 * * * * . /etc/mis-control-tower.env && curl -s -X POST "$APP_BASE_URL/api/downtime/actions/reminders?dueInDays=7" -H "Authorization: Bearer $DOWNTIME_ACTION_REMINDER_SECRET"
 ```
 
-If you prefer systemd instead of cron, you can create a small service + timer that runs the same curl command.
-
-Example systemd units:
+If you prefer systemd instead of cron, create a small service + timer that runs the same curl command:
 
 `/etc/systemd/system/mis-control-tower-reminders.service`
 
@@ -75,67 +89,19 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mis-control-tower-reminders.timer
 ```
 
-## Downtime Reason Backfill
+## Downtime reason backfill
 
-Control-Tower now preserves manual downtime reasons from `downtime-acknowledged` events when later default stop events (`PENDIENTE` / `UNCLASSIFIED`) arrive for the same incident.
+Control-Tower preserves manual downtime reasons from `downtime-acknowledged` events when later default stop events (`PENDIENTE` / `UNCLASSIFIED`) arrive for the same incident.
 
 If historical rows were already overwritten, run the one-time backfill:
 
-1) Dry run (default lookback: 30 days):
-
 ```bash
-npm run backfill:downtime-reasons -- --dry-run --since 30d
+npm run backfill:downtime-reasons -- --dry-run --since 30d   # preview
+npm run backfill:downtime-reasons -- --since 30d             # apply
 ```
 
-2) Apply updates:
-
-```bash
-npm run backfill:downtime-reasons -- --since 30d
-```
-
-Optional filters:
-
-```bash
-npm run backfill:downtime-reasons -- --dry-run --since 14d --org-id <orgId> --machine-id <machineId>
-```
-
-Quick verification query (shows recent incidents with reason + source):
-
-```bash
-node -e 'const {PrismaClient}=require("@prisma/client");const p=new PrismaClient();(async()=>{const rows=await p.reasonEntry.findMany({where:{kind:"downtime"},orderBy:{capturedAt:"desc"},take:30,select:{id:true,orgId:true,machineId:true,episodeId:true,reasonCode:true,reasonLabel:true,capturedAt:true,meta:true}});console.log(JSON.stringify(rows,(_,v)=>typeof v==="bigint"?v.toString():v,2));})().finally(()=>p.$disconnect());'
-```
-
-## Production build and deploy
-
-**Dev uses Turbopack, production build uses Webpack.** Next.js 16 defaults to Turbopack for both, but Turbopack production builds have known issues. This project uses:
-
-- `npm run dev` → `next dev --turbopack` (fast dev)
-- `npm run build` → `next build --webpack` (stable production build)
-
-**When deploying** (e.g. for `https://mis.maliountech.com.mx`):
-
-1. **Build:** Run `npm run build` (Webpack).
-2. **Migrate (required):** Run `npm run prisma:migrate:deploy` and confirm it exits successfully before restart.
-3. **Start/Restart:** Run `npm run start` (or your process manager such as `sudo systemctl restart mis-control-tower`) to serve the built app.
-4. **Schema drift check:** Verify `_prisma_migrations` includes `20260519190000_add_org_financial_formulas` after deploy.
-5. **Smoke check:** Open `/financial` as an OWNER user and confirm the page renders (no "Something went wrong").
-6. If you previously built with Turbopack, run `rm -rf .next` then `npm run build` for a clean Webpack build.
-7. Hard-refresh the browser (or clear site data) after redeploying so clients don’t load old Turbopack chunks.
+Optional filters: `--org-id <orgId> --machine-id <machineId>`.
 
 ## Logging and debugging
 
-See **[LOGGING.md](./LOGGING.md)** for where errors are logged (log file, process stdout, optional `/api/debug/logs`), how to tail them, and how to debug "Internal Server Error".
-
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [docs/archive/LOGGING.md](./docs/archive/LOGGING.md) for where errors are logged (log file, process stdout, optional `/api/debug/logs`), how to tail them, and how to debug "Internal Server Error".

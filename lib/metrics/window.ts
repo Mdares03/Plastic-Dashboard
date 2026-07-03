@@ -104,6 +104,19 @@ export function zonedToUtcDate(input: {
   return corrected;
 }
 
+/**
+ * R6 — YYYY-MM-DD of `ts` in `timeZone`: the canonical day-bucket key. Any
+ * per-day series (financial byDay, trends) must key days with this, so a loss
+ * at 19:00 local lands on the same calendar day the dashboard's "Hoy" shows —
+ * never on the UTC day.
+ */
+export function localDayKey(ts: Date, timeZone: string): string {
+  const p = getLocalParts(ts, timeZone);
+  const mm = String(p.month).padStart(2, "0");
+  const dd = String(p.day).padStart(2, "0");
+  return `${p.year}-${mm}-${dd}`;
+}
+
 /** Local midnight (00:00 in `timeZone`) of the calendar day containing `ts`. */
 export function startOfLocalDay(ts: Date, timeZone: string): Date {
   const p = getLocalParts(ts, timeZone);

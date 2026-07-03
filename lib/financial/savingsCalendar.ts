@@ -1,3 +1,5 @@
+import { prisma } from "@/lib/prisma";
+import { getLocalParts, zonedToUtcDate } from "@/lib/metrics";
 import { computeFinancialImpact } from "@/lib/financial/impact";
 import type { FinancialDiagnostic } from "@/lib/financial/diagnostics";
 
@@ -68,7 +70,24 @@ export async function computeSavingsCalendar(params: {
   const end = new Date();
   // First day of the month `monthsBack - 1` months ago, so the window spans
   // exactly `monthsBack` calendar months ending with the current (partial) one.
-  const start = new Date(end.getFullYear(), end.getMonth() - (monthsBack - 1), 1, 0, 0, 0, 0);
+  // Month boundaries are org-local (R6): impact's byDay keys are org-local days,
+  // so the fetch window must open at the org's local month start, not the
+  // server's, or the earliest month loses/gains its first few hours.
+  const settings = await prisma.orgSettings.findUnique({
+    where: { orgId: params.orgId },
+    select: { timezone: true },
+  });
+  const timeZone = settings?.timezone || "UTC";
+  const nowLocal = getLocalParts(end, timeZone);
+  const monthIndex = nowLocal.year * 12 + (nowLocal.month - 1) - (monthsBack - 1);
+  const start = zonedToUtcDate({
+    year: Math.floor(monthIndex / 12),
+    month: (monthIndex % 12) + 1,
+    day: 1,
+    hours: 0,
+    minutes: 0,
+    timeZone,
+  });
 
   const impact = await computeFinancialImpact({
     orgId: params.orgId,

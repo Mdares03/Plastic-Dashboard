@@ -131,7 +131,7 @@ export default function ReportsCharts({
                       const row = payload?.[0]?.payload;
                       return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
-                    formatter={(val: number | string | undefined) => [
+                    formatter={(val: unknown) => [
                       val == null ? "--" : `${Number(val).toFixed(1)}%`,
                       "OEE",
                     ]}
@@ -222,7 +222,7 @@ export default function ReportsCharts({
                       const row = payload?.[0]?.payload;
                       return row?.ts ? new Date(row.ts).toLocaleString(locale) : "";
                     }}
-                    formatter={(val: number | string | undefined) => [
+                    formatter={(val: unknown) => [
                       val == null ? "--" : `${Number(val).toFixed(1)}%`,
                       t("reports.scrapRate"),
                     ]}

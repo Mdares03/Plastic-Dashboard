@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { MAX_OPEN_EPISODE_MS, episodeWindowMinutes } from "@/lib/metrics";
+import { MAX_OPEN_EPISODE_MS, episodeWindowMinutes, localDayKey } from "@/lib/metrics";
 import { isInPlannedShift } from "@/lib/metrics/shift";
 import { loadShiftPlanningContext } from "@/lib/reports/queries/shiftPlanning";
 import { getPlannedReasonCodes } from "@/lib/downtime/plannedCodes";
@@ -138,10 +138,6 @@ function parseBlob(raw: unknown) {
       ? (innerCandidate as Record<string, unknown>)
       : {};
   return { blob: blobRecord, inner } as const;
-}
-
-function dateKey(ts: Date) {
-  return ts.toISOString().slice(0, 10);
 }
 
 function applyOverride(
@@ -450,7 +446,10 @@ export async function computeFinancialImpact(params: FinancialImpactParams): Pro
     bucket.totals.total += args.costTotal;
     bucket.totals[args.category] += args.costTotal;
 
-    const day = dateKey(args.ts);
+    // Day buckets are org-local calendar days (R6), not UTC days — otherwise a
+    // 7 pm CST loss lands on "tomorrow" in the savings calendar while the
+    // dashboard's "Hoy" shows it today, and the two screens stop reconciling.
+    const day = localDayKey(args.ts, shiftCtx.timeZone);
     const dayRow: DayRow = bucket.byDay.get(day) ?? {
       day,
       total: 0,

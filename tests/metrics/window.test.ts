@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getLocalParts, resolveWindow } from "@/lib/metrics/window";
+import { getLocalParts, localDayKey, resolveWindow } from "@/lib/metrics/window";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -68,5 +68,30 @@ describe("R6 — window authority", () => {
     // today = all of Nov 1 (EDT midnight 04:00Z → EST midnight 05:00Z, a 25h day)
     expect(w.start.toISOString()).toBe("2026-11-01T04:00:00.000Z");
     expect(w.end.toISOString()).toBe("2026-11-02T05:00:00.000Z");
+  });
+});
+
+describe("R6 — localDayKey (day-bucket authority)", () => {
+  it("keys an evening loss to the org-local day, not the UTC day", () => {
+    // 19:30 in Mexico City = 01:30Z the NEXT UTC day. The money must stay on the 15th.
+    const ts = new Date("2026-06-16T01:30:00.000Z");
+    expect(localDayKey(ts, "America/Mexico_City")).toBe("2026-06-15");
+    expect(localDayKey(ts, "UTC")).toBe("2026-06-16");
+  });
+
+  it("agrees with the resolved 'today' window at both edges", () => {
+    const tz = "America/Mexico_City";
+    const now = new Date("2026-06-11T15:00:00.000Z");
+    const w = resolveWindow({ mode: "today", timezone: tz, now });
+    const key = localDayKey(now, tz);
+    // First and last instant inside "today" carry today's key…
+    expect(localDayKey(w.start, tz)).toBe(key);
+    expect(localDayKey(new Date(w.end.getTime() - 1), tz)).toBe(key);
+    // …and the window's end boundary belongs to tomorrow.
+    expect(localDayKey(w.end, tz)).not.toBe(key);
+  });
+
+  it("zero-pads months and days", () => {
+    expect(localDayKey(new Date("2026-01-05T12:00:00.000Z"), "UTC")).toBe("2026-01-05");
   });
 });

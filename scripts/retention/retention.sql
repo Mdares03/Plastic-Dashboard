@@ -9,6 +9,14 @@
 --   MachineHeartbeat   : keep 30 days
 --   MachineCycle       : keep 365 days  (production record; rolled up daily first)
 --   MachineEvent       : keep 365 days  (event/audit record)
+-- Added 2026-07-03 (the remaining unbounded tables):
+--   alert_notifications: keep 90 days   (inbox history; circuit breaker only needs 1h)
+--   settings_audit     : keep 365 days  (config audit trail)
+--   Session            : drop rows expired 30+ days ago (auth ignores expired rows;
+--                        they only accumulate)
+-- NOT pruned, ever: ReasonEntry (R5 downtime/scrap authority — the ROI baseline),
+-- machine_work_orders, alert_incidents, and all config tables. These grow with
+-- business activity, not with tick volume, and stay small.
 -- Rollups (kept indefinitely): oee_daily, built from MachineCycle deltas.
 -- =============================================================================
 
@@ -81,9 +89,13 @@ END; $$;
 CREATE OR REPLACE FUNCTION app_retention_run() RETURNS void LANGUAGE plpgsql AS $$
 BEGIN
   PERFORM app_rollup_oee_daily(2);
-  PERFORM app_retention_delete('IngestLog',          'tsServer', 14);
-  PERFORM app_retention_delete('MachineKpiSnapshot', 'ts',       30);
-  PERFORM app_retention_delete('MachineHeartbeat',   'ts',       30);
-  PERFORM app_retention_delete('MachineCycle',       'ts',       365);
-  PERFORM app_retention_delete('MachineEvent',       'ts',       365);
+  PERFORM app_retention_delete('IngestLog',           'tsServer',   14);
+  PERFORM app_retention_delete('MachineKpiSnapshot',  'ts',         30);
+  PERFORM app_retention_delete('MachineHeartbeat',    'ts',         30);
+  PERFORM app_retention_delete('MachineCycle',        'ts',         365);
+  PERFORM app_retention_delete('MachineEvent',        'ts',         365);
+  PERFORM app_retention_delete('alert_notifications', 'sent_at',    90);
+  PERFORM app_retention_delete('settings_audit',      'created_at', 365);
+  -- Sessions: expiresAt < now()-30d means "expired for 30+ days", not "created 30d ago".
+  PERFORM app_retention_delete('Session',             'expiresAt',  30);
 END; $$;
