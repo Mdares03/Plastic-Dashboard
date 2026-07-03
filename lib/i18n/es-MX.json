@@ -512,6 +512,7 @@
   "machines.pairing.status.active": "Código activo",
   "machines.pairing.status.unpaired": "Sin emparejar",
   "machines.pairing.generate": "Generar código de emparejamiento",
+  "machines.pairing.regenerate": "Regenerar código",
   "machines.pairing.generating": "Generando…",
   "machines.pairing.generateFailed": "No se pudo generar el código",
   "machines.loading": "Cargando máquinas...",

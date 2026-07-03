@@ -238,7 +238,7 @@ function MachineListRow({
         </div>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <PairingPill m={m} t={t} />
-          {canManage && pairingState(m) !== "paired" ? (
+          {canManage ? (
             <button
               type="button"
               onClick={(event) => {
@@ -248,7 +248,11 @@ function MachineListRow({
               disabled={generating}
               className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
             >
-              {generating ? t("machines.pairing.generating") : t("machines.pairing.generate")}
+              {generating
+                ? t("machines.pairing.generating")
+                : pairingState(m) === "paired"
+                ? t("machines.pairing.regenerate")
+                : t("machines.pairing.generate")}
             </button>
           ) : null}
         </div>
@@ -426,15 +430,12 @@ export default function MachinesClient({
       if (!res.ok || !data.ok) {
         throw new Error(data.error || t("machines.pairing.generateFailed"));
       }
+      // Update code + expiry only. pairingCodeUsedAt is left untouched (the server
+      // does not clear it) so an already-paired machine keeps its "Emparejada" pill.
       setMachines((prev) =>
         prev.map((row) =>
           row.id === machine.id
-            ? {
-                ...row,
-                pairingCode: data.pairingCode,
-                pairingCodeExpiresAt: data.pairingCodeExpiresAt,
-                pairingCodeUsedAt: null,
-              }
+            ? { ...row, pairingCode: data.pairingCode, pairingCodeExpiresAt: data.pairingCodeExpiresAt }
             : row,
         ),
       );
@@ -713,7 +714,7 @@ export default function MachinesClient({
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <PairingPill m={m} t={t} />
-                  {canManage && pairingState(m) !== "paired" ? (
+                  {canManage ? (
                     <button
                       type="button"
                       onClick={(event) => {
@@ -723,7 +724,11 @@ export default function MachinesClient({
                       disabled={generatingId === m.id}
                       className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
                     >
-                      {generatingId === m.id ? t("machines.pairing.generating") : t("machines.pairing.generate")}
+                      {generatingId === m.id
+                        ? t("machines.pairing.generating")
+                        : pairingState(m) === "paired"
+                        ? t("machines.pairing.regenerate")
+                        : t("machines.pairing.generate")}
                     </button>
                   ) : null}
                 </div>

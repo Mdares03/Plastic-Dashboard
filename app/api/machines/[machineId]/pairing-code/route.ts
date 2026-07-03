@@ -12,9 +12,16 @@ const PAIRING_CODE_TTL_MS = 24 * 60 * 60 * 1000;
 /**
  * (Re)issue a pairing code for an EXISTING machine so an edge reader can be paired
  * whenever it is physically installed — not only within 24h of machine creation.
- * OWNER/ADMIN only. Does not touch apiKey or pairingCodeUsedAt; the edge pair route
- * is unchanged. Machines that are already paired are not re-issued a code (the pair
- * route only accepts unused codes), so we return their status without regenerating.
+ * OWNER/ADMIN only. Sets a fresh code + 24h expiry and clears nothing else — it does
+ * NOT touch apiKey or pairingCodeUsedAt, so a machine's "was paired before" history
+ * stays intact. Returns `paired` (pairingCodeUsedAt != null) so the caller can label
+ * the state.
+ *
+ * NOTE (re-pairing caveat): the edge pair route (app/api/machines/pair/route.ts)
+ * only matches codes with pairingCodeUsedAt == null. So a code regenerated for an
+ * already-paired machine is accepted here but WON'T pair until the pair route is
+ * changed to accept re-pairing. This is the handoff-specified behavior — left for
+ * review.
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ machineId: string }> }) {
   const auth = await requireOrgAdminSession();
@@ -28,24 +35,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ machin
 
   const machine = await prisma.machine.findFirst({
     where: { id: machineId, orgId: session.orgId },
-    select: { id: true, pairingCode: true, pairingCodeExpiresAt: true, pairingCodeUsedAt: true },
+    select: { id: true, pairingCodeUsedAt: true },
   });
   if (!machine) {
     return NextResponse.json({ ok: false, error: "Machine not found" }, { status: 404 });
-  }
-
-  // Already paired: the edge pair route only accepts codes with pairingCodeUsedAt
-  // null, so a fresh code here would be dead on arrival. Report status instead of
-  // minting a useless code.
-  if (machine.pairingCodeUsedAt) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Machine is already paired",
-        paired: true,
-      },
-      { status: 409 }
-    );
   }
 
   const pairingCode = await freshPairingCode(prisma);
@@ -70,6 +63,6 @@ export async function POST(_req: Request, { params }: { params: Promise<{ machin
     ok: true,
     pairingCode,
     pairingCodeExpiresAt,
-    paired: false,
+    paired: machine.pairingCodeUsedAt != null,
   });
 }

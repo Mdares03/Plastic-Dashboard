@@ -505,6 +505,7 @@
   "machines.pairing.status.active": "Code active",
   "machines.pairing.status.unpaired": "Not paired",
   "machines.pairing.generate": "Generate pairing code",
+  "machines.pairing.regenerate": "Regenerate code",
   "machines.pairing.generating": "Generating…",
   "machines.pairing.generateFailed": "Could not generate code",
   "machines.loading": "Loading machines...",
