@@ -17,11 +17,9 @@ const PAIRING_CODE_TTL_MS = 24 * 60 * 60 * 1000;
  * stays intact. Returns `paired` (pairingCodeUsedAt != null) so the caller can label
  * the state.
  *
- * NOTE (re-pairing caveat): the edge pair route (app/api/machines/pair/route.ts)
- * only matches codes with pairingCodeUsedAt == null. So a code regenerated for an
- * already-paired machine is accepted here but WON'T pair until the pair route is
- * changed to accept re-pairing. This is the handoff-specified behavior — left for
- * review.
+ * Re-pairing an already-paired machine works: the edge pair route matches by code +
+ * expiry (not pairingCodeUsedAt), so a regenerated code lets a replacement reader
+ * pair; the pair route re-stamps pairingCodeUsedAt and reuses the existing apiKey.
  */
 export async function POST(_req: Request, { params }: { params: Promise<{ machineId: string }> }) {
   const auth = await requireOrgAdminSession();

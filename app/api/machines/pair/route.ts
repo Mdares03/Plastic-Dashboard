@@ -38,10 +38,15 @@ export async function POST(req: Request) {
 
   const now = new Date();
 
+  // Match by code + unexpired only — NOT `pairingCodeUsedAt: null`. A successful
+  // pair clears `pairingCode` (below), so a used code can never be matched again;
+  // the only way a code is present is a fresh issue from creation or the regenerate
+  // endpoint. Dropping the used-at filter is what lets an already-paired machine be
+  // RE-paired (e.g. its edge reader was replaced): the update below re-stamps
+  // pairingCodeUsedAt and reuses the existing apiKey, so it's non-destructive.
   const machine = await prisma.machine.findFirst({
     where: {
       pairingCode: code,
-      pairingCodeUsedAt: null,
       pairingCodeExpiresAt: { gt: now },
     },
     select: { id: true, orgId: true, apiKey: true },
