@@ -6,6 +6,39 @@ captures what shipped on top of that.
 
 ---
 
+## 2026-07-03 — Pair-later for machines + illustrative "Ahorros por causa"
+
+Branch: `reliability-overhaul`. Two demo-feedback features on top of the merged
+reliability review (`ee905f6`). Verification: `tsc --noEmit` clean · `vitest` 146/146 ·
+`npm run build` green · eslint clean on changed files (pre-existing errors in
+`DowntimePageClient` untouched).
+
+**Pair edge readers whenever they're ready (Task A).** Before, a machine's 24h
+pairing code was never shown by the wizard and could only be minted at creation, so
+codes silently expired and the machine could never be paired.
+- New `POST /api/machines/[machineId]/pairing-code` (OWNER/ADMIN) re-issues a fresh
+  code for a not-yet-paired machine without touching `apiKey`/`pairingCodeUsedAt`;
+  writes a `SettingsAudit` (`pairing-code:regenerate`). Already-paired machines are
+  not re-issued a code (the edge pair route only accepts unused codes).
+- `freshPairingCode` extracted to `lib/pairingCode.ts` (shared by provisioning + the
+  route); unit-tested (collision retry + long-code fallback).
+- `GET /api/machines` + the machines page now expose `pairingCodeUsedAt`/`ExpiresAt`
+  (and the code itself only for OWNER/ADMIN). `MachinesClient` shows a status pill
+  (*Emparejada* / *Código activo* + remaining time / *Sin emparejar*) and a "Generar
+  código" button that reuses the existing pairing reveal panel.
+- Onboarding wizard's review step now lists each newly-created machine's code + expiry
+  with copy buttons and a "pair later from Máquinas" escape hatch.
+
+**"Ahorros por causa" shows under placeholder rates (Task B).** The Downtime page
+now renders the money story whenever `costPerMin > 0` (placeholder or not), matching
+the ROI page. Under the 1/min stub it shows the numbers with an amber "illustrative
+rates" banner above the table (and a neutral-toned total chip); the note disappears
+by itself once real rates are entered. Per-reason money math extracted to
+`lib/analytics/savingsByReason.ts` (unit-tested; rows sum to the Est. cost KPI by
+construction — R5/#13 congruence).
+
+---
+
 ## 2026-06-22 — Trust signals + Downtime revamp
 
 Branch: `reliability-overhaul`. Two workstreams landed: a **Downtime page revamp +

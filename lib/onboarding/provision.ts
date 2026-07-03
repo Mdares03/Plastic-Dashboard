@@ -1,7 +1,7 @@
 import { randomBytes } from "crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { generatePairingCode } from "@/lib/pairingCode";
+import { freshPairingCode } from "@/lib/pairingCode";
 import { DEFAULT_ALERTS, DEFAULT_DEFAULTS } from "@/lib/settings";
 import { buildProvisionPlan, type ProvisionCounts, type ProvisionPlanError } from "@/lib/onboarding/plan";
 import type { OnboardingConfig } from "@/lib/onboarding/schema";
@@ -14,8 +14,17 @@ import type { OnboardingConfig } from "@/lib/onboarding/schema";
  * updates rather than duplicates. Either every section lands or none does.
  */
 
+/** Pairing details for a machine created (not upserted) by this import, so the
+ *  wizard can display each fresh code before its 24h expiry. */
+export type ProvisionedMachine = {
+  id: string;
+  name: string;
+  pairingCode: string;
+  pairingCodeExpiresAt: Date;
+};
+
 export type ProvisionResult =
-  | { ok: true; counts: ProvisionCounts }
+  | { ok: true; counts: ProvisionCounts; createdMachines: ProvisionedMachine[] }
   | { ok: false; errors: ProvisionPlanError[] };
 
 async function ensureOrgSettings(tx: Prisma.TransactionClient, orgId: string, userId: string) {
@@ -40,18 +49,6 @@ async function ensureFinancialProfile(tx: Prisma.TransactionClient, orgId: strin
   });
 }
 
-/** Generate a pairing code that isn't already taken (checked inside the tx so a
- *  collision never aborts the whole import). */
-async function freshPairingCode(tx: Prisma.TransactionClient): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    const code = generatePairingCode();
-    const clash = await tx.machine.findUnique({ where: { pairingCode: code }, select: { id: true } });
-    if (!clash) return code;
-  }
-  // Astronomically unlikely; fall back to a longer code.
-  return generatePairingCode(12);
-}
-
 export async function provisionOrg(
   orgId: string,
   userId: string,
@@ -59,6 +56,8 @@ export async function provisionOrg(
 ): Promise<ProvisionResult> {
   const { plan, errors, counts } = buildProvisionPlan(config);
   if (errors.length > 0) return { ok: false, errors };
+
+  const createdMachines: ProvisionedMachine[] = [];
 
   await prisma.$transaction(async (tx) => {
     // Org name
@@ -114,17 +113,21 @@ export async function provisionOrg(
           data: { code: m.code, location: m.location },
         });
       } else {
-        await tx.machine.create({
+        const pairingCode = await freshPairingCode(tx);
+        const pairingCodeExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        const created = await tx.machine.create({
           data: {
             orgId,
             name: m.name,
             code: m.code,
             location: m.location,
             apiKey: randomBytes(24).toString("hex"),
-            pairingCode: await freshPairingCode(tx),
-            pairingCodeExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+            pairingCode,
+            pairingCodeExpiresAt,
           },
+          select: { id: true },
         });
+        createdMachines.push({ id: created.id, name: m.name, pairingCode, pairingCodeExpiresAt });
       }
     }
 
@@ -231,5 +234,5 @@ export async function provisionOrg(
     });
   });
 
-  return { ok: true, counts };
+  return { ok: true, counts, createdMachines };
 }

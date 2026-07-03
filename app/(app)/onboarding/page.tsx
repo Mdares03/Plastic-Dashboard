@@ -1,8 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { ONBOARDING_REASON_KINDS, type OnboardingReasonKind } from "@/lib/onboarding/schema";
+
+type ProvisionedPairing = {
+  id: string;
+  name: string;
+  pairingCode: string;
+  pairingCodeExpiresAt: string;
+};
 
 /**
  * Phase D (item 8) — on-screen onboarding wizard. Collects the same shape as the
@@ -90,7 +98,7 @@ const STEPS = ["company", "machines", "shifts", "costs", "reasons", "contacts", 
 type Step = (typeof STEPS)[number];
 
 type SubmitResult =
-  | { ok: true; counts: Record<string, number | boolean> }
+  | { ok: true; counts: Record<string, number | boolean>; pairing: ProvisionedPairing[] }
   | { ok: false; error: string; issues?: Array<{ path?: unknown; message?: string }> };
 
 function num(value: string): number | undefined {
@@ -200,7 +208,7 @@ function RowEditor<Row>(props: {
 }
 
 export default function OnboardingPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [step, setStep] = useState<Step>("company");
   const [submitting, setSubmitting] = useState(false);
@@ -359,7 +367,7 @@ export default function OnboardingPage() {
       if (!res.ok || !data?.ok) {
         setResult({ ok: false, error: data?.error ?? tt("onboarding.submit.failed", "Import failed"), issues: data?.issues });
       } else {
-        setResult({ ok: true, counts: data.counts });
+        setResult({ ok: true, counts: data.counts, pairing: Array.isArray(data.pairing) ? data.pairing : [] });
       }
     } catch {
       setResult({ ok: false, error: tt("onboarding.submit.failed", "Import failed") });
@@ -622,6 +630,58 @@ export default function OnboardingPage() {
                 {tt("onboarding.review.machines", "Machines")}: {String(result.counts.machines ?? 0)} ·{" "}
                 {tt("onboarding.review.categories", "Reason categories")}: {String(result.counts.reasonCategories ?? 0)} ·{" "}
                 {tt("onboarding.review.contacts", "Contacts")}: {String(result.counts.alertContacts ?? 0)}
+              </div>
+            </div>
+          )}
+          {result?.ok && result.pairing.length > 0 && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-white">
+                {tt("onboarding.pairing.title", "Pairing")}
+              </div>
+              <div className="mt-1 text-xs text-zinc-400">
+                {tt(
+                  "onboarding.pairing.subtitle",
+                  "Enter each code on the machine's edge reader to connect it. Codes expire in 24 hours."
+                )}
+              </div>
+              <ul className="mt-3 space-y-2">
+                {result.pairing.map((p) => (
+                  <li
+                    key={p.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 p-3"
+                  >
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-white">{p.name}</div>
+                      <div className="mt-0.5 text-xs text-zinc-400">
+                        {tt("machines.pairing.expires", "Expires")}{" "}
+                        {new Date(p.pairingCodeExpiresAt).toLocaleString(locale)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-lg bg-black/40 px-3 py-1.5 font-mono text-lg tracking-widest text-white">
+                        {p.pairingCode}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText?.(p.pairingCode);
+                        }}
+                        className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white hover:bg-white/10"
+                      >
+                        {tt("machines.pairing.copy", "Copy Code")}
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-3 text-xs text-zinc-400">
+                {tt(
+                  "onboarding.pairing.later",
+                  "Readers not installed yet? You can pair later from Machines → Generate pairing code."
+                )}{" "}
+                <Link href="/machines" className="text-emerald-300 hover:underline">
+                  {tt("onboarding.pairing.goMachines", "Go to Machines")}
+                </Link>
               </div>
             </div>
           )}

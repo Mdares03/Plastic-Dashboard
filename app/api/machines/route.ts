@@ -90,7 +90,16 @@ export async function GET(req: Request) {
     includeKpi,
   });
 
-  const payload = { ok: true, machines: out };
+  // The raw pairing code is a pairing secret — only OWNER/ADMIN may see it. The
+  // status fields (expiry/used) stay visible to everyone so the pill still renders.
+  const membership = await prisma.orgUser.findUnique({
+    where: { orgId_userId: { orgId: session.orgId, userId: session.userId } },
+    select: { role: true },
+  });
+  const canManage = membership?.role === "OWNER" || membership?.role === "ADMIN";
+  const machinesOut = canManage ? out : out.map((m) => ({ ...m, pairingCode: null }));
+
+  const payload = { ok: true, machines: machinesOut, canManage };
 
   const responseHeaders = new Headers();
   if (perfEnabled) {

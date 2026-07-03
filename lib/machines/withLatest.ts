@@ -6,7 +6,15 @@ import type { OverviewLatestKpi, OverviewMachineRow } from "@/lib/overview/types
 
 type MachineBaseRow = Pick<
   OverviewMachineRow,
-  "id" | "name" | "code" | "location" | "createdAt" | "updatedAt"
+  | "id"
+  | "name"
+  | "code"
+  | "location"
+  | "createdAt"
+  | "updatedAt"
+  | "pairingCode"
+  | "pairingCodeExpiresAt"
+  | "pairingCodeUsedAt"
 >;
 
 type LatestHeartbeatRow = {
@@ -67,6 +75,9 @@ export async function fetchMachineBase(orgId: string): Promise<MachineBaseRow[]>
       location: true,
       createdAt: true,
       updatedAt: true,
+      pairingCode: true,
+      pairingCodeExpiresAt: true,
+      pairingCodeUsedAt: true,
     },
   });
 }

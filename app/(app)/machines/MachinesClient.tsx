@@ -13,6 +13,10 @@ type MachineRow = {
   name: string;
   code?: string | null;
   location?: string | null;
+  // Pairing status (Task A). pairingCode is only present for OWNER/ADMIN.
+  pairingCode?: string | null;
+  pairingCodeExpiresAt?: string | null;
+  pairingCodeUsedAt?: string | null;
   latestHeartbeat: null | {
     ts: string;
     tsServer?: string | null;
@@ -96,6 +100,48 @@ function formatOneDecimal(value: number | null | undefined) {
 type CyclePoint = { actual: number; ideal: number | null; t: number };
 type TFunc = (key: string, params?: Record<string, string | number>) => string;
 
+type PairingState = "paired" | "active" | "unpaired";
+
+// Paired = the edge stamped pairingCodeUsedAt. Otherwise an unexpired code is
+// "active" (still usable); anything else is unpaired (no code, or expired).
+function pairingState(m: MachineRow): PairingState {
+  if (m.pairingCodeUsedAt) return "paired";
+  if (m.pairingCodeExpiresAt && new Date(m.pairingCodeExpiresAt).getTime() > Date.now()) return "active";
+  return "unpaired";
+}
+
+function pairingCodeMinutesLeft(m: MachineRow): number {
+  if (!m.pairingCodeExpiresAt) return 0;
+  return Math.max(0, Math.floor((new Date(m.pairingCodeExpiresAt).getTime() - Date.now()) / 60000));
+}
+
+function PairingPill({ m, t }: { m: MachineRow; t: TFunc }) {
+  const state = pairingState(m);
+  if (state === "paired") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs text-emerald-300">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        {t("machines.pairing.status.paired")}
+      </span>
+    );
+  }
+  if (state === "active") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-500/15 px-2.5 py-1 text-xs text-sky-300">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-400" />
+        {t("machines.pairing.status.active")} ·{" "}
+        {formatElapsedFromMinutes(pairingCodeMinutesLeft(m), { maxUnits: 2 })}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs text-zinc-300">
+      <span className="inline-block h-1.5 w-1.5 rounded-full bg-zinc-400" />
+      {t("machines.pairing.status.unpaired")}
+    </span>
+  );
+}
+
 function machineSortPriority(m: MachineRow): number {
   const hbTs = m.latestHeartbeat?.tsServer ?? m.latestHeartbeat?.ts;
   const offline = isOffline(hbTs);
@@ -107,7 +153,21 @@ function machineSortPriority(m: MachineRow): number {
   return 4;
 }
 
-function MachineListRow({ m, t, onNavigate }: { m: MachineRow; t: TFunc; onNavigate: (id: string) => void }) {
+function MachineListRow({
+  m,
+  t,
+  onNavigate,
+  canManage,
+  onGenerate,
+  generating,
+}: {
+  m: MachineRow;
+  t: TFunc;
+  onNavigate: (id: string) => void;
+  canManage: boolean;
+  onGenerate: (m: MachineRow) => void;
+  generating: boolean;
+}) {
   const [cycles, setCycles] = useState<CyclePoint[]>([]);
   const [currentState, setCurrentState] = useState<MachinePulseState | null>(null);
 
@@ -176,6 +236,22 @@ function MachineListRow({ m, t, onNavigate }: { m: MachineRow; t: TFunc; onNavig
         <div className="mt-0.5 text-xs text-zinc-400">
           {m.code || t("common.na")} · {t("machines.lastSeen", { time: lastSeen })}
         </div>
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+          <PairingPill m={m} t={t} />
+          {canManage && pairingState(m) !== "paired" ? (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onGenerate(m);
+              }}
+              disabled={generating}
+              className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+            >
+              {generating ? t("machines.pairing.generating") : t("machines.pairing.generate")}
+            </button>
+          ) : null}
+        </div>
       </td>
       <td className="px-4 py-3">
         <span className={`rounded-full px-2.5 py-1 text-xs ${productionBadgeClass}`}>
@@ -222,7 +298,13 @@ function MachineListRow({ m, t, onNavigate }: { m: MachineRow; t: TFunc; onNavig
   );
 }
 
-export default function MachinesClient({ initialMachines = [] }: { initialMachines?: MachineRow[] }) {
+export default function MachinesClient({
+  initialMachines = [],
+  canManage = false,
+}: {
+  initialMachines?: MachineRow[];
+  canManage?: boolean;
+}) {
   const { t, locale } = useI18n();
   const router = useRouter();
   const [machines, setMachines] = useState<MachineRow[]>(() => initialMachines);
@@ -233,12 +315,15 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
   const [createLocation, setCreateLocation] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-  const [createdMachine, setCreatedMachine] = useState<{
+  // The pairing reveal panel — shown after creating a machine OR regenerating a
+  // code for an existing one. Reused for both flows so there is one code display.
+  const [pairingReveal, setPairingReveal] = useState<{
     id: string;
     name: string;
     pairingCode: string;
     pairingExpiresAt: string;
   } | null>(null);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
@@ -312,7 +397,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
         activeWorkOrder: null,
       };
       setMachines((prev) => [nextMachine, ...prev]);
-      setCreatedMachine({
+      setPairingReveal({
         id: data.machine.id,
         name: data.machine.name,
         pairingCode: data.machine.pairingCode,
@@ -327,6 +412,44 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
       setCreateError(message || t("machines.create.error.failed"));
     } finally {
       setCreating(false);
+    }
+  }
+
+  // (Re)issue a pairing code for an existing, not-yet-paired machine so its edge
+  // reader can be paired whenever it is physically installed.
+  async function generatePairingCode(machine: MachineRow) {
+    setGeneratingId(machine.id);
+    setCopyStatus(null);
+    try {
+      const res = await fetch(`/api/machines/${machine.id}/pairing-code`, { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || t("machines.pairing.generateFailed"));
+      }
+      setMachines((prev) =>
+        prev.map((row) =>
+          row.id === machine.id
+            ? {
+                ...row,
+                pairingCode: data.pairingCode,
+                pairingCodeExpiresAt: data.pairingCodeExpiresAt,
+                pairingCodeUsedAt: null,
+              }
+            : row,
+        ),
+      );
+      setPairingReveal({
+        id: machine.id,
+        name: machine.name,
+        pairingCode: data.pairingCode,
+        pairingExpiresAt: data.pairingCodeExpiresAt,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : t("machines.pairing.generateFailed");
+      setCopyStatus(message);
+      setTimeout(() => setCopyStatus(null), 3000);
+    } finally {
+      setGeneratingId(null);
     }
   }
 
@@ -446,19 +569,28 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
         </div>
       )}
 
-      {createdMachine && (
+      {pairingReveal && (
         <div className="mb-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-5">
-          <div className="text-sm font-semibold text-white">{t("machines.pairing.title")}</div>
+          <div className="flex items-start justify-between gap-3">
+            <div className="text-sm font-semibold text-white">{t("machines.pairing.title")}</div>
+            <button
+              type="button"
+              onClick={() => setPairingReveal(null)}
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-zinc-300 hover:bg-white/10"
+            >
+              {t("machines.pairing.dismiss")}
+            </button>
+          </div>
           <div className="mt-2 text-xs text-zinc-300">
-            {t("machines.pairing.machine")} <span className="text-white">{createdMachine.name}</span>
+            {t("machines.pairing.machine")} <span className="text-white">{pairingReveal.name}</span>
           </div>
           <div className="mt-3 rounded-xl border border-white/10 bg-black/30 p-4">
             <div className="text-xs uppercase tracking-wide text-zinc-400">{t("machines.pairing.codeLabel")}</div>
-            <div className="mt-2 text-3xl font-semibold text-white">{createdMachine.pairingCode}</div>
+            <div className="mt-2 text-3xl font-semibold text-white">{pairingReveal.pairingCode}</div>
             <div className="mt-2 text-xs text-zinc-400">
               {t("machines.pairing.expires")}{" "}
-              {createdMachine.pairingExpiresAt
-                ? new Date(createdMachine.pairingExpiresAt).toLocaleString(locale)
+              {pairingReveal.pairingExpiresAt
+                ? new Date(pairingReveal.pairingExpiresAt).toLocaleString(locale)
                 : t("machines.pairing.soon")}
             </div>
           </div>
@@ -468,7 +600,7 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
           <div className="mt-3 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              onClick={() => copyText(createdMachine.pairingCode)}
+              onClick={() => copyText(pairingReveal.pairingCode)}
               className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white hover:bg-white/10"
             >
               {t("machines.pairing.copy")}
@@ -579,6 +711,23 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
                   <span>{t("machines.card.mold")}: {wo?.mold || t("common.na")}</span>
                 </div>
 
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <PairingPill m={m} t={t} />
+                  {canManage && pairingState(m) !== "paired" ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void generatePairingCode(m);
+                      }}
+                      disabled={generatingId === m.id}
+                      className="rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-100 hover:bg-emerald-500/20 disabled:opacity-60"
+                    >
+                      {generatingId === m.id ? t("machines.pairing.generating") : t("machines.pairing.generate")}
+                    </button>
+                  ) : null}
+                </div>
+
                 <div className="mt-3 flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2.5 py-2 text-xs">
                   <span className="text-zinc-400">{t("recap.machine.lastHeartbeat")}</span>
                   <span className="inline-flex items-center gap-2 text-zinc-200">
@@ -609,7 +758,15 @@ export default function MachinesClient({ initialMachines = [] }: { initialMachin
             </thead>
             <tbody className="divide-y divide-white/5">
               {(!loading ? sortedMachines : []).map((m) => (
-                <MachineListRow key={m.id} m={m} t={t} onNavigate={(id) => router.push(`/machines/${id}`)} />
+                <MachineListRow
+                  key={m.id}
+                  m={m}
+                  t={t}
+                  onNavigate={(id) => router.push(`/machines/${id}`)}
+                  canManage={canManage}
+                  onGenerate={(machine) => void generatePairingCode(machine)}
+                  generating={generatingId === m.id}
+                />
               ))}
             </tbody>
           </table>

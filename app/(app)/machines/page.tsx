@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireSession } from "@/lib/auth/requireSession";
+import { prisma } from "@/lib/prisma";
 import {
   fetchActiveWorkOrders,
   fetchDowntimeCountsByWorkOrder,
@@ -18,6 +19,12 @@ function toIso(value?: Date | null) {
 export default async function MachinesPage() {
   const session = await requireSession();
   if (!session) redirect("/login?next=/machines");
+
+  const membership = await prisma.orgUser.findUnique({
+    where: { orgId_userId: { orgId: session.orgId, userId: session.userId } },
+    select: { role: true },
+  });
+  const canManage = membership?.role === "OWNER" || membership?.role === "ADMIN";
 
   const machines = await fetchMachineBase(session.orgId);
   const machineIds = machines.map((machine) => machine.id);
@@ -49,6 +56,10 @@ export default async function MachinesPage() {
     name: machine.name,
     code: machine.code ?? null,
     location: machine.location ?? null,
+    // Pairing status (Task A). The code itself is a secret — only sent to OWNER/ADMIN.
+    pairingCode: canManage ? machine.pairingCode ?? null : null,
+    pairingCodeExpiresAt: toIso(machine.pairingCodeExpiresAt),
+    pairingCodeUsedAt: toIso(machine.pairingCodeUsedAt),
     latestHeartbeat: machine.latestHeartbeat
       ? {
           ts: toIso(machine.latestHeartbeat.ts) ?? "",
@@ -89,5 +100,5 @@ export default async function MachinesPage() {
       : null,
   }));
 
-  return <MachinesClient initialMachines={initialMachines} />;
+  return <MachinesClient initialMachines={initialMachines} canManage={canManage} />;
 }

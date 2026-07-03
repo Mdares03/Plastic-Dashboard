@@ -127,7 +127,16 @@ export async function POST(req: Request) {
     revalidateTag(`financial-config:${orgId}`, { expire: 0 });
     revalidateTag(`financial-impact:${orgId}`, { expire: 0 });
 
-    return NextResponse.json({ ok: true, counts: result.counts });
+    // Surface each freshly-created machine's pairing code so the wizard can show
+    // it before the 24h expiry (Task A — otherwise codes silently expire unseen).
+    const pairing = result.createdMachines.map((m) => ({
+      id: m.id,
+      name: m.name,
+      pairingCode: m.pairingCode,
+      pairingCodeExpiresAt: m.pairingCodeExpiresAt.toISOString(),
+    }));
+
+    return NextResponse.json({ ok: true, counts: result.counts, pairing });
   } catch (err) {
     console.error("[onboarding import POST] failed", err);
     return NextResponse.json({ ok: false, error: "Provisioning failed" }, { status: 500 });

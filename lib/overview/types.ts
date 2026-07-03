@@ -47,6 +47,11 @@ export type OverviewMachineRow = {
   location?: string | null;
   createdAt: Date;
   updatedAt: Date;
+  // Pairing status (Task A): expiry/used drive the status pill; the code itself is
+  // only populated for OWNER/ADMIN callers (the list route strips it otherwise).
+  pairingCode?: string | null;
+  pairingCodeExpiresAt?: Date | null;
+  pairingCodeUsedAt?: Date | null;
   latestHeartbeat: OverviewLatestHeartbeat | null;
   latestKpi: OverviewLatestKpi | null;
   latestMacrostop?: OverviewLatestMacrostop | null;

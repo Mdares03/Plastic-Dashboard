@@ -1,4 +1,5 @@
 import { randomBytes } from "crypto";
+import type { Prisma } from "@prisma/client";
 
 const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -17,4 +18,28 @@ export function generatePairingCode(length = PAIRING_CODE_LENGTH) {
 
 export function normalizePairingCode(input: string) {
   return input.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * Minimal shape needed to check pairing-code uniqueness. Both the full
+ * PrismaClient and a Prisma.TransactionClient satisfy it, so provisioning (inside
+ * a $transaction) and the regenerate route (outside one) share this one loop.
+ */
+type PairingCodeUniquenessDb = {
+  machine: { findUnique: Prisma.MachineDelegate["findUnique"] };
+};
+
+/**
+ * Generate a pairing code that isn't already taken. The uniqueness check runs on
+ * the passed client so a collision never aborts a surrounding transaction; on the
+ * astronomically-unlikely event of 8 straight collisions, fall back to a longer
+ * (harder-to-collide) code.
+ */
+export async function freshPairingCode(db: PairingCodeUniquenessDb): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const code = generatePairingCode();
+    const clash = await db.machine.findUnique({ where: { pairingCode: code }, select: { id: true } });
+    if (!clash) return code;
+  }
+  return generatePairingCode(12);
 }

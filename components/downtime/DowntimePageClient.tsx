@@ -7,6 +7,7 @@ import KpiTile from "@/components/kpi/KpiTile";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useI18n } from "@/lib/i18n/useI18n";
 import { formatElapsedFromMinutes } from "@/lib/time/elapsed";
+import { computeSavingsByReason } from "@/lib/analytics/savingsByReason";
 import { SlidersHorizontal } from "lucide-react";
 import dynamic from "next/dynamic";
 import ChartSkeleton from "@/components/charts/ChartSkeleton";
@@ -1061,37 +1062,29 @@ export default function DowntimePageClient() {
 
   const stops = totalStops;
 
-  // Est. cost = downtime minutes × loaded cost/min (only when a real rate exists).
+  // Est. cost = downtime minutes × loaded cost/min. Rendered whenever a positive
+  // rate exists, placeholder or not (Task B) — the placeholder flag only drives the
+  // "illustrative" note, never whether the money shows.
   const estCost =
-    costRate && !costRate.placeholder ? totalDowntimeMin * costRate.costPerMin : null;
+    costRate && costRate.costPerMin > 0 ? totalDowntimeMin * costRate.costPerMin : null;
 
   const topReason = metricRowsAll[0] ?? null;
 
-  // Item 7 — "Money story": per-reason cost = minutes × loaded cost/min (only when a
-  // real rate exists). Always uses the MINUTES share (money tracks minutes, not the
-  // toggled metric), so the rows sum to the Est. cost KPI by construction (congruent).
-  const savingsByReason = useMemo(() => {
-    if (!costRate || costRate.placeholder) return [];
+  // Item 7 / Task B — "Money story": per-reason cost = minutes × loaded cost/min.
+  // Always uses the MINUTES share (money tracks minutes, not the toggled metric), so
+  // the rows sum to the Est. cost KPI by construction (R5/#13 congruence). Computed
+  // for placeholder rates too; the card badges them as illustrative.
+  const savings = useMemo(() => {
+    if (!costRate) return { rows: [], total: 0 };
     const minuteRows = computeMetricRows(baseRows, "minutes");
-    return minuteRows
-      .map((r) => ({
-        reasonCode: r.reasonCode,
-        reasonLabel: r.reasonLabel,
-        minutes: r.minutesLost ?? 0,
-        count: r.count,
-        pctOfTotal: r.pctOfTotal,
-        cost: (r.minutesLost ?? 0) * costRate.costPerMin,
-      }))
-      .filter((r) => r.cost > 0);
+    return computeSavingsByReason(minuteRows, costRate.costPerMin);
   }, [baseRows, costRate]);
+  const savingsByReason = savings.rows;
+  const totalSavings = savings.total;
 
-  const totalSavings = useMemo(
-    () => savingsByReason.reduce((acc, r) => acc + r.cost, 0),
-    [savingsByReason]
-  );
-
-  // Show the money column on tables only when a real (non-placeholder) rate exists.
-  const showMoneyCol = Boolean(costRate && !costRate.placeholder);
+  // Show the money column on tables whenever a positive rate exists (illustrative
+  // under placeholder — same ROI-page pattern; the note carries the caveat).
+  const showMoneyCol = Boolean(costRate && costRate.costPerMin > 0);
 
   // Secondary (non-default) filters surfaced as removable chips under the header.
   const hasSecondaryFilters =
@@ -1494,8 +1487,24 @@ export default function DowntimePageClient() {
               <div className="text-xs text-zinc-400">{t("downtime.kpi.estCost")}</div>
               {estCost != null && costRate ? (
                 <>
-                  <div className="mt-2 text-2xl font-semibold text-white">{fmtMoney(estCost, costRate.currency)}</div>
-                  <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-400">{t("downtime.kpi.costDef")}</div>
+                  <div
+                    className={cn(
+                      "mt-2 text-2xl font-semibold",
+                      costRate.placeholder ? "text-zinc-200" : "text-white"
+                    )}
+                  >
+                    {fmtMoney(estCost, costRate.currency)}
+                  </div>
+                  {costRate.placeholder ? (
+                    <Link
+                      href="/settings"
+                      className="mt-1 inline-block text-[11px] text-amber-300 hover:text-amber-200"
+                    >
+                      {t("downtime.cost.illustrative")} · {t("downtime.cost.setRates")} →
+                    </Link>
+                  ) : (
+                    <div className="mt-1 text-[11px] uppercase tracking-wide text-zinc-400">{t("downtime.kpi.costDef")}</div>
+                  )}
                 </>
               ) : (
                 <>
@@ -1657,26 +1666,45 @@ export default function DowntimePageClient() {
                     <div className="text-lg font-semibold text-white">{t("downtime.savings.title")}</div>
                     <div className="mt-1 text-xs text-zinc-300">{t("downtime.savings.subtitle")}</div>
                   </div>
-                  {costRate && !costRate.placeholder && savingsByReason.length > 0 ? (
-                    <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+                  {costRate && savingsByReason.length > 0 ? (
+                    <div
+                      className={cn(
+                        "rounded-2xl border px-4 py-3 text-xs",
+                        // Neutral tone under placeholder so illustrative money doesn't read as confirmed.
+                        costRate.placeholder
+                          ? "border-white/10 bg-white/5 text-zinc-200"
+                          : "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+                      )}
+                    >
                       {t("downtime.savings.total", { amount: fmtMoney(totalSavings, costRate.currency) })}
                     </div>
                   ) : null}
                 </div>
 
-                {!costRate || costRate.placeholder ? (
+                {!costRate || savingsByReason.length === 0 ? (
                   <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
-                    {t("downtime.savings.placeholder")}{" "}
-                    <Link href="/settings" className="text-emerald-300 hover:text-emerald-200">
-                      {t("downtime.cost.setRates")} →
-                    </Link>
-                  </div>
-                ) : savingsByReason.length === 0 ? (
-                  <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-300">
-                    {t("downtime.savings.noData")}
+                    {!costRate || costRate.placeholder ? (
+                      <>
+                        {t("downtime.savings.placeholder")}{" "}
+                        <Link href="/settings" className="text-emerald-300 hover:text-emerald-200">
+                          {t("downtime.cost.setRates")} →
+                        </Link>
+                      </>
+                    ) : (
+                      t("downtime.savings.noData")
+                    )}
                   </div>
                 ) : (
-                  <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                  <>
+                    {costRate?.placeholder ? (
+                      <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-200">
+                        {t("downtime.savings.placeholderNote")}{" "}
+                        <Link href="/settings" className="font-medium text-amber-100 hover:text-amber-50">
+                          {t("downtime.cost.setRates")} →
+                        </Link>
+                      </div>
+                    ) : null}
+                    <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                     <div className="grid grid-cols-12 gap-2 border-b border-white/10 px-4 py-3 text-[11px] text-zinc-400">
                       <div className="col-span-6">{t("downtime.col.reason")}</div>
                       <div className="col-span-3 text-right">{t("downtime.savings.col.share")}</div>
@@ -1722,7 +1750,8 @@ export default function DowntimePageClient() {
                         </button>
                       );
                     })}
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
 

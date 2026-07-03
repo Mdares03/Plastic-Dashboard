@@ -32,6 +32,47 @@ type CycleTooltipPayload = {
   payload?: { actual?: number; ideal?: number; deltaPct?: number };
 };
 
+function CycleTooltip({
+  active,
+  payload,
+  label,
+  t,
+}: {
+  active?: boolean;
+  payload?: readonly CycleTooltipPayload[];
+  label?: string | number;
+  t: Translator;
+}) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0]?.payload;
+  if (!p) return null;
+  const safeLabel = label ?? "";
+  const ideal = p.ideal ?? null;
+  const actual = p.actual ?? null;
+  const deltaPct = p.deltaPct ?? null;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
+      <div className="text-sm font-semibold text-white">
+        {t("machine.detail.tooltip.cycle", { label: safeLabel })}
+      </div>
+      <div className="mt-2 space-y-1 text-xs text-zinc-300">
+        <div>
+          {t("machine.detail.tooltip.duration")}: <span className="text-white">{actual?.toFixed(2)}s</span>
+        </div>
+        <div>
+          {t("machine.detail.tooltip.ideal")}:{" "}
+          <span className="text-white">{ideal != null ? `${ideal.toFixed(2)}s` : t("common.na")}</span>
+        </div>
+        <div>
+          {t("machine.detail.tooltip.deviation")}:{" "}
+          <span className="text-white">{deltaPct != null ? `${deltaPct.toFixed(1)}%` : t("common.na")}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ActiveRing = ({ cx, cy, fill }: ActiveRingProps) => {
   if (cx == null || cy == null) return null;
   return (
@@ -59,45 +100,6 @@ export function CycleDeviationChart({
   cycleTime?: number | null;
   t: Translator;
 }) {
-  function CycleTooltip({
-    active,
-    payload,
-    label,
-  }: {
-    active?: boolean;
-    payload?: CycleTooltipPayload[];
-    label?: string | number;
-  }) {
-    if (!active || !payload?.length) return null;
-    const p = payload[0]?.payload;
-    if (!p) return null;
-    const safeLabel = label ?? "";
-    const ideal = p.ideal ?? null;
-    const actual = p.actual ?? null;
-    const deltaPct = p.deltaPct ?? null;
-
-    return (
-      <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-4 py-3 shadow-lg">
-        <div className="text-sm font-semibold text-white">
-          {t("machine.detail.tooltip.cycle", { label: safeLabel })}
-        </div>
-        <div className="mt-2 space-y-1 text-xs text-zinc-300">
-          <div>
-            {t("machine.detail.tooltip.duration")}: <span className="text-white">{actual?.toFixed(2)}s</span>
-          </div>
-          <div>
-            {t("machine.detail.tooltip.ideal")}:{" "}
-            <span className="text-white">{ideal != null ? `${ideal.toFixed(2)}s` : t("common.na")}</span>
-          </div>
-          <div>
-            {t("machine.detail.tooltip.deviation")}:{" "}
-            <span className="text-white">{deltaPct != null ? `${deltaPct.toFixed(1)}%` : t("common.na")}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <ResponsiveContainer width="100%" height="100%" minHeight={200}>
       <ComposedChart data={data}>
@@ -117,7 +119,10 @@ export function CycleDeviationChart({
               : ["auto", "auto"]
           }
         />
-        <Tooltip content={<CycleTooltip />} cursor={{ stroke: "var(--app-chart-grid)" }} />
+        <Tooltip
+          content={(props) => <CycleTooltip {...props} t={t} />}
+          cursor={{ stroke: "var(--app-chart-grid)" }}
+        />
 
         {cycleTime ? (
           <>
