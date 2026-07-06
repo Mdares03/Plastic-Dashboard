@@ -15,6 +15,9 @@ export function middleware(req: NextRequest) {
       pathname === "/signup" ||
       pathname === "/logout" ||
       pathname.startsWith("/invite") ||
+      // Headless-PDF print route: no session cookie (Puppeteer); the page itself
+      // rejects requests without a valid signed print token (404).
+      pathname.startsWith("/reports/print") ||
       pathname.startsWith("/api")
     ) {
       return NextResponse.next();
